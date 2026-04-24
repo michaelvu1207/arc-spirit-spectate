@@ -13,13 +13,15 @@
 
 	const hexSpirits = $derived(() => (bags?.hexSpirits as BagSnapshot | undefined) ?? undefined);
 	const monsters = $derived(() => (bags?.monsters as BagSnapshot | undefined) ?? undefined);
+	const abyssFallen = $derived(() => (bags?.abyssFallen as BagSnapshot | undefined) ?? undefined);
+	const stageDeck = $derived(() => (bags?.stageDeck as BagSnapshot | undefined) ?? undefined);
 
 	function sample(entries: BagEntrySnapshot[] | undefined, limit = 8): BagEntrySnapshot[] {
 		return (entries ?? []).slice(0, limit);
 	}
 </script>
 
-{#if hexSpirits() || monsters()}
+{#if hexSpirits() || monsters() || abyssFallen() || stageDeck()}
 	<section class="border-t border-gray-800 bg-gray-900 px-4 py-3 lg:px-6">
 		<details bind:open={isOpen} class="group">
 			<summary
@@ -48,6 +50,22 @@
 							<span class="text-gray-500">Monsters</span>
 							<span class="ml-1 font-semibold text-gray-200 tabular-nums"
 								>{monsters()?.count ?? '—'}</span
+							>
+						</span>
+					{/if}
+					{#if abyssFallen()}
+						<span class="whitespace-nowrap">
+							<span class="text-gray-500">Abyss</span>
+							<span class="ml-1 font-semibold text-gray-200 tabular-nums"
+								>{abyssFallen()?.count ?? '—'}</span
+							>
+						</span>
+					{/if}
+					{#if stageDeck()}
+						<span class="whitespace-nowrap">
+							<span class="text-gray-500">Stage</span>
+							<span class="ml-1 font-semibold text-gray-200 tabular-nums"
+								>{stageDeck()?.count ?? '—'}</span
 							>
 						</span>
 					{/if}
@@ -113,6 +131,75 @@
 							</div>
 							<div class="flex flex-wrap gap-1.5">
 								{#each sample(monsters()?.contents) as entry, i (`${entry.guid || entry.id || entry.name}:${i}`)}
+									{@const iconUrl = entry.id ? (monsterImageUrls.get(entry.id) ?? null) : null}
+									<span
+										class="flex max-w-[14rem] items-center gap-1.5 truncate rounded-full border border-gray-800 bg-gray-900/50 px-2 py-0.5 text-[11px] text-gray-200"
+										title={`${entry.name}${entry.state ? ` — ${entry.state}` : ''}${entry.barrier != null ? ` (Barrier ${entry.barrier})` : ''}${entry.damage != null ? ` (Dmg ${entry.damage})` : ''}`}
+									>
+										{#if iconUrl}
+											<img
+												src={iconUrl}
+												alt=""
+												class="h-4 w-4 shrink-0 rounded-full object-cover"
+												loading="lazy"
+											/>
+										{/if}
+										{entry.name}
+										{#if entry.state}
+											<span class="text-gray-400"> · {entry.state}</span>
+										{/if}
+									</span>
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if abyssFallen()}
+					<div class="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+						<div class="flex items-center justify-between">
+							<span class="text-sm font-semibold text-gray-200">Abyss Fallen Spirits</span>
+							<span class="text-sm font-bold text-white tabular-nums"
+								>{abyssFallen()?.count ?? '—'}</span
+							>
+						</div>
+
+						<div class="mt-2 space-y-1">
+							<div class="text-[11px] text-gray-500">
+								Sample (first {sample(abyssFallen()?.contents).length})
+							</div>
+							<div class="flex flex-wrap gap-1.5">
+								{#each sample(abyssFallen()?.contents) as entry, i (`${entry.guid || entry.id || entry.name}:${i}`)}
+									<span
+										class="max-w-[14rem] truncate rounded-full border border-gray-800 bg-gray-900/50 px-2 py-0.5 text-[11px] text-gray-200"
+										title={`${entry.name}${entry.cost != null ? ` (Cost ${entry.cost})` : ''}`}
+									>
+										{entry.name}
+										{#if entry.cost != null}
+											<span class="text-gray-400"> · {entry.cost}</span>
+										{/if}
+									</span>
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				{#if stageDeck()}
+					<div class="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+						<div class="flex items-center justify-between">
+							<span class="text-sm font-semibold text-gray-200">Stage Deck</span>
+							<span class="text-sm font-bold text-white tabular-nums"
+								>{stageDeck()?.count ?? '—'}</span
+							>
+						</div>
+
+						<div class="mt-2 space-y-1">
+							<div class="text-[11px] text-gray-500">
+								Sample (first {sample(stageDeck()?.contents).length})
+							</div>
+							<div class="flex flex-wrap gap-1.5">
+								{#each sample(stageDeck()?.contents) as entry, i (`${entry.guid || entry.id || entry.name}:${i}`)}
 									{@const iconUrl = entry.id ? (monsterImageUrls.get(entry.id) ?? null) : null}
 									<span
 										class="flex max-w-[14rem] items-center gap-1.5 truncate rounded-full border border-gray-800 bg-gray-900/50 px-2 py-0.5 text-[11px] text-gray-200"

@@ -143,25 +143,23 @@ function buildMatches(
       }
     }
 
-    const seenVp = new Set<number>();
-    if (!invalidReason) {
-      for (const p of participantsRaw) {
-        if (seenVp.has(p.victoryPoints)) {
-          invalidReason = "Duplicate victory_points detected (placement ties not supported)";
-          break;
-        }
-        seenVp.add(p.victoryPoints);
-      }
-    }
-
     let participants: MatchParticipant[] = [];
     let players: MatchPlayer[] = [];
     if (!invalidReason) {
-      participants = [...participantsRaw]
-        .sort((a, b) =>
-          b.victoryPoints - a.victoryPoints || a.playerColor.localeCompare(b.playerColor)
-        )
-        .map((p, idx) => ({ ...p, placement: idx + 1 }));
+      const sorted = [...participantsRaw].sort((a, b) =>
+        b.victoryPoints - a.victoryPoints || a.playerColor.localeCompare(b.playerColor)
+      );
+
+      // Dense ranks: equal victory_points => equal placement (1,2,2,3...).
+      let placement = 0;
+      let lastVp: number | null = null;
+      participants = sorted.map((p) => {
+        if (lastVp === null || p.victoryPoints !== lastVp) {
+          placement += 1;
+          lastVp = p.victoryPoints;
+        }
+        return { ...p, placement };
+      });
 
       players = participants
         .filter((p) => p.usernameKey != null && p.username != null)

@@ -23,16 +23,6 @@
 			</a>
 
 			<a
-				href="/stats/artifacts"
-				class="rounded-xl border border-gray-800 bg-gray-900/40 p-5 hover:bg-gray-900/60"
-			>
-				<div class="text-sm font-semibold text-gray-100">Artifacts</div>
-				<div class="mt-1 text-xs text-gray-500">
-					Average VP / placement when an artifact appears on a final board.
-				</div>
-			</a>
-
-			<a
 				href="/stats/characters"
 				class="rounded-xl border border-gray-800 bg-gray-900/40 p-5 hover:bg-gray-900/60"
 			>

@@ -2,7 +2,6 @@
 	import HexGrid from '$lib/components/HexGrid.svelte';
 	import { STORAGE_BASE_URL } from '$lib/supabase';
 	import type {
-		ArtifactAsset,
 		GuardianAsset,
 		HexSpiritAsset,
 		IconPoolEntry,
@@ -16,7 +15,6 @@
 		runeAssets: Map<string, RuneAsset>;
 		statusIcons: Map<string, IconPoolEntry>; // key: normalized status token
 		guardianAssets: Map<string, GuardianAsset>;
-		artifactAssets: Map<string, ArtifactAsset>;
 		initialSelectedPlayerColor?: string | null;
 		onPlayerSelect?: (playerColor: string | null) => void;
 	}
@@ -27,7 +25,6 @@
 		runeAssets,
 		statusIcons,
 		guardianAssets,
-		artifactAssets,
 		initialSelectedPlayerColor = null,
 		onPlayerSelect
 	}: Props = $props();
@@ -136,15 +133,6 @@
 		return map;
 	});
 
-	const artifactCardMap = $derived(() => {
-		const map = new Map<string, string>();
-		for (const [id, artifact] of artifactAssets) {
-			const url = getStorageUrl(artifact.card_image_path);
-			if (url) map.set(id, url);
-		}
-		return map;
-	});
-
 	function statusDisplay(token: string | null, level: number): string {
 		if (!token) return '—';
 		return `${token} (${level})`;
@@ -155,7 +143,46 @@
 		return statusIconMap().get(token.toLowerCase()) ?? null;
 	}
 
-	const runesOnSpirits = $derived(() => {
+	function isSpiritAugmentAsset(asset: RuneAsset | null | undefined): boolean {
+		return typeof asset?.class_id === 'string' && asset.class_id.trim() !== '';
+	}
+
+	function isSpiritAugmentSlot(slot: PlayerSnapshot['runes'][number]): boolean {
+		if (!slot?.hasRune) return false;
+		const asset = slot.id ? runeAssets.get(slot.id) : null;
+		const type = typeof slot.type === 'string' ? slot.type.toLowerCase() : null;
+		return type === 'class' || Boolean(slot.classId) || isSpiritAugmentAsset(asset);
+	}
+
+	const runeInventory = $derived(() => {
+		const player = selectedPlayer();
+		if (!player) return [];
+
+		return (player.runes ?? [])
+			.filter((slot) => slot.hasRune && !isSpiritAugmentSlot(slot))
+			.map((slot) => ({
+				slotIndex: slot.slotIndex,
+				id: slot.id ?? null,
+				name: slot.name ?? (slot.id ? (runeAssets.get(slot.id)?.name ?? 'Rune') : 'Rune'),
+				iconUrl: slot.id ? (runeIconMap().get(slot.id) ?? null) : null
+			}));
+	});
+
+	const spiritAugmentsDrawn = $derived(() => {
+		const player = selectedPlayer();
+		if (!player) return [];
+
+		return (player.runes ?? [])
+			.filter(isSpiritAugmentSlot)
+			.map((slot) => ({
+				slotIndex: slot.slotIndex,
+				id: slot.id ?? null,
+				name: slot.name ?? (slot.id ? (runeAssets.get(slot.id)?.name ?? 'Spirit Augment') : 'Spirit Augment'),
+				iconUrl: slot.id ? (runeIconMap().get(slot.id) ?? null) : null
+			}));
+	});
+
+	const spiritAugmentsOnSpirits = $derived(() => {
 		const player = selectedPlayer();
 		if (!player) return [];
 
@@ -173,8 +200,10 @@
 			if (!attachment || !attachment.runeId || !Number.isFinite(attachment.spiritSlotIndex))
 				continue;
 
-			const list = bySlot.get(attachment.spiritSlotIndex) ?? [];
 			const rune = runeAssets.get(attachment.runeId);
+			if (rune && !isSpiritAugmentAsset(rune)) continue;
+
+			const list = bySlot.get(attachment.spiritSlotIndex) ?? [];
 			list.push({
 				runeId: attachment.runeId,
 				name: rune?.name ?? attachment.runeId,
@@ -192,7 +221,9 @@
 			}));
 	});
 
-	const totalRunesOnSpirits = $derived(() => selectedPlayer()?.spiritRuneAttachments?.length ?? 0);
+	const totalSpiritAugmentsOnSpirits = $derived(() =>
+		spiritAugmentsOnSpirits().reduce((total, group) => total + group.runes.length, 0)
+	);
 
 	type TraitEntry = { name: string; count: number };
 
@@ -259,12 +290,6 @@
 
 		for (const slot of player.runes ?? []) {
 			addTraitRuneFromSlot(classCounts, originCounts, slot);
-		}
-
-		for (const artifact of player.guardianArtifacts ?? []) {
-			for (const slot of artifact?.runeSlots ?? []) {
-				addTraitRuneFromSlot(classCounts, originCounts, slot as PlayerSnapshot['runes'][number]);
-			}
 		}
 
 		for (const attachment of player.spiritRuneAttachments ?? []) {
@@ -452,16 +477,23 @@
 								{/if}
 							</div>
 
-							{#if runesOnSpirits().length > 0}
-								<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+							<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+								<div class="flex items-center justify-between gap-2">
 									<div class="text-[10px] font-semibold tracking-wide text-gray-500 uppercase">
-										Runes on Spirits
+										Spirit Augments
 									</div>
+									<span class="text-xs text-gray-400 tabular-nums">
+										{totalSpiritAugmentsOnSpirits()}
+									</span>
+								</div>
+								{#if spiritAugmentsOnSpirits().length === 0}
+									<div class="mt-2 text-xs text-gray-500">None on spirits</div>
+								{:else}
 									<div class="mt-2 space-y-1.5">
-										{#each runesOnSpirits() as group (group.slotIndex)}
+										{#each spiritAugmentsOnSpirits() as group (group.slotIndex)}
 											<div class="flex items-center gap-2 text-xs text-gray-200">
 												<span class="text-gray-400">{group.spiritName ?? `Slot ${group.slotIndex}`}</span>
-												<span class="text-gray-600">—</span>
+												<span class="text-gray-600">-</span>
 												<div class="flex items-center gap-1">
 													{#each group.runes as rune, i (`${rune.runeId}-${i}`)}
 														{#if rune.iconUrl}
@@ -486,8 +518,8 @@
 											</div>
 										{/each}
 									</div>
-								</div>
-							{/if}
+								{/if}
+							</div>
 						</div>
 
 						<!-- Hex Grid -->
@@ -497,6 +529,72 @@
 
 						<!-- Drawn Spirits -->
 						<div class="w-full space-y-3 sm:w-44 sm:shrink-0">
+							<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+								<div class="flex items-center justify-between gap-2">
+									<div class="text-[10px] font-semibold tracking-wide text-gray-500 uppercase">
+										Rune Inventory
+									</div>
+									<span class="text-xs text-gray-400 tabular-nums">{runeInventory().length}</span>
+								</div>
+								{#if runeInventory().length === 0}
+									<div class="mt-2 text-xs text-gray-500">None</div>
+								{:else}
+									<div class="mt-2 flex flex-wrap gap-1.5">
+										{#each runeInventory() as rune, i (`${rune.id ?? 'rune'}-${rune.slotIndex}-${i}`)}
+											<span
+												class="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-800 bg-gray-950/40 px-2 py-0.5 text-xs text-gray-200"
+												title={`Slot ${rune.slotIndex}: ${rune.name}`}
+											>
+												{#if rune.iconUrl}
+													<img
+														src={rune.iconUrl}
+														alt={rune.name}
+														class="h-4 w-4 rounded-full object-contain"
+														loading="lazy"
+														decoding="async"
+													/>
+												{/if}
+												<span class="truncate">{rune.name}</span>
+											</span>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
+								<div class="flex items-center justify-between gap-2">
+									<div class="text-[10px] font-semibold tracking-wide text-gray-500 uppercase">
+										Spirit Augments Drawn
+									</div>
+									<span class="text-xs text-gray-400 tabular-nums">
+										{spiritAugmentsDrawn().length}
+									</span>
+								</div>
+								{#if spiritAugmentsDrawn().length === 0}
+									<div class="mt-2 text-xs text-gray-500">None</div>
+								{:else}
+									<div class="mt-2 flex flex-wrap gap-1.5">
+										{#each spiritAugmentsDrawn() as augment, i (`${augment.id ?? 'augment'}-${augment.slotIndex}-${i}`)}
+											<span
+												class="inline-flex max-w-full items-center gap-1 rounded-full border border-purple-900/60 bg-purple-950/30 px-2 py-0.5 text-xs text-purple-100"
+												title={`Slot ${augment.slotIndex}: ${augment.name}`}
+											>
+												{#if augment.iconUrl}
+													<img
+														src={augment.iconUrl}
+														alt={augment.name}
+														class="h-4 w-4 rounded-full object-contain"
+														loading="lazy"
+														decoding="async"
+													/>
+												{/if}
+												<span class="truncate">{augment.name}</span>
+											</span>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
 							<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
 								<div class="text-[10px] font-semibold tracking-wide text-gray-500 uppercase">
 									Drawn This Turn
@@ -519,58 +617,6 @@
 						</div>
 					</div>
 				</section>
-
-				<!-- Artifacts Section -->
-				{#if player.guardianArtifacts.length > 0}
-					<section class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
-						<h3 class="text-xs font-semibold tracking-wide text-gray-500 uppercase">Artifacts</h3>
-						<div class="mt-3 flex gap-3 overflow-x-auto pb-2">
-							{#each player.guardianArtifacts as artifact (artifact.guid ?? artifact.id)}
-								{@const cardUrl = artifactCardMap().get(artifact.id) ?? null}
-								{@const hasRunes = (artifact.runeSlots ?? []).some(
-									(slot) => slot?.hasRune === true
-								)}
-								<div
-									class={`shrink-0 rounded-lg border p-2 ${
-										hasRunes
-											? 'glow-toxic border-green-800 bg-green-950/80'
-											: 'border-gray-800 bg-gray-900/40'
-									}`}
-								>
-									<div class="overflow-hidden rounded-md bg-gray-900">
-										<div class="h-44 w-72">
-											{#if cardUrl}
-												<img
-													src={cardUrl}
-													alt={artifact.name}
-													class="h-full w-full object-contain"
-													loading="lazy"
-													decoding="async"
-												/>
-											{:else}
-												<div class="flex h-full w-full items-center justify-center text-gray-600">
-													<svg
-														xmlns="http://www.w3.org/2000/svg"
-														viewBox="0 0 24 24"
-														fill="currentColor"
-														class="h-10 w-10"
-														aria-hidden="true"
-													>
-														<path
-															fill-rule="evenodd"
-															d="M6.32 2.577a49.255 49.255 0 0111.36 0c1.497.174 2.57 1.46 2.57 2.93v12.986c0 1.47-1.073 2.756-2.57 2.93a49.25 49.25 0 01-11.36 0c-1.497-.174-2.57-1.46-2.57-2.93V5.507c0-1.47 1.073-2.756 2.57-2.93zM8.25 7.5a.75.75 0 000 1.5h7.5a.75.75 0 000-1.5h-7.5z"
-															clip-rule="evenodd"
-														/>
-													</svg>
-												</div>
-											{/if}
-										</div>
-									</div>
-								</div>
-							{/each}
-						</div>
-					</section>
-				{/if}
 			</div>
 		{:else}
 			<div class="flex items-center justify-center py-16 text-sm text-gray-400">

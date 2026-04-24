@@ -5,7 +5,6 @@
 
 import { fetchAssetsData, STORAGE_BASE_URL } from '$lib/supabase';
 import type {
-	ArtifactAsset,
 	HexSpiritAsset,
 	GuardianAsset,
 	RuneAsset,
@@ -20,7 +19,6 @@ import type {
 // Reactive state using Svelte 5 runes
 let spiritAssets = $state<Map<string, HexSpiritAsset>>(new Map());
 let runeAssets = $state<Map<string, RuneAsset>>(new Map());
-let artifactAssets = $state<Map<string, ArtifactAsset>>(new Map());
 let monsterAssets = $state<Map<string, MonsterAsset>>(new Map());
 let guardianAssets = $state<Map<string, GuardianAsset>>(new Map());
 let classTraits = $state<Map<string, ClassTrait>>(new Map());
@@ -65,12 +63,6 @@ export async function loadAssets() {
 			newRunes.set(rune.id, rune);
 		}
 		runeAssets = newRunes;
-
-		const newArtifacts = new Map<string, ArtifactAsset>();
-		for (const artifact of assets.artifacts) {
-			newArtifacts.set(artifact.id, artifact);
-		}
-		artifactAssets = newArtifacts;
 
 		const newMonsters = new Map<string, MonsterAsset>();
 		for (const monster of assets.monsters) {
@@ -182,9 +174,6 @@ export function getAssetState() {
 		},
 		get runeAssets() {
 			return runeAssets;
-		},
-		get artifactAssets() {
-			return artifactAssets;
 		},
 		get monsterAssets() {
 			return monsterAssets;

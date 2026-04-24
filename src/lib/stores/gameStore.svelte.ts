@@ -56,12 +56,12 @@ function rowsToPlayerSnapshots(rows: GameSnapshot[]): PlayerSnapshot[] {
 		blood: row.blood,
 		victoryPoints: row.victory_points,
 		barrier: row.barrier ?? 0,
+		maxTokens: row.max_tokens ?? 4,
 		statusLevel: row.status_level ?? 1,
 		statusToken: row.status_token ?? null,
 		spirits: row.spirits,
 		runes: row.runes ?? [],
 		handDraws: row.hand_draws ?? [],
-		guardianArtifacts: row.guardian_artifacts ?? [],
 		spiritRuneAttachments: row.spirit_rune_attachments ?? []
 	}));
 }
@@ -123,7 +123,6 @@ async function fetchAllSnapshots(gameId: string): Promise<{
 			spirits: snapshot.spirits,
 			runes: snapshot.runes ?? [],
 			handDraws: snapshot.hand_draws ?? [],
-			guardianArtifacts: snapshot.guardian_artifacts ?? [],
 			spiritRuneAttachments: snapshot.spirit_rune_attachments ?? []
 		};
 
@@ -259,12 +258,12 @@ function handleInsertSnapshot(payload: RealtimePayload) {
 		blood: snapshot.blood,
 		victoryPoints: snapshot.victory_points,
 		barrier: snapshot.barrier ?? 0,
+		maxTokens: snapshot.max_tokens ?? 4,
 		statusLevel: snapshot.status_level ?? 1,
 		statusToken: snapshot.status_token ?? null,
 		spirits: snapshot.spirits,
 		runes: snapshot.runes ?? [],
 		handDraws: snapshot.hand_draws ?? [],
-		guardianArtifacts: snapshot.guardian_artifacts ?? [],
 		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? []
 	};
 
@@ -361,12 +360,12 @@ function handleUpdateSnapshot(payload: RealtimePayload) {
 		blood: snapshot.blood,
 		victoryPoints: snapshot.victory_points,
 		barrier: snapshot.barrier ?? 0,
+		maxTokens: snapshot.max_tokens ?? 4,
 		statusLevel: snapshot.status_level ?? 1,
 		statusToken: snapshot.status_token ?? null,
 		spirits: snapshot.spirits,
 		runes: snapshot.runes ?? [],
 		handDraws: snapshot.hand_draws ?? [],
-		guardianArtifacts: snapshot.guardian_artifacts ?? [],
 		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? []
 	};
 

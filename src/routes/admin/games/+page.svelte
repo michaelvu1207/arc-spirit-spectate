@@ -193,21 +193,13 @@
 			</a>
 		</div>
 
-		<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+		<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			<a
 				href="/stats/tags"
 				class="rounded-xl border border-gray-800 bg-gray-900/40 p-5 hover:bg-gray-900/60"
 			>
 				<div class="text-sm font-semibold text-gray-100">Composition Tags</div>
 				<div class="mt-1 text-xs text-gray-500">Ranked by average VP / placement.</div>
-			</a>
-
-			<a
-				href="/stats/artifacts"
-				class="rounded-xl border border-gray-800 bg-gray-900/40 p-5 hover:bg-gray-900/60"
-			>
-				<div class="text-sm font-semibold text-gray-100">Artifacts</div>
-				<div class="mt-1 text-xs text-gray-500">Final board artifact performance.</div>
 			</a>
 
 			<a

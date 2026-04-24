@@ -154,7 +154,7 @@
 
 	const barrierChanges = $derived(computeBarrierChanges());
 
-	// Compute player stats for summary table (VP, VP/barrier, total runes)
+	// Compute player stats for summary table (VP, VP/barrier, rune inventory, augments)
 	const playerStats = $derived(() => {
 		const finalSnapshots = gameState.allRoundSnapshots.get(gameState.maxNavigation) ?? [];
 		const barrierData = computeBarrierChanges();
@@ -164,9 +164,22 @@
 		return finalSnapshots
 			.map((snapshot) => {
 				const barrierGained = barrierGainedByColor.get(snapshot.playerColor) ?? 0;
-				const runesInSlots = (snapshot.runes ?? []).filter((r) => r.hasRune).length;
-				const runesOnSpirits = (snapshot.spiritRuneAttachments ?? []).length;
-				const totalRunes = runesInSlots + runesOnSpirits;
+				const isSpiritAugmentSlot = (slot: (typeof snapshot.runes)[number]) => {
+					if (!slot?.hasRune) return false;
+					const type = typeof slot.type === 'string' ? slot.type.toLowerCase() : null;
+					const asset = slot.id ? assetState.runeAssets.get(slot.id) : null;
+					return type === 'class' || Boolean(slot.classId) || Boolean(asset?.class_id);
+				};
+				const runeInventory = (snapshot.runes ?? []).filter(
+					(slot) => slot.hasRune && !isSpiritAugmentSlot(slot)
+				).length;
+				const spiritAugmentsDrawn = (snapshot.runes ?? []).filter(isSpiritAugmentSlot).length;
+				const spiritAugmentsOnSpirits = (snapshot.spiritRuneAttachments ?? []).filter(
+					(attachment) => {
+						const asset = attachment?.runeId ? assetState.runeAssets.get(attachment.runeId) : null;
+						return !asset || Boolean(asset.class_id);
+					}
+				).length;
 				const vpPerBarrier = barrierGained > 0 ? snapshot.victoryPoints / barrierGained : null;
 				const vpPerRound = totalRounds > 0 ? snapshot.victoryPoints / totalRounds : null;
 
@@ -177,7 +190,9 @@
 					barrierGained,
 					vpPerBarrier,
 					vpPerRound,
-					totalRunes
+					runeInventory,
+					spiritAugmentsDrawn,
+					spiritAugmentsOnSpirits
 				};
 			})
 			.sort((a, b) => b.vp - a.vp); // Sort by VP descending
@@ -362,6 +377,41 @@
 			totalTimeMs,
 			avgMs,
 			longest
+		};
+	});
+
+	const navigationDestinationDistribution = $derived(() => {
+		const counts = new Map<string, number>();
+		let total = 0;
+
+		for (const snapshots of gameState.allRoundSnapshots.values()) {
+			for (const snapshot of snapshots) {
+				const destination = snapshot.navigationDestination?.trim() ?? '';
+				if (!destination) continue;
+				total += 1;
+				counts.set(destination, (counts.get(destination) ?? 0) + 1);
+			}
+		}
+
+		const sorted = Array.from(counts.entries())
+			.map(([destination, count]) => ({ destination, count }))
+			.sort((a, b) => b.count - a.count || a.destination.localeCompare(b.destination));
+
+		const maxRows = 10;
+		const top = sorted.slice(0, maxRows);
+		const otherCount = sorted.slice(maxRows).reduce((sum, row) => sum + row.count, 0);
+		const rows = otherCount > 0 ? [...top, { destination: 'Other', count: otherCount }] : top;
+
+		const maxCount = rows.reduce((m, row) => Math.max(m, row.count), 0);
+
+		return {
+			total,
+			unique: counts.size,
+			rows: rows.map((row) => ({
+				...row,
+				percent: total > 0 ? (row.count / total) * 100 : 0,
+				barPercent: maxCount > 0 ? (row.count / maxCount) * 100 : 0
+			}))
 		};
 	});
 
@@ -777,7 +827,6 @@
 								playerSnapshots={gameState.playerSnapshots}
 								spiritAssets={assetState.spiritAssets}
 								runeAssets={assetState.runeAssets}
-								artifactAssets={assetState.artifactAssets}
 								statusIcons={assetState.statusIcons}
 								guardianAssets={assetState.guardianAssets}
 								{initialSelectedPlayerColor}
@@ -912,6 +961,7 @@
 					</div>
 				{:else}
 					{@const timing = navigationTiming()}
+					{@const navDest = navigationDestinationDistribution()}
 					{@const summaryVpPerRound = totalVictoryPointsPerRound()}
 					{@const summaryTotalVp = totalVictoryPoints()}
 					<!-- Summary Layout: Main + Graphs Sidebar -->
@@ -974,6 +1024,51 @@
 								</div>
 							</section>
 
+							<!-- Navigation Destinations -->
+							<section class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
+								<h2 class="mb-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">
+									Navigation Destinations
+								</h2>
+								{#if navDest.total > 0}
+									<div class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-gray-500">
+										<div>
+											<span class="font-semibold text-gray-200 tabular-nums">{navDest.total}</span>
+											navigations
+										</div>
+										<div>
+											<span class="font-semibold text-gray-200 tabular-nums">{navDest.unique}</span>
+											locations
+										</div>
+									</div>
+
+									<div class="space-y-2">
+										{#each navDest.rows as row (row.destination)}
+											<div class="flex items-center gap-3">
+												<div
+													class="w-40 shrink-0 truncate text-xs text-gray-200"
+													title={row.destination}
+												>
+													{row.destination}
+												</div>
+												<div class="relative h-2 flex-1 rounded-full bg-gray-800">
+													<div
+														class="h-2 rounded-full bg-purple-600"
+														style={`width: ${row.barPercent}%;`}
+													></div>
+												</div>
+												<div class="w-20 shrink-0 text-right text-xs text-gray-400 tabular-nums">
+													{row.count} ({row.percent.toFixed(0)}%)
+												</div>
+											</div>
+										{/each}
+									</div>
+								{:else}
+									<div class="text-xs text-gray-500">
+										No navigation destination data recorded for this game.
+									</div>
+								{/if}
+							</section>
+
 							<!-- Player Stats -->
 							{#if playerStats().length > 0}
 								<section class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
@@ -991,7 +1086,9 @@
 													<th class="px-3 py-2 text-right">VP/Round</th>
 													<th class="px-3 py-2 text-right">Total Barriers</th>
 													<th class="px-3 py-2 text-right">VP/Barrier</th>
-													<th class="px-3 py-2 text-right">Runes</th>
+													<th class="px-3 py-2 text-right">Rune Inv.</th>
+													<th class="px-3 py-2 text-right">Augments Drawn</th>
+													<th class="px-3 py-2 text-right">Augments On Spirits</th>
 												</tr>
 											</thead>
 											<tbody class="divide-y divide-gray-800">
@@ -1031,7 +1128,13 @@
 															{/if}
 														</td>
 														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															{row.totalRunes}
+															{row.runeInventory}
+														</td>
+														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
+															{row.spiritAugmentsDrawn}
+														</td>
+														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
+															{row.spiritAugmentsOnSpirits}
 														</td>
 													</tr>
 												{/each}

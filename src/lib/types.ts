@@ -25,16 +25,6 @@ export interface RuneSlotSnapshot {
 	classId?: string;
 }
 
-// Guardian artifact snapshot (from game sync)
-export interface GuardianArtifactSnapshot {
-	id: string;
-	guid?: string;
-	name: string;
-	runeSlots: RuneSlotSnapshot[];
-	// Allow forward-compatible keys without breaking parsing
-	[key: string]: unknown;
-}
-
 // Rune attached directly on a spirit card (from game sync)
 export interface SpiritRuneAttachmentSnapshot {
 	runeId: string;
@@ -84,6 +74,8 @@ export interface PurgeBag {
 export interface BagsData {
 	hexSpirits?: BagSnapshot;
 	monsters?: BagSnapshot;
+	abyssFallen?: BagSnapshot;
+	stageDeck?: BagSnapshot;
 	purgeBags?: PurgeBag[] | Record<string, unknown>;
 	// Allow forward-compatible keys without breaking parsing
 	[key: string]: unknown;
@@ -98,12 +90,12 @@ export interface PlayerSnapshot {
 	blood: number;
 	victoryPoints: number;
 	barrier: number;
+	maxTokens?: number; // barrier slot capacity (0-10), default 4
 	statusLevel: number;
 	statusToken: string | null;
 	spirits: Spirit[];
 	runes: RuneSlotSnapshot[];
 	handDraws: HandDrawSnapshot[];
-	guardianArtifacts: GuardianArtifactSnapshot[];
 	spiritRuneAttachments: SpiritRuneAttachmentSnapshot[];
 }
 
@@ -119,6 +111,7 @@ export interface GameSnapshot {
 	blood: number;
 	victory_points: number;
 	barrier: number;
+	max_tokens: number;
 	status_level: number;
 	status_token: string | null;
 	spirits: Spirit[]; // JSONB parsed
@@ -127,7 +120,6 @@ export interface GameSnapshot {
 	bags: BagsData; // JSONB parsed
 	tts_username: string | null;
 	navigation_destination: string | null;
-	guardian_artifacts: GuardianArtifactSnapshot[]; // JSONB parsed
 	spirit_rune_attachments: SpiritRuneAttachmentSnapshot[]; // JSONB parsed
 	created_at: string;
 	updated_at: string;
@@ -145,6 +137,7 @@ export interface GameSnapshotRow {
 	blood: number;
 	victory_points: number;
 	barrier: number;
+	max_tokens: number;
 	status_level: number;
 	status_token: string | null;
 	spirits: string | Spirit[]; // JSONB may come as string or parsed
@@ -153,7 +146,6 @@ export interface GameSnapshotRow {
 	bags: string | BagsData; // JSONB may come as string or parsed
 	tts_username: string | null;
 	navigation_destination: string | null;
-	guardian_artifacts: string | GuardianArtifactSnapshot[]; // JSONB may come as string or parsed
 	spirit_rune_attachments: string | SpiritRuneAttachmentSnapshot[]; // JSONB may come as string or parsed
 	created_at: string;
 	updated_at: string;
@@ -189,14 +181,6 @@ export interface RuneAsset {
 	origin_id: string | null;
 	class_id: string | null;
 	icon_path: string | null;
-}
-
-// Artifact asset from Supabase (arc-spirits-rev2.artifacts)
-export interface ArtifactAsset {
-	id: string;
-	name: string;
-	benefit: string | null;
-	card_image_path: string | null;
 }
 
 // Monster asset from Supabase (arc-spirits-rev2.monsters)
@@ -422,29 +406,6 @@ export interface CompositionTagStatsRow {
 
 export interface CompositionTagOccurrenceRow {
 	tag: string;
-	game_id: string;
-	player_color: string;
-	username: string | null;
-	raw_username: string | null;
-	selected_character: string;
-	victory_points: number;
-	placement: number;
-	player_count: number;
-	navigation_count: number;
-	ended_at: string | null;
-}
-
-export interface ArtifactStatsRow {
-	artifact_id: string;
-	artifact_name: string | null;
-	picks: number;
-	avg_victory_points: number;
-	avg_placement: number;
-}
-
-export interface ArtifactOccurrenceRow {
-	artifact_id: string;
-	artifact_name: string | null;
 	game_id: string;
 	player_color: string;
 	username: string | null;

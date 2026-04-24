@@ -57,8 +57,6 @@
 				spirits: (snapshot.spirits as PlayerSnapshot['spirits']) ?? [],
 				runes: (snapshot.runes as PlayerSnapshot['runes']) ?? [],
 				handDraws: (snapshot.hand_draws as PlayerSnapshot['handDraws']) ?? [],
-				guardianArtifacts:
-					(snapshot.guardian_artifacts as PlayerSnapshot['guardianArtifacts']) ?? [],
 				spiritRuneAttachments:
 					(snapshot.spirit_rune_attachments as PlayerSnapshot['spiritRuneAttachments']) ?? []
 			});

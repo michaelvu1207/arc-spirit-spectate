@@ -9,9 +9,6 @@ import {
 	type RealtimePostgresChangesPayload
 } from '@supabase/supabase-js';
 import type {
-	ArtifactAsset,
-	ArtifactOccurrenceRow,
-	ArtifactStatsRow,
 	BagsData,
 	CharacterOccurrenceRow,
 	CharacterStatsRow,
@@ -24,7 +21,6 @@ import type {
 	GameSummaryRow,
 	GameResultRow,
 	FavoriteSpiritEntry,
-	GuardianArtifactSnapshot,
 	GuardianAsset,
 	HandDrawSnapshot,
 	HexSpiritAsset,
@@ -78,15 +74,12 @@ export const TABLES = {
 	PLAYER_BLOOD_TOTALS_BY_KEY: 'player_blood_totals_by_key',
 	COMPOSITION_TAG_STATS_VERIFIED: 'composition_tag_stats_verified',
 	COMPOSITION_TAG_OCCURRENCES_VERIFIED: 'composition_tag_occurrences_verified',
-	ARTIFACT_STATS_VERIFIED: 'artifact_stats_verified',
-	ARTIFACT_OCCURRENCES_VERIFIED: 'artifact_occurrences_verified',
 	CHARACTER_STATS_VERIFIED: 'character_stats_verified',
 	CHARACTER_OCCURRENCES_VERIFIED: 'character_occurrences_verified',
 	TRAIT_STATS_VERIFIED: 'trait_stats_exact_verified',
 	TRAIT_OCCURRENCES_VERIFIED: 'trait_occurrences_verified',
 	HEX_SPIRITS: 'hex_spirits',
 	RUNES: 'runes',
-	ARTIFACTS: 'artifacts',
 	MONSTERS: 'monsters',
 	GUARDIANS: 'guardians',
 	CLASSES: 'classes',
@@ -229,6 +222,7 @@ export function unwrapGameSnapshotRow(row: GameSnapshotRow): GameSnapshot {
 		blood: row.blood,
 		victory_points: row.victory_points,
 		barrier: row.barrier,
+		max_tokens: row.max_tokens ?? 4,
 		status_level: row.status_level,
 		status_token: row.status_token,
 		spirits: parseJsonWithFallback<Spirit[]>(row.spirits, []),
@@ -237,10 +231,6 @@ export function unwrapGameSnapshotRow(row: GameSnapshotRow): GameSnapshot {
 		bags: parseJsonWithFallback<BagsData>(row.bags, {}),
 		tts_username: row.tts_username ?? null,
 		navigation_destination: row.navigation_destination ?? null,
-		guardian_artifacts: parseJsonWithFallback<GuardianArtifactSnapshot[]>(
-			row.guardian_artifacts,
-			[]
-		),
 		spirit_rune_attachments: parseJsonWithFallback<SpiritRuneAttachmentSnapshot[]>(
 			row.spirit_rune_attachments,
 			[]
@@ -673,42 +663,6 @@ export async function fetchCompositionTagOccurrencesVerified(params: {
 	return (data as CompositionTagOccurrenceRow[] | null) ?? [];
 }
 
-export async function fetchArtifactStatsVerified(): Promise<ArtifactStatsRow[]> {
-	const { data, error: fetchError } = await supabase
-		.from(TABLES.ARTIFACT_STATS_VERIFIED)
-		.select('artifact_id, artifact_name, picks, avg_victory_points, avg_placement');
-
-	if (fetchError) {
-		throw new Error(`Failed to fetch artifact stats: ${fetchError.message}`);
-	}
-
-	return (data as ArtifactStatsRow[] | null) ?? [];
-}
-
-export async function fetchArtifactOccurrencesVerified(params: {
-	artifactId: string;
-	limit?: number;
-}): Promise<ArtifactOccurrenceRow[]> {
-	const artifactId = params.artifactId.trim();
-	if (!artifactId) return [];
-
-	const { data, error: fetchError } = await supabase
-		.from(TABLES.ARTIFACT_OCCURRENCES_VERIFIED)
-		.select(
-			'artifact_id, artifact_name, game_id, player_color, username, raw_username, selected_character, victory_points, placement, player_count, navigation_count, ended_at'
-		)
-		.eq('artifact_id', artifactId)
-		.order('ended_at', { ascending: false, nullsFirst: false })
-		.order('game_id', { ascending: false })
-		.limit(params.limit ?? 25);
-
-	if (fetchError) {
-		throw new Error(`Failed to fetch artifact games: ${fetchError.message}`);
-	}
-
-	return (data as ArtifactOccurrenceRow[] | null) ?? [];
-}
-
 export async function fetchCharacterStatsVerified(): Promise<CharacterStatsRow[]> {
 	const { data, error: fetchError } = await supabase
 		.from(TABLES.CHARACTER_STATS_VERIFIED)
@@ -792,7 +746,6 @@ export async function fetchTraitOccurrencesVerified(params: {
 export async function fetchAssetsData(): Promise<{
 	spirits: HexSpiritAsset[];
 	runes: RuneAsset[];
-	artifacts: ArtifactAsset[];
 	monsters: MonsterAsset[];
 	statusIcons: IconPoolEntry[];
 	guardians: GuardianAsset[];
@@ -802,7 +755,6 @@ export async function fetchAssetsData(): Promise<{
 	const [
 		spiritsResult,
 		runesResult,
-		artifactsResult,
 		monstersResult,
 		statusIconsResult,
 		guardiansResult,
@@ -813,7 +765,6 @@ export async function fetchAssetsData(): Promise<{
 			.from(TABLES.HEX_SPIRITS)
 			.select('id, name, cost, traits, game_print_image_path, art_raw_image_path'),
 		supabaseAssets.from(TABLES.RUNES).select('id, name, origin_id, class_id, icon_path'),
-		supabaseAssets.from(TABLES.ARTIFACTS).select('id, name, benefit, card_image_path'),
 		supabaseAssets
 			.from(TABLES.MONSTERS)
 			.select('id, name, stage, damage, barrier, image_path, card_image_path, icon'),
@@ -832,7 +783,6 @@ export async function fetchAssetsData(): Promise<{
 
 	if (spiritsResult.error) throw spiritsResult.error;
 	if (runesResult.error) throw runesResult.error;
-	if (artifactsResult.error) throw artifactsResult.error;
 	if (monstersResult.error) throw monstersResult.error;
 	if (statusIconsResult.error) throw statusIconsResult.error;
 	if (guardiansResult.error) throw guardiansResult.error;
@@ -842,7 +792,6 @@ export async function fetchAssetsData(): Promise<{
 	return {
 		spirits: (spiritsResult.data as HexSpiritAsset[]) ?? [],
 		runes: (runesResult.data as RuneAsset[]) ?? [],
-		artifacts: (artifactsResult.data as ArtifactAsset[]) ?? [],
 		monsters: (monstersResult.data as MonsterAsset[]) ?? [],
 		statusIcons: (statusIconsResult.data as IconPoolEntry[]) ?? [],
 		guardians: (guardiansResult.data as GuardianAsset[]) ?? [],
