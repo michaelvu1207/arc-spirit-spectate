@@ -21,3 +21,13 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Local agent / tooling state — never push
+.claude/
+.omc/
+.playwright-cli/
+supabase/.temp/
+
+# Local scratch (QA dumps, ad-hoc snapshots)
+/classes-*.yaml
+/classes-page*.png

@@ -84,21 +84,19 @@
 	}
 </script>
 
-<header
-	class="header flex flex-col gap-3 border-b border-gray-800 bg-gray-900/95 px-4 py-3 backdrop-blur-sm lg:flex-row lg:items-center lg:justify-between lg:px-6"
->
+<header class="game-header flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6">
 	<!-- Left: Game ID and Title -->
 	<div class="flex items-center gap-3">
 		<a
 			href="/"
-			class="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 shadow-md shadow-purple-500/20 transition-all duration-200 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/30"
+			class="back-btn"
 			aria-label="Back to games list"
 		>
 			<svg
 				xmlns="http://www.w3.org/2000/svg"
 				viewBox="0 0 24 24"
 				fill="currentColor"
-				class="h-6 w-6 text-white"
+				class="h-6 w-6"
 			>
 				<path
 					fill-rule="evenodd"
@@ -109,44 +107,20 @@
 		</a>
 		<button
 			onclick={copyGameId}
-			class="group flex flex-col rounded-md px-2 py-1 transition-colors hover:bg-gray-800"
+			class="id-btn group"
 			title="Click to copy game ID"
 		>
-			<span class="text-sm font-semibold text-white group-hover:text-purple-300"
-				>Arc Spirits Spectate</span
-			>
-			<span
-				class="flex items-center gap-1.5 font-mono text-xs text-gray-400 group-hover:text-gray-300"
-			>
+			<span class="id-btn-title">Arc Spirits Spectate</span>
+			<span class="id-btn-sub">
 				{displayGameId}
 				{#if copied}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 20 20"
-						fill="currentColor"
-						class="h-3 w-3 text-green-400"
-					>
-						<path
-							fill-rule="evenodd"
-							d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
-							clip-rule="evenodd"
-						/>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3 w-3 copy-ok">
+						<path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
 					</svg>
 				{:else}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 20 20"
-						fill="currentColor"
-						class="h-3 w-3 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100"
-					>
-						<path
-							fill-rule="evenodd"
-							d="M15.988 3.012A2.25 2.25 0 0118 5.25v6.5A2.25 2.25 0 0115.75 14H13.5v-3.379a3 3 0 00-.879-2.121l-3.12-3.121a3 3 0 00-1.402-.791 2.252 2.252 0 011.913-1.576A2.25 2.25 0 0112.25 1h1.5a2.25 2.25 0 012.238 2.012zM11.5 3.25a.75.75 0 01.75-.75h1.5a.75.75 0 01.75.75v.25h-3v-.25z"
-							clip-rule="evenodd"
-						/>
-						<path
-							d="M3.5 6A1.5 1.5 0 002 7.5v9A1.5 1.5 0 003.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L8.44 6.439A1.5 1.5 0 007.378 6H3.5z"
-						/>
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3 w-3 copy-icon">
+						<path fill-rule="evenodd" d="M15.988 3.012A2.25 2.25 0 0118 5.25v6.5A2.25 2.25 0 0115.75 14H13.5v-3.379a3 3 0 00-.879-2.121l-3.12-3.121a3 3 0 00-1.402-.791 2.252 2.252 0 011.913-1.576A2.25 2.25 0 0112.25 1h1.5a2.25 2.25 0 012.238 2.012zM11.5 3.25a.75.75 0 01.75-.75h1.5a.75.75 0 01.75.75v.25h-3v-.25z" clip-rule="evenodd" />
+						<path d="M3.5 6A1.5 1.5 0 002 7.5v9A1.5 1.5 0 003.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L8.44 6.439A1.5 1.5 0 007.378 6H3.5z" />
 					</svg>
 				{/if}
 			</span>
@@ -154,39 +128,19 @@
 
 		<button
 			onclick={copyReplayCode}
-			class="group flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-gray-800"
+			class="replay-btn group"
 			title={`Copy replay code (current round): ${replayCodeFull}`}
 		>
-			<span class="text-xs font-semibold text-gray-400 group-hover:text-gray-300">Replay</span>
-			<span class="font-mono text-xs text-gray-200">{replayCodeShort}</span>
+			<span class="replay-label">Replay</span>
+			<span class="replay-code">{replayCodeShort}</span>
 			{#if replayCopied}
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 20 20"
-					fill="currentColor"
-					class="h-4 w-4 text-green-400"
-				>
-					<path
-						fill-rule="evenodd"
-						d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
-						clip-rule="evenodd"
-					/>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 copy-ok">
+					<path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
 				</svg>
 			{:else}
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 20 20"
-					fill="currentColor"
-					class="h-4 w-4 text-gray-500 opacity-0 transition-opacity group-hover:opacity-100"
-				>
-					<path
-						fill-rule="evenodd"
-						d="M15.988 3.012A2.25 2.25 0 0118 5.25v6.5A2.25 2.25 0 0115.75 14H13.5v-3.379a3 3 0 00-.879-2.121l-3.12-3.121a3 3 0 00-1.402-.791 2.252 2.252 0 011.913-1.576A2.25 2.25 0 0112.25 1h1.5a2.25 2.25 0 012.238 2.012zM11.5 3.25a.75.75 0 01.75-.75h1.5a.75.75 0 01.75.75v.25h-3v-.25z"
-						clip-rule="evenodd"
-					/>
-					<path
-						d="M3.5 6A1.5 1.5 0 002 7.5v9A1.5 1.5 0 003.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L8.44 6.439A1.5 1.5 0 007.378 6H3.5z"
-					/>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4 copy-icon">
+					<path fill-rule="evenodd" d="M15.988 3.012A2.25 2.25 0 0118 5.25v6.5A2.25 2.25 0 0115.75 14H13.5v-3.379a3 3 0 00-.879-2.121l-3.12-3.121a3 3 0 00-1.402-.791 2.252 2.252 0 011.913-1.576A2.25 2.25 0 0112.25 1h1.5a2.25 2.25 0 012.238 2.012zM11.5 3.25a.75.75 0 01.75-.75h1.5a.75.75 0 01.75.75v.25h-3v-.25z" clip-rule="evenodd" />
+					<path d="M3.5 6A1.5 1.5 0 002 7.5v9A1.5 1.5 0 003.5 18h7a1.5 1.5 0 001.5-1.5v-5.879a1.5 1.5 0 00-.44-1.06L8.44 6.439A1.5 1.5 0 007.378 6H3.5z" />
 				</svg>
 			{/if}
 		</button>
@@ -204,17 +158,15 @@
 			/>
 
 			{#if roundTimestamp || roundDeltaMs != null}
-				<div
-					class="mt-2 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-xs text-gray-400"
-				>
+				<div class="mt-2 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-xs">
 					<div class="flex items-center gap-1.5">
-						<span class="text-gray-500">Timestamp</span>
-						<span class="font-mono text-gray-200">{formatTimestamp(roundTimestamp)}</span>
+						<span class="meta-label">Timestamp</span>
+						<span class="meta-value">{formatTimestamp(roundTimestamp)}</span>
 					</div>
 					{#if roundDeltaMs != null}
 						<div class="flex items-center gap-1.5">
-							<span class="text-gray-500">Round time</span>
-							<span class="font-mono text-gray-200">{formatDuration(roundDeltaMs)}</span>
+							<span class="meta-label">Round time</span>
+							<span class="meta-value">{formatDuration(roundDeltaMs)}</span>
 						</div>
 					{/if}
 				</div>
@@ -228,21 +180,12 @@
 			href={`/game/${encodeURIComponent(gameId)}/export?auto=1`}
 			target="_blank"
 			rel="noopener noreferrer"
-			class="flex items-center gap-2 rounded-full border border-purple-800 bg-purple-950/60 px-3 py-1.5 text-sm font-semibold text-purple-200 shadow-sm shadow-purple-500/10 transition-colors hover:bg-purple-950/80"
+			class="export-btn"
 			title="Export game history as PDF (one page per round)"
 		>
-			<svg
-				xmlns="http://www.w3.org/2000/svg"
-				viewBox="0 0 24 24"
-				fill="currentColor"
-				class="h-4 w-4"
-			>
+			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
 				<path d="M7.5 3.75A2.25 2.25 0 0 1 9.75 1.5h4.5A2.25 2.25 0 0 1 16.5 3.75V6h-9V3.75Z" />
-				<path
-					fill-rule="evenodd"
-					d="M6 7.5a3 3 0 0 0-3 3v3.75a.75.75 0 0 0 .75.75H6v2.25A2.25 2.25 0 0 0 8.25 19.5h7.5A2.25 2.25 0 0 0 18 17.25V15h2.25a.75.75 0 0 0 .75-.75V10.5a3 3 0 0 0-3-3H6Zm2.25 9a.75.75 0 0 1 .75-.75h6a.75.75 0 0 1 0 1.5H9a.75.75 0 0 1-.75-.75Z"
-					clip-rule="evenodd"
-				/>
+				<path fill-rule="evenodd" d="M6 7.5a3 3 0 0 0-3 3v3.75a.75.75 0 0 0 .75.75H6v2.25A2.25 2.25 0 0 0 8.25 19.5h7.5A2.25 2.25 0 0 0 18 17.25V15h2.25a.75.75 0 0 0 .75-.75V10.5a3 3 0 0 0-3-3H6Zm2.25 9a.75.75 0 0 1 .75-.75h6a.75.75 0 0 1 0 1.5H9a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd" />
 			</svg>
 			<span class="hidden sm:inline">Export PDF</span>
 			<span class="sm:hidden">PDF</span>
@@ -250,24 +193,14 @@
 
 		<div class="hidden items-center gap-2 lg:flex">
 			{#if isLive}
-				<div
-					class="status-badge flex items-center gap-2 rounded-full border border-green-800 bg-green-950/80 px-3 py-1.5 shadow-sm shadow-green-500/10"
-				>
-					<!-- Pulsing dot -->
-					<span class="relative flex h-2.5 w-2.5">
-						<span
-							class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75"
-						></span>
-						<span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500"></span>
-					</span>
-					<span class="text-sm font-semibold text-green-400">Connected</span>
+				<div class="status-badge status-live">
+					<span class="live-chip-dot"></span>
+					<span class="status-live-text">Live</span>
 				</div>
 			{:else}
-				<div
-					class="status-badge flex items-center gap-2 rounded-full border border-gray-700 bg-gray-800/80 px-3 py-1.5"
-				>
-					<span class="h-2.5 w-2.5 rounded-full bg-gray-500"></span>
-					<span class="text-sm font-medium text-gray-400">Paused</span>
+				<div class="status-badge status-paused">
+					<span class="h-2.5 w-2.5 rounded-full" style="background: var(--color-whisper);"></span>
+					<span class="status-paused-text">Paused</span>
 				</div>
 			{/if}
 		</div>
@@ -275,24 +208,179 @@
 </header>
 
 <style>
-	.header {
+	.game-header {
 		position: sticky;
 		top: var(--app-topbar-height, 0px);
 		z-index: 40;
+		background: var(--color-shadow);
+		border-bottom: 1px solid var(--color-mist);
 	}
 
+	/* Back button — solid flat square */
+	.back-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: 4px;
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+		color: var(--color-parchment);
+		transition: border-color 180ms ease, color 180ms ease;
+		text-decoration: none;
+		flex-shrink: 0;
+	}
+	.back-btn:hover {
+		border-color: var(--brand-magenta);
+		color: var(--brand-magenta);
+	}
+
+	/* Game ID copy button */
+	.id-btn {
+		display: flex;
+		flex-direction: column;
+		padding: 6px 10px;
+		border-radius: 8px;
+		background: transparent;
+		border: 1px solid transparent;
+		transition: all 180ms ease;
+		cursor: pointer;
+		text-align: left;
+	}
+	.id-btn:hover {
+		background: rgba(255, 43, 199, 0.06);
+		border-color: rgba(255, 43, 199, 0.18);
+	}
+	.id-btn-title {
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 0.82rem;
+		letter-spacing: 0.06em;
+		color: var(--color-bone);
+		transition: color 180ms ease;
+	}
+	.id-btn:hover .id-btn-title { color: var(--brand-magenta-soft); }
+	.id-btn-sub {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-family: var(--font-mono);
+		font-size: 0.72rem;
+		color: var(--color-fog);
+		margin-top: 2px;
+		transition: color 180ms ease;
+	}
+	.id-btn:hover .id-btn-sub { color: var(--color-parchment); }
+
+	/* Replay code button */
+	.replay-btn {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		border-radius: 8px;
+		background: transparent;
+		border: 1px solid transparent;
+		transition: all 180ms ease;
+		cursor: pointer;
+	}
+	.replay-btn:hover {
+		background: rgba(36, 212, 255, 0.06);
+		border-color: rgba(36, 212, 255, 0.2);
+	}
+	.replay-label {
+		font-family: var(--font-display);
+		font-size: 0.65rem;
+		font-weight: 700;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--color-fog);
+		transition: color 180ms ease;
+	}
+	.replay-btn:hover .replay-label { color: var(--brand-cyan); }
+	.replay-code {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
+		color: var(--color-parchment);
+	}
+
+	/* Copy icon states */
+	.copy-ok { color: var(--brand-teal); }
+	.copy-icon {
+		color: var(--color-whisper);
+		opacity: 0;
+		transition: opacity 150ms ease;
+	}
+	.id-btn:hover .copy-icon,
+	.replay-btn:hover .copy-icon { opacity: 1; }
+
+	/* Metadata row below nav */
+	.meta-label { color: var(--color-whisper); font-size: 0.7rem; letter-spacing: 0.04em; }
+	.meta-value { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-parchment); }
+
+	/* Export PDF button — solid violet fill */
+	.export-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 16px;
+		border-radius: 2px;
+		border: none;
+		background: var(--brand-violet);
+		color: #fff;
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		text-decoration: none;
+		transition: background 180ms ease;
+	}
+	.export-btn:hover {
+		background: var(--brand-violet-soft);
+	}
+
+	/* Live chip dot */
+	.live-chip-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: #fff;
+		flex-shrink: 0;
+	}
+
+	/* Status badges — solid chips, no glow rings */
 	.status-badge {
-		animation: fade-in 0.2s ease-out;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 14px;
+		border-radius: 2px;
+	}
+	.status-live {
+		background: var(--brand-magenta);
+	}
+	.status-live-text {
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: #fff;
+	}
+	.status-paused {
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+	}
+	.status-paused-text {
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--color-fog);
 	}
 
 	@keyframes fade-in {
-		from {
-			opacity: 0;
-			transform: scale(0.95);
-		}
-		to {
-			opacity: 1;
-			transform: scale(1);
-		}
+		from { opacity: 0; transform: scale(0.95); }
+		to   { opacity: 1; transform: scale(1); }
 	}
 </style>

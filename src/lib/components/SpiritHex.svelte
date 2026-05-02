@@ -50,10 +50,10 @@
 		<clipPath id={clipId}>
 			<polygon points={polygonPoints} />
 		</clipPath>
-		<!-- Subtle gradient for empty slots -->
+		<!-- Empty slot fill — crisp brand violet -->
 		<radialGradient id={gradientId} cx="50%" cy="50%" r="70%">
-			<stop offset="0%" stop-color="rgb(55, 65, 81)" stop-opacity="0.4" />
-			<stop offset="100%" stop-color="rgb(31, 41, 55)" stop-opacity="0.6" />
+			<stop offset="0%" stop-color="rgb(58, 38, 112)" stop-opacity="0.55" />
+			<stop offset="100%" stop-color="rgb(26, 15, 46)" stop-opacity="0.9" />
 		</radialGradient>
 		<!-- Drop shadow filter -->
 		<filter id={shadowId} x="-20%" y="-20%" width="140%" height="140%">
@@ -61,31 +61,19 @@
 		</filter>
 	</defs>
 
-	<!-- Hex background/border with enhanced styling -->
+	<!-- Hex background/border -->
 	<polygon
 		points={polygonPoints}
 		class="hex-border"
 		fill={spirit
 			? externalImage
 				? 'rgba(0, 0, 0, 0.06)'
-				: 'rgba(30, 30, 40, 0.95)'
+				: 'rgba(17, 9, 31, 0.95)'
 			: `url(#${gradientId})`}
-		stroke={spirit ? '#8b5cf6' : '#4b5563'}
+		stroke={spirit ? 'var(--brand-violet)' : 'var(--color-aether)'}
 		stroke-width={spirit ? '2.5' : '1.5'}
 		filter={spirit ? `url(#${shadowId})` : 'none'}
 	/>
-
-	<!-- Subtle inner glow for filled hexes -->
-	{#if spirit}
-		<polygon
-			points={polygonPoints}
-			fill="none"
-			stroke="rgba(139, 92, 246, 0.3)"
-			stroke-width="1"
-			transform="scale(0.92)"
-			transform-origin="{center.x} {center.y}"
-		/>
-	{/if}
 
 	<!-- Spirit image with hexagonal clip -->
 	{#if spirit && imageUrl}
@@ -112,24 +100,25 @@
 	{:else if !spirit}
 		<!-- Empty slot - just subtle hex outline, no numbers -->
 	{:else}
-		<!-- Spirit without image - show name with better styling -->
+		<!-- Spirit without image - show name with brand styling -->
 		<rect
 			x={center.x - 40}
 			y={center.y - 12}
 			width="80"
 			height="24"
-			rx="4"
-			fill="rgba(0, 0, 0, 0.6)"
+			rx="3"
+			fill="rgba(26, 15, 46, 0.92)"
 		/>
 		<text
 			x={center.x}
 			y={center.y}
 			text-anchor="middle"
 			dominant-baseline="middle"
-			fill="#e5e7eb"
-			font-size="11"
-			font-weight="600"
-			font-family="system-ui, sans-serif"
+			fill="#f5f0ff"
+			font-size="12"
+			font-weight="400"
+			font-family="'Bebas Neue', 'Opsilon', ui-serif, serif"
+			letter-spacing="0.06em"
 		>
 			{spirit.name.length > 10 ? spirit.name.slice(0, 10) + '...' : spirit.name}
 		</text>
@@ -149,9 +138,9 @@
 	}
 
 	.spirit-hex:hover .hex-border {
-		stroke: #a78bfa;
+		stroke: var(--brand-magenta);
 		stroke-width: 3;
-		filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.5));
+		filter: drop-shadow(0 0 8px rgba(255, 43, 199, 0.6));
 	}
 
 	.spirit-hex .spirit-image {

@@ -829,6 +829,7 @@
 								runeAssets={assetState.runeAssets}
 								statusIcons={assetState.statusIcons}
 								guardianAssets={assetState.guardianAssets}
+								customDiceAssets={assetState.customDiceAssets}
 								{initialSelectedPlayerColor}
 								onPlayerSelect={(playerColor) => {
 									selectedPlayerColorForShare = playerColor;
@@ -964,300 +965,197 @@
 					{@const navDest = navigationDestinationDistribution()}
 					{@const summaryVpPerRound = totalVictoryPointsPerRound()}
 					{@const summaryTotalVp = totalVictoryPoints()}
-					<!-- Summary Layout: Main + Graphs Sidebar -->
-					<div class="flex flex-col gap-4 p-4 lg:flex-row lg:gap-6 lg:p-6">
-						<!-- Main Content -->
-						<div class="min-w-0 flex-1 space-y-4">
-							<!-- Game Summary -->
-							<section class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
-								<h2 class="mb-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">
-									Game Summary
-								</h2>
-								<div class="grid gap-3 sm:grid-cols-2">
-									<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-										<div class="text-xs text-gray-500">Navigations</div>
-										<div class="mt-1 text-lg font-semibold text-gray-100 tabular-nums">
-											{gameState.maxNavigation}
-										</div>
-									</div>
-									<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-										<div class="text-xs text-gray-500">VP / round</div>
-										<div class="mt-1 text-lg font-semibold text-gray-100 tabular-nums">
-											{#if summaryVpPerRound != null}
-												{summaryVpPerRound.toFixed(2)}
-											{:else}
-												—
-											{/if}
-										</div>
-										<div class="mt-1 text-xs text-gray-500">
-											Total VP <span class="tabular-nums">{summaryTotalVp}</span>
-										</div>
-									</div>
-									<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-										<div class="text-xs text-gray-500">Avg navigation</div>
-										<div class="mt-1 text-lg font-semibold text-gray-100 tabular-nums">
-											{formatDuration(timing.avgMs)}
-										</div>
-									</div>
-									<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-										<div class="text-xs text-gray-500">Longest navigation</div>
-										<div class="mt-1 text-lg font-semibold text-gray-100 tabular-nums">
-											{formatDuration(timing.longest?.ms ?? null)}
-										</div>
-										{#if timing.longest}
-											<div class="mt-1 text-xs text-gray-500">
-												R{timing.longest.fromRound} → R{timing.longest.toRound}
-											</div>
-										{/if}
-									</div>
-									<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-										<div class="text-xs text-gray-500">Total time</div>
-										<div class="mt-1 text-lg font-semibold text-gray-100 tabular-nums">
-											{formatDuration(timing.totalTimeMs)}
-										</div>
-										{#if timing.startedAt}
-											<div class="mt-1 text-xs text-gray-500">
-												{formatTimestamp(timing.startedAt)} → {formatTimestamp(timing.endedAt)}
-											</div>
-										{/if}
-									</div>
+					{@const winnerRow = playerStats()[0] ?? null}
+					{@const runnerUps = playerStats().slice(1, 3)}
+					<!-- ============ REDESIGNED SUMMARY ============ -->
+					<div class="summary-shell">
+						<div class="summary-main">
+							<!-- Winner / Result -->
+							{#if winnerRow}
+								<div class="section-marker">
+									<div class="sm-num">★</div>
+									<div class="sm-label">Crowned Guardian</div>
 								</div>
-							</section>
+								<div class="winner-row">
+									<div class="winner-name">{winnerRow.username ?? 'Unknown'} <span class="winner-color">· {winnerRow.playerColor}</span></div>
+									<div class="winner-vp"><span class="vp-num">{winnerRow.vp}</span> VP</div>
+								</div>
+								<div class="winner-meta-row">
+									{#if winnerRow.vpPerRound != null}<span><b>{winnerRow.vpPerRound.toFixed(2)}</b> VP / round</span>{/if}
+									<span><b>{winnerRow.barrierGained}</b> barriers gained</span>
+									{#if winnerRow.vpPerBarrier != null}<span><b>{winnerRow.vpPerBarrier.toFixed(2)}</b> VP / barrier</span>{/if}
+									{#if runnerUps.length > 0}
+										<span class="runners-inline">
+											Runners-up:
+											{#each runnerUps as r, i (r.playerColor)}
+												{#if i > 0} · {/if}
+												<b>{r.username ?? 'Unknown'}</b> ({r.vp} VP)
+											{/each}
+										</span>
+									{/if}
+								</div>
+							{/if}
+
+							<!-- Game Stats -->
+							<div class="section-marker">
+								<div class="sm-num">A</div>
+								<div class="sm-label">Game Stats</div>
+							</div>
+							<div class="inline-stats summary-stats">
+								<div>
+									<span class="inline-stat-num">{gameState.maxNavigation}</span>
+									<span class="inline-stat-label">Navigations</span>
+								</div>
+								<div>
+									<span class="inline-stat-num">{summaryTotalVp}</span>
+									<span class="inline-stat-label">Total VP</span>
+								</div>
+								<div>
+									<span class="inline-stat-num">{summaryVpPerRound?.toFixed(2) ?? '—'}</span>
+									<span class="inline-stat-label">VP / Round</span>
+								</div>
+								<div>
+									<span class="inline-stat-num">{formatDuration(timing.totalTimeMs)}</span>
+									<span class="inline-stat-label">Total Time</span>
+								</div>
+								<div>
+									<span class="inline-stat-num">{formatDuration(timing.avgMs)}</span>
+									<span class="inline-stat-label">Avg Nav</span>
+								</div>
+							</div>
+							{#if timing.longest}
+								<div class="summary-meta-line">Longest navigation: <b>{formatDuration(timing.longest.ms)}</b> between R{timing.longest.fromRound} → R{timing.longest.toRound}</div>
+							{/if}
 
 							<!-- Navigation Destinations -->
-							<section class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
-								<h2 class="mb-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">
-									Navigation Destinations
-								</h2>
-								{#if navDest.total > 0}
-									<div class="mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-gray-500">
-										<div>
-											<span class="font-semibold text-gray-200 tabular-nums">{navDest.total}</span>
-											navigations
+							<div class="section-marker">
+								<div class="sm-num">B</div>
+								<div class="sm-label">Cartography</div>
+							</div>
+							<h3 class="subhead">Navigation Destinations</h3>
+							{#if navDest.total > 0}
+								<p class="subhead-meta"><b>{navDest.total}</b> navigations across <b>{navDest.unique}</b> locations.</p>
+								<div class="dest-list">
+									{#each navDest.rows as row, i (row.destination)}
+										<div class="dest-row">
+											<div class="dest-rank">{String(i + 1).padStart(2, '0')}</div>
+											<div class="dest-name" title={row.destination}>{row.destination}</div>
+											<div class="dest-bar"><div class="dest-fill" style:width={`${row.barPercent}%`}></div></div>
+											<div class="dest-count"><span class="mono">{row.count}</span> · {row.percent.toFixed(0)}%</div>
 										</div>
-										<div>
-											<span class="font-semibold text-gray-200 tabular-nums">{navDest.unique}</span>
-											locations
-										</div>
-									</div>
-
-									<div class="space-y-2">
-										{#each navDest.rows as row (row.destination)}
-											<div class="flex items-center gap-3">
-												<div
-													class="w-40 shrink-0 truncate text-xs text-gray-200"
-													title={row.destination}
-												>
-													{row.destination}
-												</div>
-												<div class="relative h-2 flex-1 rounded-full bg-gray-800">
-													<div
-														class="h-2 rounded-full bg-purple-600"
-														style={`width: ${row.barPercent}%;`}
-													></div>
-												</div>
-												<div class="w-20 shrink-0 text-right text-xs text-gray-400 tabular-nums">
-													{row.count} ({row.percent.toFixed(0)}%)
-												</div>
-											</div>
-										{/each}
-									</div>
-								{:else}
-									<div class="text-xs text-gray-500">
-										No navigation destination data recorded for this game.
-									</div>
-								{/if}
-							</section>
+									{/each}
+								</div>
+							{:else}
+								<p class="subhead-meta">No navigation destination data recorded for this game.</p>
+							{/if}
 
 							<!-- Player Stats -->
 							{#if playerStats().length > 0}
-								<section class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
-									<h2 class="mb-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">
-										Player Stats
-									</h2>
-									<div class="overflow-x-auto rounded-lg border border-gray-800 bg-gray-900/40">
-										<table class="w-full text-left text-sm">
-											<thead
-												class="border-b border-gray-800 text-xs tracking-wide text-gray-500 uppercase"
-											>
-												<tr>
-													<th class="px-3 py-2">Player</th>
-													<th class="px-3 py-2 text-right">VP</th>
-													<th class="px-3 py-2 text-right">VP/Round</th>
-													<th class="px-3 py-2 text-right">Total Barriers</th>
-													<th class="px-3 py-2 text-right">VP/Barrier</th>
-													<th class="px-3 py-2 text-right">Rune Inv.</th>
-													<th class="px-3 py-2 text-right">Augments Drawn</th>
-													<th class="px-3 py-2 text-right">Augments On Spirits</th>
-												</tr>
-											</thead>
-											<tbody class="divide-y divide-gray-800">
-												{#each playerStats() as row, i (row.playerColor)}
-													<tr class="hover:bg-gray-900/60">
-														<td class="px-3 py-2">
-															<div class="flex items-center gap-2">
-																{#if i === 0}
-																	<span class="text-yellow-400">👑</span>
-																{/if}
-																<div>
-																	<div class="font-semibold text-gray-100">
-																		{row.username ?? 'Unknown'}
-																	</div>
-																	<div class="mt-0.5 text-xs text-gray-500">{row.playerColor}</div>
-																</div>
-															</div>
-														</td>
-														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															<span class="font-semibold text-yellow-300">{row.vp}</span>
-														</td>
-														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															{#if row.vpPerRound != null}
-																{row.vpPerRound.toFixed(2)}
-															{:else}
-																—
-															{/if}
-														</td>
-														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															{row.barrierGained}
-														</td>
-														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															{#if row.vpPerBarrier != null}
-																{row.vpPerBarrier.toFixed(2)}
-															{:else}
-																—
-															{/if}
-														</td>
-														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															{row.runeInventory}
-														</td>
-														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															{row.spiritAugmentsDrawn}
-														</td>
-														<td class="px-3 py-2 text-right text-gray-200 tabular-nums">
-															{row.spiritAugmentsOnSpirits}
-														</td>
-													</tr>
-												{/each}
-											</tbody>
-										</table>
+								<div class="section-marker">
+									<div class="sm-num">C</div>
+									<div class="sm-label">Final Standings</div>
+								</div>
+								<h3 class="subhead">Player Performance</h3>
+								<div class="ps-table-wrap">
+									<div class="ps-table">
+										<div class="ps-row ps-head">
+											<div class="cell">Player</div>
+											<div class="cell num">VP</div>
+											<div class="cell num">VP/Rd</div>
+											<div class="cell num">Barriers</div>
+											<div class="cell num">VP/Brr</div>
+											<div class="cell num">Runes</div>
+											<div class="cell num">Augm. Drawn</div>
+											<div class="cell num">Augm. on Spirits</div>
+										</div>
+										{#each playerStats() as row, i (row.playerColor)}
+											<div class="ps-row" class:winner={i === 0}>
+												<div class="cell player-cell">
+													<div class="rank-num-cell">{i === 0 ? '★' : i + 1}</div>
+													<div>
+														<div class="p-name">{row.username ?? 'Unknown'}</div>
+														<div class="p-color">{row.playerColor}</div>
+													</div>
+												</div>
+												<div class="cell num"><span class="vp-big">{row.vp}</span></div>
+												<div class="cell num">{row.vpPerRound != null ? row.vpPerRound.toFixed(2) : '—'}</div>
+												<div class="cell num">{row.barrierGained}</div>
+												<div class="cell num">{row.vpPerBarrier != null ? row.vpPerBarrier.toFixed(2) : '—'}</div>
+												<div class="cell num">{row.runeInventory}</div>
+												<div class="cell num">{row.spiritAugmentsDrawn}</div>
+												<div class="cell num">{row.spiritAugmentsOnSpirits}</div>
+											</div>
+										{/each}
 									</div>
-								</section>
+								</div>
 							{/if}
 
 							<!-- Replay Codes -->
 							{#if gameState.maxNavigation > 0}
-								<section class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
-									<details class="group">
-										<summary
-											class="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2 hover:bg-gray-900/60"
-										>
-											<div>
-												<h2 class="text-xs font-semibold tracking-wide text-gray-500 uppercase">
-													Replay Codes
-												</h2>
-												<p class="mt-0.5 text-xs text-gray-500">
-													Use in TTS <span class="font-semibold text-gray-300">Replay Load</span> to restore
-													a navigation snapshot.
-												</p>
+								<details class="replay-details">
+									<summary class="replay-summary">
+										<div>
+											<div class="section-marker compact">
+												<div class="sm-num">D</div>
+												<div class="sm-label">Time-Stones</div>
 											</div>
-
-											<div class="flex items-center gap-3 text-xs text-gray-400">
-												<span class="whitespace-nowrap">
-													<span class="text-gray-500">Latest</span>
-													<span class="ml-1 font-mono font-semibold text-gray-200"
-														>{toShortReplayCode(gameState.maxNavigation)}</span
-													>
-												</span>
-												<svg
-													class="chevron h-4 w-4 shrink-0"
-													xmlns="http://www.w3.org/2000/svg"
-													viewBox="0 0 20 20"
-													fill="currentColor"
-													aria-hidden="true"
-												>
-													<path
-														fill-rule="evenodd"
-														d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
-														clip-rule="evenodd"
-													/>
-												</svg>
-											</div>
-										</summary>
-
-										<div class="mt-3 grid gap-3 sm:grid-cols-2">
-											{#each replayRounds() as entry (entry.round)}
-												<div class="rounded-lg border border-gray-800 bg-gray-900/40 p-3">
-													<div class="flex items-start justify-between gap-3">
-														<div class="min-w-0">
-															<div class="text-xs text-gray-500">Round {entry.round}</div>
-															<button
-																type="button"
-																onclick={() => copyReplay(entry.shortCode)}
-																class="mt-1 font-mono text-lg font-semibold text-gray-100 transition-colors hover:text-purple-300"
-																title="Copy 4-digit code"
-															>
-																{entry.shortCode}
-															</button>
-															<div class="mt-1 flex items-center gap-2 text-[11px] text-gray-400">
-																<span class="truncate font-mono" title={entry.fullCode}
-																	>{entry.fullCode}</span
-																>
-															</div>
-															{#if entry.timestamp}
-																<div class="mt-1 text-[11px] text-gray-500">
-																	{formatTimestamp(entry.timestamp)}
-																</div>
-															{/if}
-														</div>
-
-														<button
-															type="button"
-															onclick={() => copyReplay(entry.fullCode)}
-															class="shrink-0 rounded-md bg-gray-900/70 px-2 py-1 text-xs font-semibold text-gray-200 transition-colors hover:bg-gray-900"
-															title="Copy full replay code"
-														>
-															{#if copiedReplayValue === entry.fullCode}
-																Copied
-															{:else}
-																Copy
-															{/if}
-														</button>
-													</div>
-												</div>
-											{/each}
+											<h3 class="subhead">Replay Codes <span class="latest-inline">· Latest <code>{toShortReplayCode(gameState.maxNavigation)}</code></span></h3>
+											<p class="subhead-meta">Use in TTS <b>Replay Load</b> to restore a navigation snapshot. Click to expand all rounds.</p>
 										</div>
-									</details>
-								</section>
+										<svg class="chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>
+									</summary>
+									<div class="replay-list">
+										{#each replayRounds() as entry (entry.round)}
+											<div class="replay-row">
+												<div class="rr-round">Round {entry.round}</div>
+												<button
+													type="button"
+													onclick={() => copyReplay(entry.shortCode)}
+													class="rr-code"
+													title="Copy 4-digit code"
+												>{entry.shortCode}</button>
+												<div class="rr-full" title={entry.fullCode}>{entry.fullCode}</div>
+												{#if entry.timestamp}<div class="rr-time">{formatTimestamp(entry.timestamp)}</div>{/if}
+												<button
+													type="button"
+													onclick={() => copyReplay(entry.fullCode)}
+													class="text-btn-sm"
+													title="Copy full replay code"
+												>{copiedReplayValue === entry.fullCode ? 'Copied' : 'Copy'}</button>
+											</div>
+										{/each}
+									</div>
+								</details>
 							{/if}
 						</div>
 
 						<!-- Graphs Sidebar -->
 						{#if showGraphs}
-							<aside class="w-full space-y-4 lg:w-[420px] lg:shrink-0">
-								<div class="rounded-xl border border-gray-800 bg-gray-950/30 p-4">
-									<h2 class="mb-3 text-xs font-semibold tracking-wide text-gray-500 uppercase">
-										Game Progress
-									</h2>
-									<div class="space-y-4">
-										<ResourceGraph
-											type="blood"
-											data={graphData}
-											currentRound={gameState.navigationCount}
-											onRoundClick={handleRoundChange}
-										/>
-										<ResourceGraph
-											type="barrierGained"
-											data={graphData}
-											currentRound={gameState.navigationCount}
-											onRoundClick={handleRoundChange}
-										/>
-										<ResourceGraph
-											type="victoryPoints"
-											data={graphData}
-											currentRound={gameState.navigationCount}
-											onRoundClick={handleRoundChange}
-										/>
-									</div>
+							<aside class="summary-sidebar">
+								<div class="section-marker">
+									<div class="sm-num">E</div>
+									<div class="sm-label">Resource Currents</div>
+								</div>
+								<h3 class="subhead">Game Progress</h3>
+								<div class="graph-stack">
+									<ResourceGraph
+										type="blood"
+										data={graphData}
+										currentRound={gameState.navigationCount}
+										onRoundClick={handleRoundChange}
+									/>
+									<ResourceGraph
+										type="barrierGained"
+										data={graphData}
+										currentRound={gameState.navigationCount}
+										onRoundClick={handleRoundChange}
+									/>
+									<ResourceGraph
+										type="victoryPoints"
+										data={graphData}
+										currentRound={gameState.navigationCount}
+										onRoundClick={handleRoundChange}
+									/>
 								</div>
 							</aside>
 						{/if}
@@ -1359,5 +1257,165 @@
 		border-radius: 9999px;
 		background-color: rgb(168 85 247); /* purple-500 */
 		border: 2px solid rgb(17 24 39); /* gray-900 */
+	}
+
+	/* ============ FLAT SUMMARY ============ */
+	.summary-shell { display: flex; flex-direction: column; gap: 32px; padding: 36px 24px; }
+	@media (min-width: 1024px) {
+		.summary-shell { flex-direction: row; gap: 48px; padding: 44px 32px; }
+	}
+	.summary-main { flex: 1; min-width: 0; }
+	.summary-sidebar { width: 100%; }
+	@media (min-width: 1024px) {
+		.summary-sidebar { width: 380px; flex-shrink: 0; position: sticky; top: calc(var(--app-topbar-height) + 60px); align-self: flex-start; }
+	}
+
+	.winner-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 24px;
+		flex-wrap: wrap;
+		margin-bottom: 6px;
+	}
+	.winner-name {
+		font-family: var(--font-display);
+		font-weight: 900;
+		font-size: clamp(1.6rem, 3.5vw, 2.2rem);
+		color: var(--color-bone);
+		letter-spacing: -0.01em;
+	}
+	.winner-color { color: var(--color-fog); font-weight: 500; font-size: 0.75em; }
+	.winner-vp { font-family: var(--font-display); font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--color-fog); }
+	.vp-num { font-family: var(--font-display); font-weight: 900; font-size: 2.2rem; color: var(--brand-amber-soft); margin-right: 8px; vertical-align: baseline; font-variant-numeric: tabular-nums; }
+	.winner-meta-row {
+		display: flex; flex-wrap: wrap; gap: 22px;
+		font-size: 0.82rem; color: var(--color-parchment);
+		padding-bottom: 32px;
+		border-bottom: 1px solid var(--color-mist);
+		margin-bottom: 32px;
+	}
+	.winner-meta-row b { font-family: var(--font-display); font-weight: 700; color: var(--brand-amber-soft); margin-right: 4px; font-variant-numeric: tabular-nums; }
+	.runners-inline { color: var(--color-fog); }
+	.runners-inline b { color: var(--color-bone); }
+
+	.summary-stats {
+		padding: 16px 0 12px;
+		margin-bottom: 8px;
+	}
+	.summary-meta-line { font-size: 0.78rem; color: var(--color-fog); margin-bottom: 36px; padding-bottom: 18px; }
+	.summary-meta-line b { color: var(--color-bone); font-family: var(--font-display); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+	.dest-list { margin-bottom: 36px; border-top: 1px solid var(--color-mist); }
+	.dest-row {
+		display: grid;
+		grid-template-columns: 28px minmax(140px, 220px) 1fr 100px;
+		align-items: center;
+		gap: 14px;
+		padding: 10px 8px;
+		border-bottom: 1px solid var(--color-mist);
+		transition: background 180ms ease;
+	}
+	.dest-row:hover { background: rgba(255, 43, 199, 0.04); }
+	.dest-rank { font-family: var(--font-display); font-weight: 800; font-size: 0.75rem; color: var(--color-fog); font-variant-numeric: tabular-nums; }
+	.dest-name { font-size: 0.85rem; color: var(--color-bone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.dest-bar { position: relative; height: 4px; background: var(--color-mist); }
+	.dest-fill { position: absolute; inset: 0; background: var(--brand-magenta); }
+	.dest-count { text-align: right; font-size: 0.78rem; color: var(--color-parchment); font-variant-numeric: tabular-nums; }
+	.dest-count .mono { font-family: var(--font-display); font-weight: 700; color: var(--color-bone); margin-right: 2px; }
+
+	.ps-table-wrap { overflow-x: auto; margin-bottom: 36px; }
+	.ps-table { display: flex; flex-direction: column; min-width: 720px; border-top: 1px solid var(--color-mist); }
+	.ps-row {
+		display: grid;
+		grid-template-columns: minmax(170px, 1.6fr) 70px 80px 100px 90px 80px 110px 130px;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 8px;
+		border-bottom: 1px solid var(--color-mist);
+		transition: background 180ms ease;
+	}
+	.ps-row:not(.ps-head):hover { background: rgba(255, 43, 199, 0.04); }
+	.ps-row.ps-head {
+		font-family: var(--font-display);
+		font-size: 0.6rem;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		color: var(--color-fog);
+		font-weight: 700;
+	}
+	.ps-row.winner { background: rgba(255, 186, 61, 0.04); border-left: 3px solid var(--brand-amber-soft); padding-left: 5px; }
+	.cell { font-size: 0.88rem; color: var(--color-bone); font-variant-numeric: tabular-nums; }
+	.cell.num { text-align: right; font-weight: 600; }
+	.player-cell { display: flex; gap: 12px; align-items: center; text-align: left !important; }
+	.rank-num-cell {
+		display: grid; place-items: center;
+		width: 28px; height: 28px;
+		font-family: var(--font-display);
+		font-weight: 800;
+		font-size: 0.95rem;
+		color: var(--color-fog);
+		font-variant-numeric: tabular-nums;
+	}
+	.ps-row.winner .rank-num-cell { color: var(--brand-amber-soft); }
+	.p-name { font-family: var(--font-display); font-weight: 700; font-size: 0.95rem; color: var(--color-bone); }
+	.p-color { font-size: 0.65rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-fog); margin-top: 2px; }
+	.vp-big { font-family: var(--font-display); font-weight: 800; color: var(--brand-amber-soft); font-size: 1.05rem; }
+
+	/* REPLAY — flat list */
+	.replay-details summary { cursor: pointer; list-style: none; }
+	.replay-details summary::-webkit-details-marker { display: none; }
+	.replay-summary { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 0; }
+	.section-marker.compact { padding-bottom: 8px; margin-bottom: 12px; }
+	.latest-inline { font-family: var(--font-mono); font-weight: 500; color: var(--color-fog); font-size: 0.7em; letter-spacing: 0.05em; text-transform: none; margin-left: 8px; }
+	.latest-inline code { color: var(--brand-magenta-soft); font-weight: 700; }
+	.replay-summary .chevron { width: 18px; height: 18px; color: var(--color-fog); transition: transform 180ms ease; }
+	.replay-details[open] .replay-summary .chevron { transform: rotate(180deg); color: var(--brand-magenta-soft); }
+	.replay-list { margin-top: 16px; border-top: 1px solid var(--color-mist); }
+	.replay-row {
+		display: grid;
+		grid-template-columns: 80px 110px 1fr 140px 60px;
+		align-items: center;
+		gap: 14px;
+		padding: 10px 8px;
+		border-bottom: 1px solid var(--color-mist);
+	}
+	.replay-row:hover { background: rgba(255, 43, 199, 0.04); }
+	.rr-round { font-family: var(--font-display); font-weight: 700; font-size: 0.65rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-fog); }
+	.rr-code {
+		background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left;
+		font-family: var(--font-mono);
+		font-weight: 700;
+		font-size: 1.05rem;
+		color: var(--color-bone);
+		letter-spacing: 0.05em;
+		transition: color 180ms ease;
+	}
+	.rr-code:hover { color: var(--brand-magenta-soft); }
+	.rr-full { font-family: var(--font-mono); font-size: 0.72rem; color: var(--color-fog); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.rr-time { font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-whisper); text-align: right; }
+	.text-btn-sm {
+		background: transparent;
+		border: 0;
+		padding: 0;
+		font-family: var(--font-display);
+		font-weight: 600;
+		font-size: 0.6rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--brand-magenta-soft);
+		cursor: pointer;
+		transition: color 180ms ease;
+		justify-self: end;
+	}
+	.text-btn-sm:hover { color: var(--brand-magenta); }
+
+	.graph-stack { display: flex; flex-direction: column; gap: 22px; margin-top: 4px; }
+
+	@media (max-width: 720px) {
+		.replay-row { grid-template-columns: 60px 90px 1fr 50px; }
+		.replay-row .rr-time { display: none; }
+		.dest-row { grid-template-columns: 24px 1fr 80px; }
+		.dest-row .dest-bar { display: none; }
 	}
 </style>

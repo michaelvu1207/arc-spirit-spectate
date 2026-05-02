@@ -41,47 +41,26 @@
 	<title>Admin Tags | Arc Spirits</title>
 </svelte:head>
 
-<main class="mx-auto w-full max-w-6xl flex-1 px-4 py-8 text-white">
-	<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-		<div class="min-w-0">
-			<a href="/admin/games" class="text-sm font-semibold text-purple-300 hover:text-purple-200"
-				>← Admin Games</a
-			>
-			<h1 class="mt-2 truncate text-xl font-bold text-gray-100">Admin · Tags</h1>
-			<p class="mt-1 text-sm text-gray-400">
-				Game <span class="font-semibold text-gray-200">{data.gameId}</span>
-			</p>
+<main class="admin-main">
+	<div class="admin-header">
+		<div class="admin-header-text">
+			<a href="/admin/games" class="back-link">← Admin Games</a>
+			<span class="eyebrow">Admin</span>
+			<h1 class="admin-title">Tags</h1>
+			<p class="admin-desc">Game <span class="game-id-inline">{data.gameId}</span></p>
 		</div>
-		<div class="flex items-center gap-2">
-			<a
-				href={`/game/${encodeURIComponent(data.gameId)}`}
-				class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-gray-100 hover:bg-gray-700"
-			>
-				View Game
-			</a>
-			<a
-				href="/admin/logout"
-				class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-gray-100 hover:bg-gray-700"
-			>
-				Log out
-			</a>
+		<div class="admin-actions">
+			<a href={`/game/${encodeURIComponent(data.gameId)}`} class="btn-ghost">View Game</a>
+			<a href="/admin/logout" class="btn-ghost">Log out</a>
 		</div>
 	</div>
 
 	{#if data.configError}
-		<div
-			class="mb-6 rounded-lg border border-yellow-800 bg-yellow-900/20 p-4 text-sm text-yellow-200"
-		>
-			{data.configError}
-		</div>
+		<div class="alert-warn">{data.configError}</div>
 	{/if}
 
 	{#if data.players.length === 0}
-		<div
-			class="rounded-lg border border-gray-800 bg-gray-900/40 p-6 text-center text-sm text-gray-400"
-		>
-			No players found for this game.
-		</div>
+		<div class="empty-state">No players found for this game.</div>
 	{:else}
 		<datalist id="composition-tag-options">
 			{#each data.tagOptions ?? [] as option (option)}
@@ -89,81 +68,231 @@
 			{/each}
 		</datalist>
 
-		<div class="overflow-x-auto rounded-lg border border-gray-800 bg-gray-900/40">
-			<table class="w-full min-w-[980px] text-left text-sm">
-				<thead class="border-b border-gray-800 text-xs tracking-wide text-gray-400 uppercase">
-					<tr>
-						<th class="px-4 py-3">Player</th>
-						<th class="px-4 py-3">Character</th>
-						<th class="px-4 py-3">Ended</th>
-						<th class="px-4 py-3">VP</th>
-						<th class="px-4 py-3">Place</th>
-						<th class="px-4 py-3">Tags</th>
-						<th class="px-4 py-3 text-right">Add Tag</th>
-					</tr>
-				</thead>
-				<tbody class="divide-y divide-gray-800">
-					{#each data.players as p (p.player_color)}
-						<tr class="hover:bg-gray-900/60">
-							<td class="px-4 py-3">
-								<div class="font-semibold text-gray-100">
-									{p.username ?? p.raw_username ?? 'Unknown'}
-								</div>
-								<div class="mt-1 text-xs text-gray-500">
-									{p.player_color} • {p.verified ? 'Verified' : 'Unverified'} • {p.navigation_count} rounds
-								</div>
-							</td>
-							<td class="px-4 py-3 text-gray-200">{p.selected_character}</td>
-							<td class="px-4 py-3 text-gray-300">{formatTimestamp(p.ended_at)}</td>
-							<td class="px-4 py-3 text-gray-200">{p.victory_points}</td>
-							<td class="px-4 py-3 text-gray-200">{p.placement} / {p.player_count}</td>
-							<td class="px-4 py-3">
-								{#if p.tags.length === 0}
-									<span class="text-xs text-gray-500">—</span>
-								{:else}
-									<div class="flex flex-wrap gap-2">
-										{#each p.tags as tag (tag)}
-											<form method="POST" action="?/removeTag" class="inline-flex">
-												<input type="hidden" name="playerColor" value={p.player_color} />
-												<input type="hidden" name="tag" value={tag} />
-												<button
-													type="submit"
-													class="inline-flex items-center gap-2 rounded-full border border-gray-700 bg-gray-900/50 px-2.5 py-1 text-xs font-semibold text-gray-200 hover:border-red-600/60 hover:text-red-200"
-													title="Remove tag"
-												>
-													<span class="truncate">{tag}</span>
-													<span class="text-gray-500">×</span>
-												</button>
-											</form>
-										{/each}
-									</div>
-								{/if}
-							</td>
-							<td class="px-4 py-3">
-								<form method="POST" action="?/addTag" class="flex items-center justify-end gap-2">
-									<input type="hidden" name="playerColor" value={p.player_color} />
-									<input
-										name="tag"
-										list="composition-tag-options"
-										placeholder="e.g. astral mages"
-										class="w-56 rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-xs text-gray-200 placeholder:text-gray-600 focus:border-purple-500 focus:outline-none"
-									/>
-									<button
-										type="submit"
-										class="rounded-md bg-purple-700 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-600"
-									>
-										Add
-									</button>
-								</form>
-							</td>
+		<div class="table-wrap">
+			<div class="table-scroll">
+				<table class="data-table">
+					<thead>
+						<tr class="thead-row">
+							<th class="th">Player</th>
+							<th class="th">Character</th>
+							<th class="th">Ended</th>
+							<th class="th num">VP</th>
+							<th class="th num">Place</th>
+							<th class="th">Tags</th>
+							<th class="th right">Add Tag</th>
 						</tr>
-					{/each}
-				</tbody>
-			</table>
+					</thead>
+					<tbody>
+						{#each data.players as p, i (p.player_color)}
+							<tr class="td-row" class:alt={i % 2 === 1}>
+								<td class="td">
+									<div class="player-name">{p.username ?? p.raw_username ?? 'Unknown'}</div>
+									<div class="player-meta">
+										{p.player_color} · {p.verified ? 'Verified' : 'Unverified'} · {p.navigation_count} rounds
+									</div>
+								</td>
+								<td class="td td-char">{p.selected_character}</td>
+								<td class="td td-muted">{formatTimestamp(p.ended_at)}</td>
+								<td class="td big-num accent">{p.victory_points}</td>
+								<td class="td big-num">{p.placement} / {p.player_count}</td>
+								<td class="td">
+									{#if p.tags.length === 0}
+										<span class="no-tags">—</span>
+									{:else}
+										<div class="tag-list">
+											{#each p.tags as tag (tag)}
+												<form method="POST" action="?/removeTag" class="tag-form">
+													<input type="hidden" name="playerColor" value={p.player_color} />
+													<input type="hidden" name="tag" value={tag} />
+													<button type="submit" class="tag-chip" title="Remove tag">
+														<span>{tag}</span>
+														<span class="tag-remove">×</span>
+													</button>
+												</form>
+											{/each}
+										</div>
+									{/if}
+								</td>
+								<td class="td">
+									<form method="POST" action="?/addTag" class="add-tag-form">
+										<input type="hidden" name="playerColor" value={p.player_color} />
+										<input
+											name="tag"
+											list="composition-tag-options"
+											placeholder="e.g. astral mages"
+											class="tag-input"
+										/>
+										<button type="submit" class="btn-primary btn-sm">Add</button>
+									</form>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		</div>
-	{/if}
 
-	<div class="mt-6 text-xs text-gray-500">
-		Tags are stored lowercased and trimmed, and stats pages use verified games only.
-	</div>
+		<p class="footnote">Tags are stored lowercased and trimmed, and stats pages use verified games only.</p>
+	{/if}
 </main>
+
+<style>
+	.admin-main {
+		max-width: 1280px;
+		margin: 0 auto;
+		padding: 48px 32px 80px;
+		position: relative;
+		z-index: 1;
+	}
+
+	.admin-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 24px;
+		flex-wrap: wrap;
+		margin-bottom: 32px;
+	}
+	.back-link {
+		display: inline-flex; align-items: center; gap: 6px;
+		font-family: var(--font-display); font-size: 0.66rem; font-weight: 700;
+		letter-spacing: 0.18em; text-transform: uppercase;
+		color: var(--brand-magenta-soft); text-decoration: none;
+		margin-bottom: 8px; display: block;
+	}
+	.back-link:hover { color: var(--brand-magenta); }
+	.eyebrow {
+		font-family: var(--font-display);
+		font-size: 0.62rem;
+		letter-spacing: 0.32em;
+		text-transform: uppercase;
+		color: var(--brand-cyan);
+	}
+	.admin-title {
+		font-family: var(--font-display);
+		font-size: clamp(3rem, 5vw, 4.5rem);
+		font-weight: 400;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		line-height: 0.95;
+		color: var(--color-bone);
+		margin: 6px 0 8px;
+	}
+	.admin-desc { color: var(--color-parchment); font-size: 0.88rem; margin: 0; }
+	.game-id-inline { font-family: var(--font-mono); color: var(--brand-cyan-soft); font-size: 0.88em; word-break: break-all; }
+	.admin-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 28px; }
+
+	.alert-warn {
+		border: 1px solid var(--brand-amber);
+		background: rgba(255, 186, 61, 0.08);
+		padding: 14px 18px;
+		color: var(--brand-amber-soft);
+		font-size: 0.88rem;
+		margin-bottom: 24px;
+	}
+
+	.empty-state {
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+		padding: 32px;
+		text-align: center;
+		color: var(--color-fog);
+		font-size: 0.88rem;
+	}
+
+	/* table */
+	.table-wrap { border: 1px solid var(--color-mist); overflow: hidden; }
+	.table-scroll { overflow-x: auto; }
+	.data-table { width: 100%; min-width: 980px; border-collapse: collapse; }
+
+	.thead-row { background: var(--brand-magenta); }
+	.th {
+		padding: 14px 16px;
+		font-family: var(--font-display);
+		font-size: 1rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #fff;
+		font-weight: 400;
+		text-align: left;
+		white-space: nowrap;
+	}
+	.th.num { text-align: right; }
+	.th.right { text-align: right; }
+
+	.td-row {
+		background: var(--color-tomb);
+		border-bottom: 1px solid var(--color-mist);
+		transition: background 140ms ease;
+	}
+	.td-row.alt { background: rgba(34, 20, 64, 0.5); }
+	.td-row:hover { background: rgba(255, 43, 199, 0.05); }
+
+	.td { padding: 12px 16px; color: var(--color-parchment); font-size: 0.88rem; vertical-align: middle; }
+	.td-muted { color: var(--color-fog); }
+	.td-char { color: var(--color-bone); font-weight: 500; }
+
+	.player-name { font-weight: 600; color: var(--color-bone); }
+	.player-meta { margin-top: 2px; font-size: 0.72rem; color: var(--color-fog); }
+
+	.big-num {
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		letter-spacing: 0.01em;
+		color: var(--color-bone);
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+	}
+	.big-num.accent { color: var(--brand-magenta); }
+
+	.no-tags { color: var(--color-whisper); }
+
+	.tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+	.tag-form { display: inline-flex; }
+	.tag-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 10px;
+		background: var(--color-shadow);
+		border: 1px solid var(--color-mist);
+		color: var(--color-parchment);
+		font-family: var(--font-body);
+		font-size: 0.75rem;
+		cursor: pointer;
+		transition: border-color 160ms ease, color 160ms ease;
+	}
+	.tag-chip:hover { border-color: var(--brand-coral); color: var(--brand-coral); }
+	.tag-remove { color: var(--color-fog); }
+
+	.add-tag-form { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+	.tag-input {
+		width: 200px;
+		background: var(--color-shadow);
+		border: 1px solid var(--color-mist);
+		color: var(--color-bone);
+		font-family: var(--font-body);
+		font-size: 0.82rem;
+		padding: 7px 12px;
+		transition: border-color 160ms ease;
+	}
+	.tag-input::placeholder { color: var(--color-whisper); }
+	.tag-input:focus { outline: none; border-color: var(--brand-magenta); }
+
+	.btn-sm {
+		padding: 8px 14px !important;
+		font-size: 0.66rem !important;
+	}
+
+	.footnote {
+		margin-top: 16px;
+		font-size: 0.75rem;
+		color: var(--color-whisper);
+	}
+
+	@media (max-width: 640px) {
+		.admin-main { padding: 32px 20px 60px; }
+		.admin-header { flex-direction: column; }
+		.admin-actions { padding-top: 0; }
+	}
+</style>

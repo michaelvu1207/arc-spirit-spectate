@@ -10,25 +10,32 @@
 	let error = $state<string | null>(null);
 	let lastRefresh = $state<Date | null>(null);
 	let search = $state('');
+	let sortBy = $state<'games' | 'wins' | 'winrate' | 'avgvp' | 'avgplace' | 'recent'>('games');
 
 	const filteredPlayers = $derived(() => {
-		const query = search.trim().toLowerCase();
-		if (!query) return players;
-		return players.filter((p) => p.username.toLowerCase().includes(query));
+		const q = search.trim().toLowerCase();
+		const list = q ? players.filter((p) => p.username.toLowerCase().includes(q)) : players.slice();
+		return list.sort((a, b) => {
+			switch (sortBy) {
+				case 'wins': return b.wins - a.wins;
+				case 'winrate': return b.winRatePct - a.winRatePct;
+				case 'avgvp': return b.avg_victory_points - a.avg_victory_points;
+				case 'avgplace': return a.avg_placement - b.avg_placement;
+				case 'recent': {
+					const at = a.last_game_at ? Date.parse(a.last_game_at) : 0;
+					const bt = b.last_game_at ? Date.parse(b.last_game_at) : 0;
+					return bt - at;
+				}
+				default: return b.games_played - a.games_played;
+			}
+		});
 	});
 
-	function formatTimestamp(timestamp: string | null): string {
-		if (!timestamp) return '—';
-		const date = new Date(timestamp);
-		if (Number.isNaN(date.getTime())) return String(timestamp);
-		return date.toLocaleString('en-US', {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric',
-			hour: 'numeric',
-			minute: '2-digit',
-			hour12: true
-		});
+	function formatTimestamp(t: string | null): string {
+		if (!t) return '—';
+		const d = new Date(t);
+		if (Number.isNaN(d.getTime())) return String(t);
+		return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 	}
 
 	async function refreshPlayers() {
@@ -36,152 +43,199 @@
 		error = null;
 		try {
 			const rows = await fetchRatingLeaderboard();
-			players = rows
-				.map((r) => ({
-					...r,
-					winRatePct: Math.round(((r.win_rate ?? 0) * 100 + Number.EPSILON) * 10) / 10
-				}))
-				.sort((a, b) => {
-					const byGames = b.games_played - a.games_played;
-					if (byGames !== 0) return byGames;
-					const byWin = b.winRatePct - a.winRatePct;
-					if (byWin !== 0) return byWin;
-					return a.username.localeCompare(b.username);
-				});
+			players = rows.map((r) => ({ ...r, winRatePct: Math.round(((r.win_rate ?? 0) * 100 + Number.EPSILON) * 10) / 10 }));
 			lastRefresh = new Date();
 		} catch (e) {
 			console.error('Error fetching players:', e);
 			error = e instanceof Error ? e.message : 'Failed to fetch players';
-		} finally {
-			loading = false;
-		}
+		} finally { loading = false; }
 	}
 
-	onMount(() => {
-		refreshPlayers();
-	});
+	onMount(() => { refreshPlayers(); });
 </script>
 
 <svelte:head>
 	<title>Players | Arc Spirits Spectate</title>
 </svelte:head>
 
-<div class="min-h-screen bg-gray-900 text-white">
-	<main class="mx-auto max-w-6xl px-4 py-8">
-		<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-			<div class="min-w-0">
-				<h1 class="text-xl font-bold text-gray-100">Players</h1>
-				<p class="mt-1 text-sm text-gray-400">
-					Verified games only (over 10 turns). Players must have a TTS username and ≥10 VP.
-				</p>
-			</div>
-			<div class="flex items-center gap-4">
-				{#if lastRefresh}
-					<span class="text-xs text-gray-500">Updated {lastRefresh.toLocaleTimeString()}</span>
-				{/if}
-				<button
-					onclick={refreshPlayers}
-					disabled={loading}
-					class="flex items-center gap-2 rounded-md bg-gray-800 px-3 py-1.5 text-sm transition-colors hover:bg-gray-700 disabled:opacity-50"
-				>
-					<svg
-						class="h-4 w-4 {loading ? 'animate-spin' : ''}"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-						/>
-					</svg>
-					Refresh
-				</button>
-			</div>
+<div class="page">
+	<!-- PAGE HEADER -->
+	<div class="page-header">
+		<div>
+			<span class="eyebrow">Adventurer Roster</span>
+			<h1 class="page-title">Spirit Binders</h1>
+			<p class="page-desc">
+				Every TTS username with verified games (over 10 turns, ≥10 VP) — sorted, filterable, searchable.
+				{#if lastRefresh}<span class="upd"><span class="dot-pulse"></span>Synced {lastRefresh.toLocaleTimeString()}</span>{/if}
+			</p>
 		</div>
+	</div>
 
-		<div
-			class="mb-6 flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-800/30 p-4 sm:flex-row sm:items-end sm:justify-between"
-		>
-			<div class="min-w-0 flex-1">
-				<h2 class="text-sm font-semibold text-gray-200">Directory</h2>
-				<p class="mt-1 text-xs text-gray-400">
-					Search by TTS username. Click a name for a detailed profile.
-				</p>
-			</div>
-			<div class="min-w-0">
-				<label for="players-search" class="block text-sm font-medium text-gray-200">Search</label>
-				<input
-					id="players-search"
-					bind:value={search}
-					placeholder="Filter usernames…"
-					class="mt-3 w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-purple-500 focus:outline-none"
-				/>
-			</div>
+	<!-- CONTROLS -->
+	<div class="controls">
+		<div class="search-bare">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3" stroke-linecap="round"/></svg>
+			<input class="input-bare" bind:value={search} placeholder="Filter usernames…" />
 		</div>
+		<div class="sort-row">
+			<span class="sort-label">Sort by</span>
+			<div class="tabs-underline">
+				<button class="tab-btn" class:active={sortBy === 'games'} onclick={() => (sortBy = 'games')}>Games</button>
+				<button class="tab-btn" class:active={sortBy === 'wins'} onclick={() => (sortBy = 'wins')}>Wins</button>
+				<button class="tab-btn" class:active={sortBy === 'winrate'} onclick={() => (sortBy = 'winrate')}>Win %</button>
+				<button class="tab-btn" class:active={sortBy === 'avgvp'} onclick={() => (sortBy = 'avgvp')}>Avg VP</button>
+				<button class="tab-btn" class:active={sortBy === 'avgplace'} onclick={() => (sortBy = 'avgplace')}>Avg Place</button>
+				<button class="tab-btn" class:active={sortBy === 'recent'} onclick={() => (sortBy = 'recent')}>Recent</button>
+			</div>
+			<button onclick={refreshPlayers} disabled={loading} class="btn-ghost" type="button">
+				<svg class={loading ? 'spin' : ''} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+				Refresh
+			</button>
+		</div>
+	</div>
 
-		{#if loading && players.length === 0}
-			<div class="flex flex-col items-center justify-center py-20">
-				<div
-					class="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-purple-500 border-t-transparent"
-				></div>
-				<p class="text-gray-400">Loading players…</p>
+	{#if loading && players.length === 0}
+		<div class="msg"><div class="spin-ring"></div><p>Loading roster…</p></div>
+	{:else if error}
+		<div class="msg msg-error"><h3>Roster unavailable</h3><p>{error}</p></div>
+	{:else if filteredPlayers().length === 0}
+		<div class="msg"><h3>No matches</h3><p>{players.length === 0 ? 'Verify a game to populate the roster.' : 'No players match this search.'}</p></div>
+	{:else}
+		<div class="players-table">
+			<div class="pt-head">
+				<div>Player</div>
+				<div class="num">Games</div>
+				<div class="num">Wins</div>
+				<div class="num">Win %</div>
+				<div class="num">Avg VP</div>
+				<div class="num">Avg Place</div>
+				<div class="num">Last Played</div>
 			</div>
-		{:else if error}
-			<div class="rounded-lg border border-red-800 bg-red-900/20 p-6 text-center">
-				<p class="text-sm text-red-300">{error}</p>
-			</div>
-		{:else if filteredPlayers().length === 0}
-			<div class="flex flex-col items-center justify-center py-16 text-center">
-				{#if players.length === 0 && search.trim() === ''}
-					<div class="mb-2 text-sm text-gray-200">No player stats yet.</div>
-					<div class="text-sm text-gray-400">
-						Verify at least one game to start tracking profiles.
+			{#each filteredPlayers() as p (p.username_key)}
+				<a href={`/players/${encodeURIComponent(p.username)}`} class="pt-row">
+					<div class="player-cell">
+						<span class="player-name">{p.username}</span>
 					</div>
-				{:else}
-					<div class="mb-3 text-sm text-gray-400">No players match this search.</div>
-				{/if}
-			</div>
-		{:else}
-			<div class="overflow-hidden rounded-xl border border-gray-800">
-				<div class="overflow-x-auto bg-gray-900/40">
-					<table class="min-w-full divide-y divide-gray-800 text-sm">
-						<thead class="bg-gray-900/70">
-							<tr class="text-left text-xs tracking-wide text-gray-500 uppercase">
-								<th class="px-4 py-3">Player</th>
-								<th class="px-4 py-3">Games</th>
-								<th class="px-4 py-3">Wins</th>
-								<th class="px-4 py-3">Win %</th>
-								<th class="px-4 py-3">Avg VP</th>
-								<th class="px-4 py-3">Avg Place</th>
-								<th class="px-4 py-3">Last Game</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-gray-800">
-							{#each filteredPlayers() as p (p.username_key)}
-								<tr class="hover:bg-gray-800/40">
-									<td class="px-4 py-3">
-										<a
-											href={`/players/${encodeURIComponent(p.username)}`}
-											class="truncate font-semibold text-purple-300 hover:text-purple-200"
-										>
-											{p.username}
-										</a>
-									</td>
-									<td class="px-4 py-3 text-gray-200">{p.games_played}</td>
-									<td class="px-4 py-3 text-gray-200">{p.wins}</td>
-									<td class="px-4 py-3 text-gray-200">{p.winRatePct.toFixed(1)}%</td>
-									<td class="px-4 py-3 text-gray-200">{p.avg_victory_points.toFixed(1)}</td>
-									<td class="px-4 py-3 text-gray-200">{p.avg_placement.toFixed(2)}</td>
-									<td class="px-4 py-3 text-gray-300">{formatTimestamp(p.last_game_at)}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-			</div>
-		{/if}
-	</main>
+					<div class="num">{p.games_played}</div>
+					<div class="num">{p.wins}</div>
+					<div class="num winrate">
+						<span>{p.winRatePct.toFixed(1)}%</span>
+						<div class="winrate-bar"><div class="winrate-fill" style:width={`${Math.min(100, p.winRatePct)}%`}></div></div>
+					</div>
+					<div class="num">{p.avg_victory_points.toFixed(1)}</div>
+					<div class="num">{p.avg_placement.toFixed(2)}</div>
+					<div class="num last-cell">{formatTimestamp(p.last_game_at)}</div>
+				</a>
+			{/each}
+		</div>
+		<div class="archive-foot">Showing <b>{filteredPlayers().length}</b> of <b>{players.length}</b> binders</div>
+	{/if}
 </div>
+
+<style>
+	.page { max-width: 1280px; margin: 0 auto; padding: 56px 32px 80px; position: relative; z-index: 1; }
+
+	/* PAGE HEADER */
+	.page-header {
+		margin-bottom: 48px;
+	}
+	.page-title {
+		font-family: var(--font-display);
+		font-size: clamp(3.5rem, 7vw, 5.5rem);
+		line-height: 0.9;
+		letter-spacing: 0.02em;
+		color: var(--color-bone);
+		margin: 8px 0 14px;
+	}
+	.page-desc { color: var(--color-fog); font-size: 0.92rem; line-height: 1.55; max-width: 68ch; margin: 0; }
+	.upd { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 0.7rem; color: var(--color-fog); margin-left: 12px; }
+	.dot-pulse { width: 6px; height: 6px; background: var(--brand-teal); border-radius: 50%; box-shadow: 0 0 6px var(--brand-teal); }
+
+	/* CONTROLS */
+	.controls {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		margin-bottom: 24px;
+	}
+	.sort-row {
+		display: flex;
+		align-items: flex-end;
+		gap: 20px;
+		flex-wrap: wrap;
+	}
+	.sort-label {
+		font-family: var(--font-display);
+		font-size: 0.6rem;
+		letter-spacing: 0.3em;
+		color: var(--color-fog);
+		padding-bottom: 12px;
+		white-space: nowrap;
+	}
+	.search-bare { position: relative; display: flex; align-items: center; }
+	.search-bare svg { position: absolute; left: 0; width: 16px; height: 16px; color: var(--color-fog); pointer-events: none; }
+	.search-bare .input-bare { padding-left: 28px; min-width: 300px; }
+
+	/* TABLE */
+	.players-table { margin-top: 8px; border-top: 1px solid var(--color-mist); }
+	.pt-head, .pt-row {
+		display: grid;
+		grid-template-columns: minmax(220px, 2fr) 80px 70px 130px 90px 110px 160px;
+		align-items: center;
+		gap: 16px;
+		padding: 14px 8px;
+		border-bottom: 1px solid var(--color-mist);
+	}
+	.pt-head {
+		font-family: var(--font-display);
+		font-size: 0.6rem;
+		letter-spacing: 0.22em;
+		color: var(--color-fog);
+	}
+	.pt-row {
+		text-decoration: none;
+		color: inherit;
+		transition: background 180ms ease;
+	}
+	.pt-row:hover { background: rgba(255, 43, 199, 0.04); }
+
+	.player-name {
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		line-height: 1;
+		letter-spacing: 0.01em;
+		color: var(--color-bone);
+		transition: color 180ms ease;
+	}
+	.pt-row:hover .player-name { color: var(--brand-magenta-soft); }
+
+	.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--color-bone); font-weight: 600; font-size: 0.92rem; }
+	.last-cell { font-family: var(--font-mono); font-size: 0.78rem; color: var(--color-fog); font-weight: 400; }
+	.winrate { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+	.winrate-bar { width: 92px; height: 2px; background: var(--color-mist); }
+	.winrate-fill { height: 100%; background: var(--brand-magenta); }
+
+	.archive-foot { margin-top: 28px; text-align: center; font-size: 0.78rem; color: var(--color-fog); }
+	.archive-foot b { color: var(--color-bone); font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+
+	.msg { padding: 80px 24px; text-align: center; color: var(--color-fog); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+	.msg h3 { font-family: var(--font-display); font-size: 1.8rem; color: var(--color-bone); margin: 0; }
+	.msg p { max-width: 50ch; margin: 0; }
+	.msg-error h3 { color: var(--color-blood); }
+	.spin-ring { width: 32px; height: 32px; border: 2px solid var(--color-mist); border-top-color: var(--brand-magenta); border-radius: 50%; animation: spin 1s linear infinite; }
+	.spin { animation: spin 1s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
+
+	@media (max-width: 960px) {
+		.pt-head, .pt-row { grid-template-columns: 1.4fr 70px 110px 90px 130px; gap: 12px; }
+		.pt-head > div:nth-child(3), .pt-row > div:nth-child(3),
+		.pt-head > div:nth-child(6), .pt-row > div:nth-child(6) { display: none; }
+	}
+	@media (max-width: 560px) {
+		.page { padding: 36px 22px 60px; }
+		.pt-head, .pt-row { grid-template-columns: 1fr 60px 90px; gap: 10px; }
+		.pt-head > div:nth-child(n+4), .pt-row > div:nth-child(n+4) { display: none; }
+		.controls { align-items: stretch; }
+		.search-bare .input-bare { min-width: 0; width: 100%; }
+	}
+</style>

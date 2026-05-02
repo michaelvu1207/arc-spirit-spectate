@@ -131,12 +131,13 @@
 </section>
 
 <style>
+	/* On-screen: dark brand panel. Print: white. */
 	.print-page {
-		background: white;
-		color: black;
-		border: 1px solid #e5e7eb;
-		border-radius: 10px;
-		padding: 16px;
+		background: var(--color-shadow);
+		color: var(--color-bone);
+		border: 1px solid var(--color-mist);
+		border-radius: 4px;
+		padding: 20px;
 		margin: 0 auto 16px;
 	}
 
@@ -144,18 +145,26 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
-		margin-bottom: 10px;
+		margin-bottom: 12px;
+		padding-bottom: 10px;
+		border-bottom: 2px solid var(--brand-magenta);
 	}
 
 	.title {
-		font-weight: 800;
-		font-size: 16px;
-		letter-spacing: -0.01em;
+		font-family: var(--font-display);
+		font-size: 1.6rem;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--color-bone);
+		line-height: 1;
 	}
 
 	.meta {
-		color: #4b5563;
-		font-size: 12px;
+		font-family: var(--font-display);
+		font-size: 0.75rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--color-fog);
 	}
 
 	.players-grid {
@@ -165,13 +174,14 @@
 	}
 
 	.player-card {
-		border: 1px solid #e5e7eb;
-		border-radius: 10px;
+		border: 1px solid var(--color-mist);
+		border-radius: 4px;
 		padding: 10px;
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
 		break-inside: avoid;
+		background: var(--color-tomb);
 	}
 
 	.player-header {
@@ -182,17 +192,20 @@
 	}
 
 	.player-color {
-		font-size: 10px;
-		font-weight: 800;
-		letter-spacing: 0.08em;
+		font-family: var(--font-display);
+		font-size: 0.65rem;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		color: #374151;
+		color: var(--brand-magenta);
 	}
 
 	.player-name {
-		font-size: 13px;
-		font-weight: 800;
+		font-family: var(--font-display);
+		font-size: 1rem;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
 		text-align: right;
+		color: var(--color-bone);
 	}
 
 	.stats {
@@ -207,64 +220,67 @@
 		justify-content: space-between;
 		gap: 8px;
 		font-size: 11px;
-		padding: 6px 8px;
-		border-radius: 8px;
-		background: #f9fafb;
-		border: 1px solid #f3f4f6;
+		padding: 5px 8px;
+		border-radius: 2px;
+		background: var(--color-crypt);
+		border: 1px solid var(--color-mist);
 	}
 
 	.stat .label {
-		color: #6b7280;
-		font-weight: 700;
+		font-family: var(--font-display);
+		font-size: 0.6rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--color-fog);
 	}
 
 	.stat .value {
-		font-weight: 800;
+		font-family: var(--font-display);
+		font-size: 0.85rem;
+		color: var(--color-bone);
 	}
 
 	.section-title {
-		font-size: 10px;
-		font-weight: 800;
-		letter-spacing: 0.08em;
+		font-family: var(--font-display);
+		font-size: 0.6rem;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		color: #6b7280;
+		color: var(--color-fog);
 		margin-bottom: 4px;
 	}
 
 	.slots-grid {
 		display: grid;
-		gap: 6px;
+		gap: 4px;
 	}
 
-	.slots-7 {
-		grid-template-columns: repeat(7, minmax(0, 1fr));
-	}
-
-	.slots-4 {
-		grid-template-columns: repeat(4, minmax(0, 1fr));
-	}
+	.slots-7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+	.slots-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 	.slot {
-		border: 1px solid #e5e7eb;
-		border-radius: 8px;
-		padding: 6px;
-		min-height: 42px;
+		border: 1px solid var(--color-mist);
+		border-radius: 2px;
+		padding: 4px;
+		min-height: 40px;
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 3px;
 		overflow: hidden;
+		background: var(--color-crypt);
 	}
 
 	.slot-index {
-		font-size: 10px;
-		font-weight: 800;
-		color: #6b7280;
+		font-family: var(--font-display);
+		font-size: 0.55rem;
+		letter-spacing: 0.06em;
+		color: var(--brand-magenta);
 	}
 
 	.slot-value {
-		font-size: 10px;
-		font-weight: 700;
+		font-size: 9px;
+		font-family: var(--font-body);
 		line-height: 1.15;
+		color: var(--color-parchment);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		display: -webkit-box;
@@ -275,21 +291,22 @@
 	.chips {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 6px;
+		gap: 5px;
 	}
 
 	.chip {
-		font-size: 10px;
-		border: 1px solid #e5e7eb;
-		border-radius: 999px;
-		padding: 4px 8px;
-		background: #fff;
+		font-family: var(--font-body);
+		font-size: 9px;
+		border: 1px solid var(--color-mist);
+		border-radius: 2px;
+		padding: 3px 7px;
+		background: var(--color-crypt);
+		color: var(--color-parchment);
 		white-space: nowrap;
 	}
 
 	.chip.muted {
-		color: #6b7280;
-		background: #f9fafb;
+		color: var(--color-fog);
 	}
 
 	.bags-row {
@@ -304,31 +321,44 @@
 		display: flex;
 		gap: 8px;
 		align-items: baseline;
-		padding: 6px 10px;
-		border: 1px solid #e5e7eb;
-		border-radius: 999px;
-		background: #f9fafb;
+		padding: 5px 12px;
+		border: 1px solid var(--color-mist);
+		border-radius: 2px;
+		background: var(--color-tomb);
 	}
 
 	.bag .label {
-		font-size: 10px;
-		font-weight: 800;
-		letter-spacing: 0.06em;
+		font-family: var(--font-display);
+		font-size: 0.6rem;
+		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: #6b7280;
+		color: var(--color-fog);
 	}
 
 	.bag .value {
-		font-size: 12px;
-		font-weight: 900;
+		font-family: var(--font-display);
+		font-size: 1rem;
+		color: var(--color-bone);
 	}
 
 	@media print {
 		.print-page {
+			background: white !important;
+			color: black !important;
 			border: none;
 			border-radius: 0;
 			padding: 0;
 			margin: 0;
 		}
+		.player-card, .slot, .stat, .bag, .chip {
+			background: white !important;
+			border-color: #e5e7eb !important;
+			color: black !important;
+		}
+		.player-color, .slot-index { color: black !important; }
+		.player-name, .stat .value, .bag .value { color: black !important; }
+		.stat .label, .section-title, .bag .label, .meta { color: #6b7280 !important; }
+		.title { color: black !important; font-size: 14px !important; }
+		.page-header { border-bottom-color: black !important; }
 	}
 </style>

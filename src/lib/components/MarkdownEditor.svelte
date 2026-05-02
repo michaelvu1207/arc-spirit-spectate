@@ -64,7 +64,7 @@
 			<div class="toolbar-group">
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('**', '**')}
 					title="Bold (**text**)"
 				>
@@ -76,7 +76,7 @@
 				</button>
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('*', '*')}
 					title="Italic (*text*)"
 				>
@@ -86,7 +86,7 @@
 				</button>
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('~~', '~~')}
 					title="Strikethrough (~~text~~)"
 				>
@@ -103,7 +103,7 @@
 			<div class="toolbar-group">
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('## ')}
 					title="Heading (## text)"
 				>
@@ -115,7 +115,7 @@
 				</button>
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('- ')}
 					title="Bullet List (- item)"
 				>
@@ -127,7 +127,7 @@
 				</button>
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('1. ')}
 					title="Numbered List (1. item)"
 				>
@@ -139,7 +139,7 @@
 				</button>
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('> ')}
 					title="Quote (> text)"
 				>
@@ -151,7 +151,7 @@
 				</button>
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('`', '`')}
 					title="Inline Code (`code`)"
 				>
@@ -168,7 +168,7 @@
 			<div class="toolbar-group">
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('[', '](url)')}
 					title="Link ([text](url))"
 				>
@@ -180,7 +180,7 @@
 				</button>
 				<button
 					type="button"
-					class="toolbar-btn"
+					class="btn-pill toolbar-btn"
 					onclick={() => insertSyntax('\n---\n')}
 					title="Horizontal Rule (---)"
 				>
@@ -218,7 +218,7 @@
 			<textarea class="markdown-textarea" value={textareaValue} oninput={handleInput} {placeholder}
 			></textarea>
 		{:else}
-			<div class="markdown-preview">
+			<div class="brand-panel markdown-preview">
 				{#if textareaValue.trim()}
 					{@html renderedHtml}
 				{:else}
@@ -239,10 +239,10 @@
 
 <style>
 	.markdown-editor-container {
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 6px;
+		border: 1px solid var(--color-mist);
+		border-radius: 4px;
 		overflow: hidden;
-		background: rgba(0, 0, 0, 0.3);
+		background: var(--color-crypt);
 	}
 
 	.editor-toolbar {
@@ -251,8 +251,8 @@
 		justify-content: space-between;
 		gap: 0.5rem;
 		padding: 0.5rem;
-		background: rgba(255, 255, 255, 0.03);
-		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		background: var(--color-tomb);
+		border-bottom: 1px solid var(--color-mist);
 		flex-wrap: wrap;
 	}
 
@@ -271,62 +271,55 @@
 	.toolbar-divider {
 		width: 1px;
 		height: 24px;
-		background: rgba(255, 255, 255, 0.1);
+		background: var(--color-mist);
 		margin: 0 0.25rem;
 	}
 
+	/* Toolbar buttons — solid dark squares, magenta on active/hover */
 	.toolbar-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		background: transparent;
-		border: none;
+		padding: 6px 8px;
 		border-radius: 4px;
-		color: #9ca3af;
-		cursor: pointer;
-		transition: all 0.15s ease;
+		background: var(--color-crypt);
+		border: 1px solid var(--color-mist);
+		color: var(--color-fog);
+		transition: border-color 150ms ease, color 150ms ease;
 	}
-
 	.toolbar-btn:hover {
-		background: rgba(255, 255, 255, 0.08);
-		color: #e5e5e5;
+		color: var(--brand-magenta);
+		border-color: var(--brand-magenta);
 	}
-
 	.toolbar-btn svg {
-		width: 16px;
-		height: 16px;
+		width: 15px;
+		height: 15px;
 	}
 
 	.mode-toggle {
 		display: flex;
-		background: rgba(0, 0, 0, 0.3);
-		border-radius: 4px;
+		background: var(--color-crypt);
+		border: 1px solid var(--color-mist);
+		border-radius: 2px;
 		overflow: hidden;
+		padding: 2px;
+		gap: 2px;
 	}
 
 	.mode-btn {
-		padding: 0.375rem 0.75rem;
-		font-family: 'JetBrains Mono', monospace;
+		padding: 0.3rem 0.85rem;
+		font-family: var(--font-display);
 		font-size: 0.7rem;
-		font-weight: 500;
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: #6b7280;
+		letter-spacing: 0.16em;
+		color: var(--color-fog);
 		background: transparent;
 		border: none;
+		border-radius: 2px;
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: background 150ms ease, color 150ms ease;
 	}
-
-	.mode-btn:hover {
-		color: #9ca3af;
-	}
-
+	.mode-btn:hover { color: var(--color-parchment); }
 	.mode-btn.active {
-		background: rgba(139, 92, 246, 0.2);
-		color: #a78bfa;
+		background: var(--brand-magenta);
+		color: #fff;
 	}
 
 	.editor-content {
@@ -339,33 +332,34 @@
 		min-height: 150px;
 		max-height: 350px;
 		padding: 0.75rem 1rem;
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 0.9rem;
-		line-height: 1.6;
-		color: #e5e5e5;
+		font-family: var(--font-mono);
+		font-size: 0.875rem;
+		line-height: 1.65;
+		color: var(--color-parchment);
 		background: transparent;
 		border: none;
 		resize: vertical;
 		outline: none;
+		box-sizing: border-box;
 	}
-
-	.markdown-textarea::placeholder {
-		color: #6b7280;
-	}
+	.markdown-textarea::placeholder { color: var(--color-whisper); }
 
 	.markdown-preview {
 		padding: 0.75rem 1rem;
 		min-height: 150px;
 		max-height: 350px;
 		overflow-y: auto;
-		font-family: 'Crimson Pro', Georgia, serif;
-		font-size: 1rem;
-		line-height: 1.7;
-		color: #e5e5e5;
+		font-family: var(--font-body);
+		font-size: 0.95rem;
+		line-height: 1.75;
+		color: var(--color-parchment);
+		border-radius: 0;
+		border: none;
+		background: var(--color-crypt);
 	}
 
 	.preview-placeholder {
-		color: #6b7280;
+		color: var(--color-whisper);
 		font-style: italic;
 	}
 
@@ -374,139 +368,88 @@
 	.markdown-preview :global(h2),
 	.markdown-preview :global(h3),
 	.markdown-preview :global(h4) {
-		font-family: 'JetBrains Mono', monospace;
-		font-weight: 600;
-		color: #f3f4f6;
+		font-family: var(--font-display);
+		font-weight: 700;
+		color: var(--color-bone);
 		margin: 0 0 0.75rem 0;
+		letter-spacing: 0.05em;
 	}
+	.markdown-preview :global(h1) { font-size: 1.5rem; }
+	.markdown-preview :global(h2) { font-size: 1.25rem; }
+	.markdown-preview :global(h3) { font-size: 1.1rem; }
 
-	.markdown-preview :global(h1) {
-		font-size: 1.5rem;
-	}
-	.markdown-preview :global(h2) {
-		font-size: 1.25rem;
-	}
-	.markdown-preview :global(h3) {
-		font-size: 1.1rem;
-	}
-
-	.markdown-preview :global(p) {
-		margin: 0 0 0.75rem 0;
-	}
-
-	.markdown-preview :global(p:last-child) {
-		margin-bottom: 0;
-	}
+	.markdown-preview :global(p)           { margin: 0 0 0.75rem 0; }
+	.markdown-preview :global(p:last-child) { margin-bottom: 0; }
 
 	.markdown-preview :global(ul),
-	.markdown-preview :global(ol) {
-		margin: 0 0 0.75rem 0;
-		padding-left: 1.5rem;
-	}
-
-	.markdown-preview :global(li) {
-		margin-bottom: 0.25rem;
-	}
+	.markdown-preview :global(ol) { margin: 0 0 0.75rem 0; padding-left: 1.5rem; }
+	.markdown-preview :global(li) { margin-bottom: 0.25rem; }
 
 	.markdown-preview :global(blockquote) {
 		margin: 0.75rem 0;
 		padding: 0.5rem 1rem;
-		border-left: 3px solid rgba(139, 92, 246, 0.5);
-		background: rgba(139, 92, 246, 0.05);
-		color: #d1d5db;
+		border-left: 3px solid var(--brand-magenta);
+		background: rgba(255, 43, 199, 0.04);
+		color: var(--color-fog);
 		font-style: italic;
+		border-radius: 0 6px 6px 0;
 	}
+	.markdown-preview :global(blockquote p) { margin: 0; }
 
-	.markdown-preview :global(blockquote p) {
-		margin: 0;
-	}
-
-	.markdown-preview :global(strong) {
-		font-weight: 600;
-		color: #f3f4f6;
-	}
-
-	.markdown-preview :global(em) {
-		font-style: italic;
-	}
-
-	.markdown-preview :global(del) {
-		text-decoration: line-through;
-		color: #9ca3af;
-	}
+	.markdown-preview :global(strong) { font-weight: 700; color: var(--color-bone); }
+	.markdown-preview :global(em)     { font-style: italic; }
+	.markdown-preview :global(del)    { text-decoration: line-through; color: var(--color-fog); }
 
 	.markdown-preview :global(code) {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.85em;
 		padding: 0.125rem 0.375rem;
-		background: rgba(139, 92, 246, 0.15);
-		border-radius: 3px;
-		color: #c4b5fd;
+		background: rgba(123, 29, 255, 0.18);
+		border-radius: 4px;
+		color: var(--brand-violet-soft);
 	}
 
 	.markdown-preview :global(pre) {
 		margin: 0.75rem 0;
 		padding: 0.75rem 1rem;
-		background: rgba(0, 0, 0, 0.4);
-		border-radius: 4px;
+		background: rgba(5, 3, 16, 0.6);
+		border-radius: 8px;
 		overflow-x: auto;
 	}
+	.markdown-preview :global(pre code) { padding: 0; background: transparent; }
 
-	.markdown-preview :global(pre code) {
-		padding: 0;
-		background: transparent;
-	}
-
-	.markdown-preview :global(a) {
-		color: #a78bfa;
-		text-decoration: underline;
-	}
-
-	.markdown-preview :global(a:hover) {
-		color: #c4b5fd;
-	}
+	.markdown-preview :global(a)       { color: var(--brand-cyan); text-decoration: underline; }
+	.markdown-preview :global(a:hover) { color: var(--brand-cyan-soft); }
 
 	.markdown-preview :global(hr) {
 		margin: 1rem 0;
 		border: none;
-		border-top: 1px solid rgba(255, 255, 255, 0.1);
+		border-top: 1px solid var(--color-mist);
 	}
 
 	.markdown-help {
 		padding: 0.5rem 0.75rem;
-		background: rgba(255, 255, 255, 0.02);
-		border-top: 1px solid rgba(255, 255, 255, 0.05);
+		background: rgba(26, 15, 46, 0.4);
+		border-top: 1px solid var(--color-mist);
 	}
 
 	.help-text {
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 0.65rem;
-		color: #6b7280;
+		font-family: var(--font-mono);
+		font-size: 0.62rem;
+		color: var(--color-whisper);
 	}
-
-	.help-text strong {
-		color: #9ca3af;
-	}
+	.help-text strong { color: var(--color-fog); }
 
 	/* Scrollbar */
 	.markdown-textarea::-webkit-scrollbar,
-	.markdown-preview::-webkit-scrollbar {
-		width: 6px;
-	}
-
+	.markdown-preview::-webkit-scrollbar         { width: 6px; }
 	.markdown-textarea::-webkit-scrollbar-track,
-	.markdown-preview::-webkit-scrollbar-track {
-		background: transparent;
-	}
-
+	.markdown-preview::-webkit-scrollbar-track   { background: transparent; }
 	.markdown-textarea::-webkit-scrollbar-thumb,
-	.markdown-preview::-webkit-scrollbar-thumb {
-		background: rgba(139, 92, 246, 0.3);
+	.markdown-preview::-webkit-scrollbar-thumb   {
+		background: rgba(123, 29, 255, 0.35);
 		border-radius: 3px;
 	}
-
 	.markdown-textarea::-webkit-scrollbar-thumb:hover,
-	.markdown-preview::-webkit-scrollbar-thumb:hover {
-		background: rgba(139, 92, 246, 0.5);
-	}
+	.markdown-preview::-webkit-scrollbar-thumb:hover { background: var(--brand-violet); }
 </style>

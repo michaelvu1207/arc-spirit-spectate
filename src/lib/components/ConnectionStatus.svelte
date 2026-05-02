@@ -10,22 +10,18 @@
 
 {#if !isConnected}
 	<div class="connection-banner fixed bottom-4 left-1/2 z-50 -translate-x-1/2 transform">
-		<div
-			class="flex items-center gap-3 rounded-lg border border-yellow-800 bg-yellow-950/90 px-4 py-3 shadow-lg backdrop-blur-sm"
-		>
+		<div class="banner-inner" class:reconnecting={isReconnecting} class:disconnected={!isReconnecting}>
 			{#if isReconnecting}
 				<!-- Reconnecting state -->
-				<div
-					class="h-4 w-4 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent"
-				></div>
-				<span class="text-sm font-medium text-yellow-400">Reconnecting...</span>
+				<span class="spinner"></span>
+				<span class="banner-text banner-amber">Reconnecting...</span>
 			{:else}
 				<!-- Disconnected state -->
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					viewBox="0 0 20 20"
 					fill="currentColor"
-					class="h-5 w-5 text-yellow-500"
+					class="banner-icon banner-coral"
 				>
 					<path
 						fill-rule="evenodd"
@@ -33,12 +29,9 @@
 						clip-rule="evenodd"
 					/>
 				</svg>
-				<span class="text-sm font-medium text-yellow-400">Connection lost</span>
+				<span class="banner-text banner-coral">Connection lost</span>
 				{#if onReconnect}
-					<button
-						onclick={onReconnect}
-						class="ml-2 rounded-md bg-yellow-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-yellow-500 focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 focus:ring-offset-yellow-950 focus:outline-none"
-					>
+					<button onclick={onReconnect} class="reconnect-btn">
 						Reconnect
 					</button>
 				{/if}
@@ -53,13 +46,85 @@
 	}
 
 	@keyframes slide-up {
-		from {
-			opacity: 0;
-			transform: translate(-50%, 20px);
-		}
-		to {
-			opacity: 1;
-			transform: translate(-50%, 0);
-		}
+		from { opacity: 0; transform: translate(-50%, 20px); }
+		to   { opacity: 1; transform: translate(-50%, 0); }
+	}
+
+	/* Reconnecting = amber solid pill, Disconnected = coral solid pill */
+	.banner-inner {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 18px;
+		border-radius: 2px;
+		border: none;
+	}
+
+	.banner-inner.reconnecting {
+		background: var(--brand-amber);
+	}
+
+	.banner-inner.disconnected {
+		background: var(--brand-coral);
+	}
+
+	/* Spinner for reconnecting */
+	.spinner {
+		display: inline-block;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		border: 2px solid rgba(0, 0, 0, 0.25);
+		border-top-color: var(--color-void);
+		animation: spin 0.75s linear infinite;
+		flex-shrink: 0;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.banner-icon {
+		width: 18px;
+		height: 18px;
+		flex-shrink: 0;
+		color: var(--color-void);
+	}
+
+	.banner-text {
+		font-family: var(--font-display);
+		font-size: 0.85rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		white-space: nowrap;
+		color: var(--color-void);
+	}
+
+	/* Keep these classes but override color to dark on solid backgrounds */
+	.banner-amber { color: var(--color-void); }
+	.banner-coral { color: var(--color-void); }
+
+	.reconnect-btn {
+		display: inline-flex;
+		align-items: center;
+		padding: 5px 12px;
+		border-radius: 2px;
+		border: none;
+		background: var(--color-void);
+		color: var(--brand-magenta);
+		font-family: var(--font-display);
+		font-size: 0.75rem;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		cursor: pointer;
+		transition: background 180ms ease;
+		white-space: nowrap;
+	}
+	.reconnect-btn:hover {
+		background: var(--color-shadow);
+	}
+	.reconnect-btn:focus-visible {
+		outline: 2px solid var(--color-void);
+		outline-offset: 2px;
 	}
 </style>

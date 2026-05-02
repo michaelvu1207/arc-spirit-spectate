@@ -216,16 +216,16 @@
 	xmlns="http://www.w3.org/2000/svg"
 	preserveAspectRatio="xMidYMid meet"
 >
-	<!-- Gradient definitions for loading skeleton -->
+	<!-- Gradient definitions for loading skeleton — brand violet tones -->
 	<defs>
 		<linearGradient id="skeleton-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-			<stop offset="0%" stop-color="rgb(55 65 81)" stop-opacity="0.5">
+			<stop offset="0%" stop-color="rgb(34, 20, 64)" stop-opacity="0.7">
 				<animate attributeName="offset" values="-1;2" dur="1.5s" repeatCount="indefinite" />
 			</stop>
-			<stop offset="50%" stop-color="rgb(75 85 99)" stop-opacity="0.8">
+			<stop offset="50%" stop-color="rgb(90, 43, 255)" stop-opacity="0.5">
 				<animate attributeName="offset" values="-0.5;2.5" dur="1.5s" repeatCount="indefinite" />
 			</stop>
-			<stop offset="100%" stop-color="rgb(55 65 81)" stop-opacity="0.5">
+			<stop offset="100%" stop-color="rgb(34, 20, 64)" stop-opacity="0.7">
 				<animate attributeName="offset" values="0;3" dur="1.5s" repeatCount="indefinite" />
 			</stop>
 		</linearGradient>
@@ -277,7 +277,7 @@
 					<polygon
 						points={hex.corners.map((c) => `${c.x},${c.y}`).join(' ')}
 						fill="url(#skeleton-gradient)"
-						stroke="rgb(75 85 99)"
+						stroke="rgb(58, 38, 112)"
 						stroke-width="2"
 					/>
 				</g>

@@ -8,6 +8,7 @@ import type {
 	HexSpiritAsset,
 	GuardianAsset,
 	RuneAsset,
+	CustomDiceAsset,
 	MonsterAsset,
 	IconPoolEntry,
 	ClassTrait,
@@ -19,6 +20,7 @@ import type {
 // Reactive state using Svelte 5 runes
 let spiritAssets = $state<Map<string, HexSpiritAsset>>(new Map());
 let runeAssets = $state<Map<string, RuneAsset>>(new Map());
+let customDiceAssets = $state<Map<string, CustomDiceAsset>>(new Map());
 let monsterAssets = $state<Map<string, MonsterAsset>>(new Map());
 let guardianAssets = $state<Map<string, GuardianAsset>>(new Map());
 let classTraits = $state<Map<string, ClassTrait>>(new Map());
@@ -63,6 +65,12 @@ export async function loadAssets() {
 			newRunes.set(rune.id, rune);
 		}
 		runeAssets = newRunes;
+
+		const newCustomDice = new Map<string, CustomDiceAsset>();
+		for (const die of assets.customDice) {
+			newCustomDice.set(die.id, die);
+		}
+		customDiceAssets = newCustomDice;
 
 		const newMonsters = new Map<string, MonsterAsset>();
 		for (const monster of assets.monsters) {
@@ -166,6 +174,10 @@ export function getOriginTrait(originId: string): OriginTrait | null {
 	return originTraits.get(originId) ?? null;
 }
 
+export function getCustomDiceAsset(diceId: string): CustomDiceAsset | null {
+	return customDiceAssets.get(diceId) ?? null;
+}
+
 // Export reactive getters for use in components
 export function getAssetState() {
 	return {
@@ -174,6 +186,9 @@ export function getAssetState() {
 		},
 		get runeAssets() {
 			return runeAssets;
+		},
+		get customDiceAssets() {
+			return customDiceAssets;
 		},
 		get monsterAssets() {
 			return monsterAssets;

@@ -7,7 +7,7 @@
 
 <svelte:head>
 	<link rel="icon" href="/favicon.png" type="image/png" />
-	<meta name="theme-color" content="#0a0812" />
+	<meta name="theme-color" content="#050310" />
 </svelte:head>
 
 <div class="app haunted-bg">

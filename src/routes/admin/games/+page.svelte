@@ -48,175 +48,308 @@
 	<title>Admin Games | Arc Spirits</title>
 </svelte:head>
 
-<main class="mx-auto w-full max-w-6xl flex-1 px-4 py-8 text-white">
-	<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-		<div class="min-w-0">
-			<h1 class="text-xl font-bold text-gray-100">Admin · Games</h1>
-			<p class="mt-1 text-sm text-gray-400">
-				Showing games over 10 turns. Verify games to make them show up by default and on the
-				leaderboard.
-			</p>
+<main class="admin-main">
+	<div class="admin-header">
+		<div class="admin-header-text">
+			<span class="eyebrow">Admin</span>
+			<h1 class="admin-title">Games</h1>
+			<p class="admin-desc">Showing games over 10 turns. Verify games to make them show up by default and on the leaderboard.</p>
 		</div>
-		<div class="flex items-center gap-2">
+		<div class="admin-actions">
 			<form method="POST" action="?/recompute">
 				<button
 					type="submit"
 					disabled={Boolean(data.configError)}
-					class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-gray-100 hover:bg-gray-700 disabled:opacity-50"
+					class="btn-secondary"
 					title="Recompute verified stats + ratings"
 				>
-					Recompute stats
+					Recompute Stats
 				</button>
 			</form>
-			<a
-				href="/admin/logout"
-				class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-gray-100 hover:bg-gray-700"
-			>
-				Log out
-			</a>
+			<a href="/admin/logout" class="btn-ghost">Log out</a>
 		</div>
 	</div>
 
 	{#if data.configError}
-		<div
-			class="mb-6 rounded-lg border border-yellow-800 bg-yellow-900/20 p-4 text-sm text-yellow-200"
-		>
-			{data.configError}
-		</div>
+		<div class="alert-warn">{data.configError}</div>
 	{/if}
 
-	<div class="overflow-x-auto rounded-lg border border-gray-800 bg-gray-900/40">
-		<table class="w-full min-w-[880px] text-left text-sm">
-			<thead class="border-b border-gray-800 text-xs tracking-wide text-gray-400 uppercase">
-				<tr>
-					<th class="px-4 py-3">Status</th>
-					<th class="px-4 py-3">Game</th>
-					<th class="px-4 py-3">Ended</th>
-					<th class="px-4 py-3">Rounds</th>
-					<th class="px-4 py-3">Players</th>
-					<th class="px-4 py-3">Median Turn</th>
-					<th class="px-4 py-3">Winner</th>
-					<th class="px-4 py-3 text-right">Actions</th>
-				</tr>
-			</thead>
-			<tbody class="divide-y divide-gray-800">
-				{#each data.games as g (g.game_id)}
-					<tr class="hover:bg-gray-900/60">
-						<td class="px-4 py-3">
-							{#if g.verified}
-								<span
-									class="inline-flex items-center rounded-full bg-green-900/40 px-2 py-0.5 text-xs font-semibold text-green-200"
-								>
-									Verified
-								</span>
-							{:else}
-								<span
-									class="inline-flex items-center rounded-full bg-yellow-900/40 px-2 py-0.5 text-xs font-semibold text-yellow-200"
-								>
-									Unverified
-								</span>
-							{/if}
-						</td>
-						<td class="px-4 py-3">
-							<div class="font-semibold text-gray-100">{g.game_id}</div>
-							<div class="mt-1 text-xs text-gray-500">Started {formatTimestamp(g.started_at)}</div>
-						</td>
-						<td class="px-4 py-3 text-gray-300">{formatTimestamp(g.ended_at)}</td>
-						<td class="px-4 py-3 text-gray-300">{g.navigation_count}</td>
-						<td class="px-4 py-3 text-gray-300">{g.player_count}</td>
-						<td class="px-4 py-3 text-gray-300">{formatDuration(g.avg_navigation_ms)}</td>
-						<td class="px-4 py-3 text-gray-300">
-							{#if g.winner_guardian}
-								<span class="font-semibold text-gray-100">{g.winner_guardian}</span>
-								<span class="text-gray-400">({g.winner_vp} VP)</span>
-							{:else}
-								—
-							{/if}
-						</td>
-						<td class="px-4 py-3">
-							<div class="flex items-center justify-end gap-2">
-								<a
-									class="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-100 hover:bg-gray-700"
-									href={`/game/${encodeURIComponent(g.game_id)}`}
-								>
-									View
-								</a>
-								<a
-									class="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-100 hover:bg-gray-700"
-									href={`/admin/games/${encodeURIComponent(g.game_id)}`}
-								>
-									Tags
-								</a>
-								{#if g.verified}
-									<form method="POST" action="?/unverify">
-										<input type="hidden" name="gameId" value={g.game_id} />
-										<button
-											type="submit"
-											class="rounded-md bg-yellow-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-yellow-600"
-										>
-											Unverify
-										</button>
-									</form>
-								{:else}
-									<form method="POST" action="?/verify">
-										<input type="hidden" name="gameId" value={g.game_id} />
-										<button
-											type="submit"
-											class="rounded-md bg-green-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-600"
-										>
-											Verify
-										</button>
-									</form>
-								{/if}
-							</div>
-						</td>
+	<div class="table-wrap">
+		<div class="table-scroll">
+			<table class="data-table">
+				<thead>
+					<tr class="thead-row">
+						<th class="th">Status</th>
+						<th class="th">Game</th>
+						<th class="th">Ended</th>
+						<th class="th num">Rounds</th>
+						<th class="th num">Players</th>
+						<th class="th">Median Turn</th>
+						<th class="th">Winner</th>
+						<th class="th right">Actions</th>
 					</tr>
-				{/each}
-			</tbody>
-		</table>
+				</thead>
+				<tbody>
+					{#each data.games as g, i (g.game_id)}
+						<tr class="td-row" class:alt={i % 2 === 1}>
+							<td class="td">
+								{#if g.verified}
+									<span class="badge badge-verified">Verified</span>
+								{:else}
+									<span class="badge badge-pending">Unverified</span>
+								{/if}
+							</td>
+							<td class="td">
+								<div class="game-id">{g.game_id}</div>
+								<div class="game-meta">Started {formatTimestamp(g.started_at)}</div>
+							</td>
+							<td class="td td-muted">{formatTimestamp(g.ended_at)}</td>
+							<td class="td big-num">{g.navigation_count}</td>
+							<td class="td big-num">{g.player_count}</td>
+							<td class="td td-muted">{formatDuration(g.avg_navigation_ms)}</td>
+							<td class="td">
+								{#if g.winner_guardian}
+									<span class="winner-name">{g.winner_guardian}</span>
+									<span class="winner-vp">{g.winner_vp} VP</span>
+								{:else}
+									<span class="td-muted">—</span>
+								{/if}
+							</td>
+							<td class="td">
+								<div class="row-actions">
+									<a class="btn-ghost btn-sm" href={`/game/${encodeURIComponent(g.game_id)}`}>View</a>
+									<a class="btn-ghost btn-sm" href={`/admin/games/${encodeURIComponent(g.game_id)}`}>Tags</a>
+									{#if g.verified}
+										<form method="POST" action="?/unverify">
+											<input type="hidden" name="gameId" value={g.game_id} />
+											<button type="submit" class="btn-warn btn-sm">Unverify</button>
+										</form>
+									{:else}
+										<form method="POST" action="?/verify">
+											<input type="hidden" name="gameId" value={g.game_id} />
+											<button type="submit" class="btn-primary btn-sm">Verify</button>
+										</form>
+									{/if}
+								</div>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
 	</div>
 
-	<div class="mt-8 rounded-xl border border-gray-800 bg-gray-900/40 p-5">
-		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-			<div class="min-w-0">
-				<h2 class="text-sm font-semibold text-gray-200">Stats</h2>
-				<p class="mt-1 text-xs text-gray-500">
-					Derived from verified games (and tags you add). Links support deep-linking to a round +
-					player view.
-				</p>
+	<!-- stats panel -->
+	<div class="stats-panel">
+		<div class="stats-panel-head">
+			<div>
+				<h2 class="stats-panel-title">Stats</h2>
+				<p class="stats-panel-desc">Derived from verified games (and tags you add). Links support deep-linking to a round + player view.</p>
 			</div>
-			<a
-				href="/stats"
-				class="inline-flex items-center justify-center rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-gray-100 hover:bg-gray-700"
-			>
-				Open stats
-			</a>
+			<a href="/stats" class="btn-primary">Open Stats</a>
 		</div>
 
-		<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-			<a
-				href="/stats/tags"
-				class="rounded-xl border border-gray-800 bg-gray-900/40 p-5 hover:bg-gray-900/60"
-			>
-				<div class="text-sm font-semibold text-gray-100">Composition Tags</div>
-				<div class="mt-1 text-xs text-gray-500">Ranked by average VP / placement.</div>
+		<div class="stats-links">
+			<a href="/stats/tags" class="stats-link">
+				<div class="stats-link-name">Composition Tags</div>
+				<div class="stats-link-desc">Ranked by average VP / placement.</div>
 			</a>
-
-			<a
-				href="/stats/characters"
-				class="rounded-xl border border-gray-800 bg-gray-900/40 p-5 hover:bg-gray-900/60"
-			>
-				<div class="text-sm font-semibold text-gray-100">Characters</div>
-				<div class="mt-1 text-xs text-gray-500">Average VP / placement by character.</div>
+			<a href="/stats/characters" class="stats-link">
+				<div class="stats-link-name">Characters</div>
+				<div class="stats-link-desc">Average VP / placement by character.</div>
 			</a>
-
-			<a
-				href="/stats/traits"
-				class="rounded-xl border border-gray-800 bg-gray-900/40 p-5 hover:bg-gray-900/60"
-			>
-				<div class="text-sm font-semibold text-gray-100">Trait Stats</div>
-				<div class="mt-1 text-xs text-gray-500">Exact class/origin counts (e.g. 4 Fighters).</div>
+			<a href="/stats/traits" class="stats-link">
+				<div class="stats-link-name">Trait Stats</div>
+				<div class="stats-link-desc">Exact class/origin counts (e.g. 4 Fighters).</div>
 			</a>
 		</div>
 	</div>
 </main>
+
+<style>
+	.admin-main {
+		max-width: 1280px;
+		margin: 0 auto;
+		padding: 48px 32px 80px;
+		position: relative;
+		z-index: 1;
+	}
+
+	/* header */
+	.admin-header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 24px;
+		flex-wrap: wrap;
+		margin-bottom: 32px;
+	}
+	.eyebrow {
+		font-family: var(--font-display);
+		font-size: 0.62rem;
+		letter-spacing: 0.32em;
+		text-transform: uppercase;
+		color: var(--brand-cyan);
+	}
+	.admin-title {
+		font-family: var(--font-display);
+		font-size: clamp(3rem, 5vw, 4.5rem);
+		font-weight: 400;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		line-height: 0.95;
+		color: var(--color-bone);
+		margin: 6px 0 8px;
+	}
+	.admin-desc { color: var(--color-parchment); font-size: 0.88rem; max-width: 56ch; margin: 0; }
+	.admin-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 28px; }
+
+	/* alert */
+	.alert-warn {
+		border: 1px solid var(--brand-amber);
+		background: rgba(255, 186, 61, 0.08);
+		padding: 14px 18px;
+		color: var(--brand-amber-soft);
+		font-size: 0.88rem;
+		margin-bottom: 24px;
+	}
+
+	/* table */
+	.table-wrap { border: 1px solid var(--color-mist); overflow: hidden; margin-bottom: 32px; }
+	.table-scroll { overflow-x: auto; }
+	.data-table { width: 100%; min-width: 880px; border-collapse: collapse; }
+
+	.thead-row { background: var(--brand-magenta); }
+	.th {
+		padding: 14px 16px;
+		font-family: var(--font-display);
+		font-size: 1rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #fff;
+		font-weight: 400;
+		text-align: left;
+		white-space: nowrap;
+	}
+	.th.num { text-align: right; }
+	.th.right { text-align: right; }
+
+	.td-row {
+		background: var(--color-tomb);
+		border-bottom: 1px solid var(--color-mist);
+		transition: background 140ms ease;
+	}
+	.td-row.alt { background: rgba(34, 20, 64, 0.5); }
+	.td-row:hover { background: rgba(255, 43, 199, 0.05); }
+
+	.td { padding: 12px 16px; color: var(--color-parchment); font-size: 0.88rem; vertical-align: middle; }
+	.td-muted { color: var(--color-fog); }
+
+	.game-id { font-weight: 600; color: var(--color-bone); font-size: 0.88rem; word-break: break-all; }
+	.game-meta { margin-top: 2px; font-size: 0.72rem; color: var(--color-fog); }
+
+	.big-num {
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		letter-spacing: 0.01em;
+		color: var(--color-bone);
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+	}
+
+	.winner-name { font-weight: 600; color: var(--color-bone); display: block; }
+	.winner-vp { font-size: 0.75rem; color: var(--brand-amber-soft); }
+
+	/* badges */
+	.badge {
+		display: inline-flex;
+		align-items: center;
+		padding: 3px 10px;
+		font-family: var(--font-display);
+		font-size: 0.72rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+	}
+	.badge-verified {
+		background: rgba(32, 224, 193, 0.12);
+		border: 1px solid rgba(32, 224, 193, 0.4);
+		color: var(--brand-teal);
+	}
+	.badge-pending {
+		background: rgba(255, 186, 61, 0.08);
+		border: 1px solid rgba(255, 186, 61, 0.35);
+		color: var(--brand-amber-soft);
+	}
+
+	/* row actions */
+	.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+
+	.btn-sm {
+		padding: 6px 12px !important;
+		font-size: 0.66rem !important;
+	}
+
+	.btn-warn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 12px 24px;
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 0.7rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--color-void);
+		background: var(--brand-amber);
+		border: none;
+		cursor: pointer;
+		transition: background 180ms ease;
+	}
+	.btn-warn:hover { background: var(--brand-amber-soft); }
+
+	/* stats panel */
+	.stats-panel {
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+		padding: 24px 28px;
+	}
+	.stats-panel-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 20px;
+		flex-wrap: wrap;
+		margin-bottom: 20px;
+	}
+	.stats-panel-title {
+		font-family: var(--font-display);
+		font-size: 1.6rem;
+		color: var(--color-bone);
+		margin: 0 0 4px;
+	}
+	.stats-panel-desc { font-size: 0.8rem; color: var(--color-fog); margin: 0; max-width: 52ch; }
+
+	.stats-links {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		gap: 1px;
+		background: var(--color-mist);
+	}
+	.stats-link {
+		background: var(--color-shadow);
+		padding: 18px 20px;
+		text-decoration: none;
+		color: inherit;
+		transition: background 160ms ease;
+	}
+	.stats-link:hover { background: rgba(255, 43, 199, 0.06); }
+	.stats-link-name { font-family: var(--font-display); font-size: 1.1rem; color: var(--color-bone); }
+	.stats-link-desc { margin-top: 4px; font-size: 0.78rem; color: var(--color-fog); }
+
+	@media (max-width: 640px) {
+		.admin-main { padding: 32px 20px 60px; }
+		.admin-header { flex-direction: column; }
+		.admin-actions { padding-top: 0; }
+	}
+</style>

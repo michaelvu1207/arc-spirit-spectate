@@ -36,6 +36,13 @@ export interface SpiritRuneAttachmentSnapshot {
 	[key: string]: unknown;
 }
 
+// One entry of a player's configured attack-dice pool (from TTS dice spawner panel).
+// Counts of zero are dropped at the source so consumers can iterate as-is.
+export interface PlayerDiceEntry {
+	diceId: string; // Either a `custom_dice.id` or the literal "defense_dice" sentinel
+	count: number;
+}
+
 // Spirits drawn to hand for the current navigation round
 export interface HandDrawSnapshot {
 	guid: string;
@@ -90,13 +97,14 @@ export interface PlayerSnapshot {
 	blood: number;
 	victoryPoints: number;
 	barrier: number;
-	maxTokens?: number; // barrier slot capacity (0-10), default 4
+	maxTokens?: number; // potential token count / barrier slot capacity (0-10), default 4
 	statusLevel: number;
 	statusToken: string | null;
 	spirits: Spirit[];
 	runes: RuneSlotSnapshot[];
 	handDraws: HandDrawSnapshot[];
 	spiritRuneAttachments: SpiritRuneAttachmentSnapshot[];
+	dice: PlayerDiceEntry[];
 }
 
 // Full game state snapshot row from Supabase
@@ -121,6 +129,7 @@ export interface GameSnapshot {
 	tts_username: string | null;
 	navigation_destination: string | null;
 	spirit_rune_attachments: SpiritRuneAttachmentSnapshot[]; // JSONB parsed
+	dice: PlayerDiceEntry[]; // JSONB parsed
 	created_at: string;
 	updated_at: string;
 }
@@ -147,6 +156,7 @@ export interface GameSnapshotRow {
 	tts_username: string | null;
 	navigation_destination: string | null;
 	spirit_rune_attachments: string | SpiritRuneAttachmentSnapshot[]; // JSONB may come as string or parsed
+	dice: string | PlayerDiceEntry[]; // JSONB may come as string or parsed
 	created_at: string;
 	updated_at: string;
 }
@@ -183,6 +193,30 @@ export interface RuneAsset {
 	icon_path: string | null;
 }
 
+export interface CustomDiceAsset {
+	id: string;
+	name: string;
+	description: string | null;
+	color: string | null;
+	dice_type: 'attack' | 'special';
+	background_image_path: string | null;
+	template_image_path: string | null;
+	exported_template_path: string | null;
+	sides: CustomDiceSideAsset[];
+}
+
+export interface CustomDiceSideAsset {
+	id: string;
+	dice_id: string;
+	side_number: number;
+	reward_type: 'attack' | 'special';
+	reward_value: string;
+	reward_description: string | null;
+	image_path: string | null;
+	template_x: number | null;
+	template_y: number | null;
+}
+
 // Monster asset from Supabase (arc-spirits-rev2.monsters)
 export interface MonsterAsset {
 	id: string;
@@ -204,6 +238,22 @@ export interface IconPoolEntry {
 }
 
 // Class trait from Supabase
+export type BreakpointColor = 'bronze' | 'silver' | 'gold' | 'prismatic';
+
+export interface EffectEntry {
+	type?: string;
+	description?: string;
+	[k: string]: unknown;
+}
+
+export interface ClassBreakpoint {
+	count: number | string;
+	color?: BreakpointColor;
+	description?: string;
+	effects?: EffectEntry[];
+	[k: string]: unknown;
+}
+
 export interface ClassTrait {
 	id: string;
 	name: string;
@@ -211,6 +261,22 @@ export interface ClassTrait {
 	icon_png: string | null;
 	color: string;
 	description: string | null;
+	effect_schema?: ClassBreakpoint[] | null;
+	footer?: string | null;
+	class_type?: string | null;
+	is_special?: boolean | null;
+}
+
+export interface OriginCallingCardBreakpoint {
+	count: number;
+	label?: string;
+	icon_ids?: string[];
+}
+
+export interface OriginCallingCard {
+	enabled?: boolean;
+	breakpoints?: OriginCallingCardBreakpoint[];
+	hex_spirit_id?: string | null;
 }
 
 // Origin trait from Supabase
@@ -222,6 +288,7 @@ export interface OriginTrait {
 	icon_token_png: string | null;
 	color: string;
 	description: string | null;
+	calling_card?: OriginCallingCard | null;
 }
 
 // Resolved spirit asset with image URLs for display

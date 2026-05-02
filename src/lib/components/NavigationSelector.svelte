@@ -39,29 +39,21 @@
 	}
 </script>
 
-<div class="flex flex-col gap-3 rounded-lg bg-gray-800 px-4 py-3">
+<div class="nav-selector">
 	<!-- Main navigation row -->
-	<div class="flex items-center justify-between gap-4">
+	<div class="nav-row">
 		<!-- Navigation buttons and round display -->
-		<div class="flex items-center gap-2">
+		<div class="nav-controls">
 			<!-- First button -->
 			<button
 				type="button"
 				onclick={goToFirst}
 				disabled={!canGoFirst}
-				class="nav-button"
-				class:nav-button-disabled={!canGoFirst}
+				class="nav-btn"
 				aria-label="Go to first round"
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 20 20"
-					fill="currentColor"
-					class="h-4 w-4"
-				>
-					<path
-						d="M15.79 14.77a.75.75 0 01-1.06.02l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 111.04 1.08L11.832 10l3.938 3.71a.75.75 0 01.02 1.06zm-6 0a.75.75 0 01-1.06.02l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 111.04 1.08L5.832 10l3.938 3.71a.75.75 0 01.02 1.06z"
-					/>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+					<path d="M15.79 14.77a.75.75 0 01-1.06.02l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 111.04 1.08L11.832 10l3.938 3.71a.75.75 0 01.02 1.06zm-6 0a.75.75 0 01-1.06.02l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 111.04 1.08L5.832 10l3.938 3.71a.75.75 0 01.02 1.06z" />
 				</svg>
 			</button>
 
@@ -70,30 +62,20 @@
 				type="button"
 				onclick={goToPrevious}
 				disabled={!canGoPrevious}
-				class="nav-button"
-				class:nav-button-disabled={!canGoPrevious}
+				class="nav-btn"
 				aria-label="Go to previous round"
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 20 20"
-					fill="currentColor"
-					class="h-4 w-4"
-				>
-					<path
-						fill-rule="evenodd"
-						d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z"
-						clip-rule="evenodd"
-					/>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+					<path fill-rule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clip-rule="evenodd" />
 				</svg>
 			</button>
 
 			<!-- Round display -->
-			<div class="min-w-[120px] text-center">
-				<span class="text-sm font-medium text-gray-300">Round</span>
-				<span class="mx-2 text-lg font-bold text-white">{currentRound}</span>
-				<span class="text-sm font-medium text-gray-500">/</span>
-				<span class="ml-1 text-sm font-medium text-gray-400">{maxRound}</span>
+			<div class="round-display">
+				<span class="round-eyebrow">Round</span>
+				<span class="round-number">{currentRound}</span>
+				<span class="round-sep">/</span>
+				<span class="round-max">{maxRound}</span>
 			</div>
 
 			<!-- Next button -->
@@ -101,21 +83,11 @@
 				type="button"
 				onclick={goToNext}
 				disabled={!canGoNext}
-				class="nav-button"
-				class:nav-button-disabled={!canGoNext}
+				class="nav-btn"
 				aria-label="Go to next round"
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 20 20"
-					fill="currentColor"
-					class="h-4 w-4"
-				>
-					<path
-						fill-rule="evenodd"
-						d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-						clip-rule="evenodd"
-					/>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+					<path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
 				</svg>
 			</button>
 
@@ -124,19 +96,11 @@
 				type="button"
 				onclick={goToLast}
 				disabled={!canGoLast}
-				class="nav-button"
-				class:nav-button-disabled={!canGoLast}
+				class="nav-btn"
 				aria-label="Go to last round"
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 20 20"
-					fill="currentColor"
-					class="h-4 w-4"
-				>
-					<path
-						d="M4.21 5.23a.75.75 0 011.06-.02l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.04-1.08L8.168 10 4.23 6.29a.75.75 0 01-.02-1.06zm6 0a.75.75 0 011.06-.02l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.04-1.08L14.168 10 10.23 6.29a.75.75 0 01-.02-1.06z"
-					/>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+					<path d="M4.21 5.23a.75.75 0 011.06-.02l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.04-1.08L8.168 10 4.23 6.29a.75.75 0 01-.02-1.06zm6 0a.75.75 0 011.06-.02l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.04-1.08L14.168 10 10.23 6.29a.75.75 0 01-.02-1.06z" />
 				</svg>
 			</button>
 		</div>
@@ -145,20 +109,20 @@
 		<button
 			type="button"
 			onclick={onToggleLive}
-			class="live-button"
-			class:live-button-active={isLive}
+			class="live-btn"
+			class:live-btn-active={isLive}
 			aria-label={isLive ? 'Disable live mode' : 'Enable live mode'}
 			aria-pressed={isLive}
 		>
-			<span class="live-indicator" class:live-indicator-active={isLive}></span>
-			<span class="text-sm font-medium">Live</span>
+			<span class="live-dot" class:live-dot-active={isLive}></span>
+			<span class="live-label">Live</span>
 		</button>
 	</div>
 
 	<!-- Slider for quick navigation -->
 	{#if maxRound > 1}
-		<div class="flex items-center gap-3">
-			<span class="text-xs text-gray-500">1</span>
+		<div class="slider-row">
+			<span class="slider-bound">1</span>
 			<input
 				type="range"
 				min="1"
@@ -166,155 +130,200 @@
 				value={currentRound}
 				oninput={handleSliderChange}
 				disabled={isLive}
-				class="slider"
-				class:slider-disabled={isLive}
+				class="brand-slider"
+				class:brand-slider-disabled={isLive}
 				aria-label="Round slider"
 			/>
-			<span class="text-xs text-gray-500">{maxRound}</span>
+			<span class="slider-bound">{maxRound}</span>
 		</div>
 	{/if}
 </div>
 
 <style>
-	/* Navigation button base styles */
-	.nav-button {
+	.nav-selector {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		padding: 12px 16px;
+		border-radius: 4px;
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+	}
+
+	.nav-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+	}
+
+	.nav-controls {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	/* Nav arrow buttons — solid dark squares */
+	.nav-btn {
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		width: 2rem;
 		height: 2rem;
-		border-radius: 0.375rem;
-		background-color: rgb(55 65 81); /* gray-700 */
-		color: rgb(229 231 235); /* gray-200 */
-		transition:
-			background-color 150ms ease,
-			color 150ms ease;
+		border-radius: 4px;
+		background: var(--color-crypt);
+		border: 1px solid var(--color-mist);
+		color: var(--color-parchment);
+		transition: border-color 150ms ease, color 150ms ease;
+		cursor: pointer;
 	}
-
-	.nav-button:hover:not(:disabled) {
-		background-color: rgb(75 85 99); /* gray-600 */
-		color: white;
+	.nav-btn:hover:not(:disabled) {
+		border-color: var(--brand-magenta);
+		color: var(--brand-magenta);
 	}
-
-	.nav-button:active:not(:disabled) {
-		background-color: rgb(107 114 128); /* gray-500 */
+	.nav-btn:active:not(:disabled) {
+		transform: scale(0.93);
 	}
-
-	.nav-button-disabled {
-		opacity: 0.4;
+	.nav-btn:disabled {
+		opacity: 0.3;
 		cursor: not-allowed;
 	}
 
-	/* Live button styles */
-	.live-button {
+	/* Round display */
+	.round-display {
+		min-width: 120px;
+		display: flex;
+		align-items: baseline;
+		justify-content: center;
+		gap: 6px;
+	}
+	.round-eyebrow {
+		font-family: var(--font-display);
+		font-size: 0.7rem;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		color: var(--color-fog);
+	}
+	.round-number {
+		font-family: var(--font-display);
+		font-size: 2rem;
+		line-height: 1;
+		color: var(--color-bone);
+		font-variant-numeric: tabular-nums;
+	}
+	.round-sep {
+		font-size: 0.85rem;
+		color: var(--color-whisper);
+	}
+	.round-max {
+		font-family: var(--font-display);
+		font-size: 0.9rem;
+		color: var(--color-fog);
+	}
+
+	/* Live button — solid chip */
+	.live-btn {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 0.75rem;
-		border-radius: 0.375rem;
-		background-color: rgb(55 65 81); /* gray-700 */
-		color: rgb(156 163 175); /* gray-400 */
-		transition:
-			background-color 150ms ease,
-			color 150ms ease;
+		gap: 6px;
+		padding: 7px 16px;
+		border-radius: 2px;
+		background: var(--color-crypt);
+		border: 1px solid var(--color-mist);
+		color: var(--color-fog);
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		cursor: pointer;
+		transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
 	}
-
-	.live-button:hover {
-		background-color: rgb(75 85 99); /* gray-600 */
+	.live-btn:hover {
+		border-color: var(--brand-magenta);
+		color: var(--brand-magenta);
 	}
-
-	.live-button-active {
-		background-color: rgb(20 83 45); /* green-900 */
-		color: rgb(134 239 172); /* green-300 */
+	.live-btn-active {
+		background: var(--brand-magenta);
+		border-color: var(--brand-magenta);
+		color: #fff;
 	}
-
-	.live-button-active:hover {
-		background-color: rgb(22 101 52); /* green-800 */
+	.live-btn-active:hover {
+		background: var(--brand-magenta-soft);
+		border-color: var(--brand-magenta-soft);
 	}
+	.live-label { line-height: 1; }
 
 	/* Live indicator dot */
-	.live-indicator {
-		width: 0.5rem;
-		height: 0.5rem;
-		border-radius: 9999px;
-		background-color: rgb(107 114 128); /* gray-500 */
+	.live-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--color-fog);
+		flex-shrink: 0;
+		transition: background 200ms ease;
+	}
+	.live-dot-active {
+		background: #fff;
 	}
 
-	.live-indicator-active {
-		background-color: rgb(74 222 128); /* green-400 */
-		animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+	/* Slider */
+	.slider-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.slider-bound {
+		font-family: var(--font-mono);
+		font-size: 0.65rem;
+		color: var(--color-whisper);
+		flex-shrink: 0;
 	}
 
-	@keyframes pulse {
-		0%,
-		100% {
-			opacity: 1;
-		}
-		50% {
-			opacity: 0.5;
-		}
-	}
-
-	/* Slider styles */
-	.slider {
+	.brand-slider {
 		flex: 1;
-		height: 0.375rem;
-		border-radius: 9999px;
-		background-color: rgb(55 65 81); /* gray-700 */
+		height: 4px;
+		border-radius: 999px;
+		background: var(--color-mist);
 		appearance: none;
 		cursor: pointer;
+		accent-color: var(--brand-magenta);
 	}
-
-	.slider::-webkit-slider-thumb {
+	.brand-slider::-webkit-slider-thumb {
 		appearance: none;
-		width: 1rem;
-		height: 1rem;
-		border-radius: 9999px;
-		background-color: rgb(96 165 250); /* blue-400 */
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: var(--brand-magenta);
+		box-shadow: 0 0 8px rgba(255, 43, 199, 0.7);
 		cursor: pointer;
-		transition:
-			background-color 150ms ease,
-			transform 150ms ease;
+		transition: transform 150ms ease, box-shadow 150ms ease;
 	}
-
-	.slider::-webkit-slider-thumb:hover {
-		background-color: rgb(147 197 253); /* blue-300 */
-		transform: scale(1.1);
+	.brand-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.15);
+		box-shadow: 0 0 14px rgba(255, 43, 199, 1);
 	}
-
-	.slider::-moz-range-thumb {
-		width: 1rem;
-		height: 1rem;
+	.brand-slider::-moz-range-thumb {
+		width: 14px;
+		height: 14px;
 		border: none;
-		border-radius: 9999px;
-		background-color: rgb(96 165 250); /* blue-400 */
+		border-radius: 50%;
+		background: var(--brand-magenta);
+		box-shadow: 0 0 8px rgba(255, 43, 199, 0.7);
 		cursor: pointer;
-		transition:
-			background-color 150ms ease,
-			transform 150ms ease;
+		transition: transform 150ms ease;
 	}
-
-	.slider::-moz-range-thumb:hover {
-		background-color: rgb(147 197 253); /* blue-300 */
-		transform: scale(1.1);
+	.brand-slider::-moz-range-thumb:hover {
+		transform: scale(1.15);
 	}
-
-	.slider::-moz-range-track {
-		background-color: rgb(55 65 81); /* gray-700 */
-		border-radius: 9999px;
-		height: 0.375rem;
+	.brand-slider::-moz-range-track {
+		background: var(--color-mist);
+		border-radius: 999px;
+		height: 4px;
 	}
-
-	.slider-disabled {
-		opacity: 0.4;
+	.brand-slider-disabled {
+		opacity: 0.35;
 		cursor: not-allowed;
 	}
-
-	.slider-disabled::-webkit-slider-thumb {
-		cursor: not-allowed;
-	}
-
-	.slider-disabled::-moz-range-thumb {
-		cursor: not-allowed;
-	}
+	.brand-slider-disabled::-webkit-slider-thumb { cursor: not-allowed; }
+	.brand-slider-disabled::-moz-range-thumb     { cursor: not-allowed; }
 </style>

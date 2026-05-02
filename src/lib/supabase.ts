@@ -28,10 +28,13 @@ import type {
 	LeaderboardEntryRow,
 	RatingLeaderboardRow,
 	MonsterAsset,
+	CustomDiceAsset,
+	CustomDiceSideAsset,
 	OriginTrait,
 	PlayerFeedback,
 	PlayerBarrierTotalsRow,
 	PlayerBloodTotalsRow,
+	PlayerDiceEntry,
 	PlayerFavoriteSpiritsRow,
 	PlayerStatsRow,
 	RuneAsset,
@@ -84,7 +87,9 @@ export const TABLES = {
 	GUARDIANS: 'guardians',
 	CLASSES: 'classes',
 	ORIGINS: 'origins',
-	ICON_POOL: 'icon_pool'
+	ICON_POOL: 'icon_pool',
+	CUSTOM_DICE: 'custom_dice',
+	DICE_SIDES: 'dice_sides'
 } as const;
 
 // Create the Supabase client for game state (arc-spirits-game-history schema)
@@ -235,6 +240,7 @@ export function unwrapGameSnapshotRow(row: GameSnapshotRow): GameSnapshot {
 			row.spirit_rune_attachments,
 			[]
 		),
+		dice: parseJsonWithFallback<PlayerDiceEntry[]>(row.dice, []),
 		created_at: row.created_at,
 		updated_at: row.updated_at
 	};
@@ -746,6 +752,7 @@ export async function fetchTraitOccurrencesVerified(params: {
 export async function fetchAssetsData(): Promise<{
 	spirits: HexSpiritAsset[];
 	runes: RuneAsset[];
+	customDice: CustomDiceAsset[];
 	monsters: MonsterAsset[];
 	statusIcons: IconPoolEntry[];
 	guardians: GuardianAsset[];
@@ -755,6 +762,8 @@ export async function fetchAssetsData(): Promise<{
 	const [
 		spiritsResult,
 		runesResult,
+		customDiceResult,
+		customDiceSidesResult,
 		monstersResult,
 		statusIconsResult,
 		guardiansResult,
@@ -766,6 +775,16 @@ export async function fetchAssetsData(): Promise<{
 			.select('id, name, cost, traits, game_print_image_path, art_raw_image_path'),
 		supabaseAssets.from(TABLES.RUNES).select('id, name, origin_id, class_id, icon_path'),
 		supabaseAssets
+			.from(TABLES.CUSTOM_DICE)
+			.select(
+				'id, name, description, color, dice_type, background_image_path, template_image_path, exported_template_path'
+			),
+		supabaseAssets
+			.from(TABLES.DICE_SIDES)
+			.select(
+				'id, dice_id, side_number, reward_type, reward_value, reward_description, image_path, template_x, template_y'
+			),
+		supabaseAssets
 			.from(TABLES.MONSTERS)
 			.select('id, name, stage, damage, barrier, image_path, card_image_path, icon'),
 		supabaseAssets
@@ -775,23 +794,40 @@ export async function fetchAssetsData(): Promise<{
 		supabaseAssets
 			.from(TABLES.GUARDIANS)
 			.select('id, name, origin_id, icon_image_path, image_mat_path, chibi_image_path'),
-		supabaseAssets.from(TABLES.CLASSES).select('id, name, position, icon_png, color, description'),
+		supabaseAssets.from(TABLES.CLASSES).select('id, name, position, icon_png, color, description, effect_schema, footer, class_type, is_special'),
 		supabaseAssets
 			.from(TABLES.ORIGINS)
-			.select('id, name, position, icon_png, icon_token_png, color, description')
+			.select('id, name, position, icon_png, icon_token_png, color, description, calling_card')
 	]);
 
 	if (spiritsResult.error) throw spiritsResult.error;
 	if (runesResult.error) throw runesResult.error;
+	if (customDiceResult.error) throw customDiceResult.error;
+	if (customDiceSidesResult.error) throw customDiceSidesResult.error;
 	if (monstersResult.error) throw monstersResult.error;
 	if (statusIconsResult.error) throw statusIconsResult.error;
 	if (guardiansResult.error) throw guardiansResult.error;
 	if (classesResult.error) throw classesResult.error;
 	if (originsResult.error) throw originsResult.error;
 
+	const customDiceSides = (customDiceSidesResult.data as CustomDiceSideAsset[]) ?? [];
+	const sidesByDiceId = new Map<string, CustomDiceSideAsset[]>();
+	for (const side of customDiceSides) {
+		const existing = sidesByDiceId.get(side.dice_id) ?? [];
+		existing.push(side);
+		sidesByDiceId.set(side.dice_id, existing);
+	}
+	for (const sides of sidesByDiceId.values()) {
+		sides.sort((a, b) => a.side_number - b.side_number);
+	}
+
 	return {
 		spirits: (spiritsResult.data as HexSpiritAsset[]) ?? [],
 		runes: (runesResult.data as RuneAsset[]) ?? [],
+		customDice: (((customDiceResult.data as Omit<CustomDiceAsset, 'sides'>[]) ?? []).map((die) => ({
+			...die,
+			sides: sidesByDiceId.get(die.id) ?? []
+		})) as CustomDiceAsset[]) ?? [],
 		monsters: (monstersResult.data as MonsterAsset[]) ?? [],
 		statusIcons: (statusIconsResult.data as IconPoolEntry[]) ?? [],
 		guardians: (guardiansResult.data as GuardianAsset[]) ?? [],

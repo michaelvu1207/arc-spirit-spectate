@@ -27,14 +27,14 @@
 		Legend
 	);
 
-	// Player color mapping for chart lines
+	// Player color mapping — saturated brand palette identity colors
 	const CHART_COLORS: Record<string, string> = {
-		Red: '#ef4444',
-		Blue: '#3b82f6',
-		Orange: '#f97316',
-		Green: '#22c55e',
-		Purple: '#a855f7',
-		Yellow: '#eab308'
+		Red: '#ff4d6d',     // --color-blood
+		Blue: '#24d4ff',    // --brand-cyan
+		Orange: '#ff704d',  // --brand-coral
+		Green: '#20e0c1',   // --brand-teal
+		Purple: '#ff2bc7',  // --brand-magenta
+		Yellow: '#ffba3d'   // --brand-amber
 	};
 
 	interface GraphDataPoint {
@@ -159,7 +159,7 @@
 			ctx.moveTo(x, chartArea.top);
 			ctx.lineTo(x, chartArea.bottom);
 			ctx.lineWidth = 2;
-			ctx.strokeStyle = 'rgba(168, 85, 247, 0.8)';
+			ctx.strokeStyle = 'rgba(255, 43, 199, 0.75)';
 			ctx.setLineDash([5, 5]);
 			ctx.stroke();
 			ctx.restore();
@@ -171,7 +171,7 @@
 			ctx.lineTo(x - 6, chartArea.top - 12);
 			ctx.lineTo(x + 6, chartArea.top - 12);
 			ctx.closePath();
-			ctx.fillStyle = 'rgba(168, 85, 247, 0.9)';
+			ctx.fillStyle = 'rgba(255, 43, 199, 0.9)';
 			ctx.fill();
 			ctx.restore();
 		}
@@ -224,22 +224,24 @@
 						display: true,
 						position: 'top',
 						labels: {
-							color: '#d1d5db',
+							color: '#d8cfee',   // --color-parchment
 							font: {
-								size: 11
+								size: 11,
+								family: "'Inter', system-ui, sans-serif"
 							},
 							usePointStyle: true,
 							pointStyle: 'circle',
-							padding: 12
+							padding: 14
 						}
 					},
 					title: {
 						display: true,
 						text: chartTitle,
-						color: '#f3f4f6',
+						color: '#f5f0ff',   // --color-bone
 						font: {
-							size: 14,
-							weight: 'bold'
+							size: 13,
+							weight: 'bold',
+							family: "'Bebas Neue', 'Impact', serif"
 						},
 						padding: {
 							top: 8,
@@ -247,12 +249,12 @@
 						}
 					},
 					tooltip: {
-						backgroundColor: 'rgba(17, 24, 39, 0.95)',
-						titleColor: '#ffffff',
-						bodyColor: '#d1d5db',
-						borderColor: '#374151',
+						backgroundColor: 'rgba(26, 15, 46, 0.97)',  // --color-crypt
+						titleColor: '#f5f0ff',
+						bodyColor: '#d8cfee',
+						borderColor: 'rgba(123, 29, 255, 0.5)',     // --brand-violet
 						borderWidth: 1,
-						padding: 10,
+						padding: 12,
 						displayColors: true,
 						callbacks: {
 							title: (items) => {
@@ -280,28 +282,28 @@
 				scales: {
 					x: {
 						grid: {
-							color: 'rgba(55, 65, 81, 0.5)',
+							color: 'rgba(46, 29, 82, 0.6)',   // --color-mist transparent
 							lineWidth: 1
 						},
 						ticks: {
-							color: '#9ca3af',
+							color: '#9a8fb8',   // --color-fog
 							font: {
 								size: 10
 							},
 							maxRotation: 0
 						},
 						border: {
-							color: '#4b5563'
+							color: 'rgba(46, 29, 82, 0.8)'
 						}
 					},
 					y: {
 						beginAtZero: true,
 						grid: {
-							color: 'rgba(55, 65, 81, 0.5)',
+							color: 'rgba(46, 29, 82, 0.6)',
 							lineWidth: 1
 						},
 						ticks: {
-							color: '#9ca3af',
+							color: '#9a8fb8',
 							font: {
 								size: 10
 							},
@@ -311,7 +313,7 @@
 									: undefined
 						},
 						border: {
-							color: '#4b5563'
+							color: 'rgba(46, 29, 82, 0.8)'
 						}
 					}
 				},
@@ -371,10 +373,10 @@
 	.resource-graph-container {
 		width: 100%;
 		height: 220px;
-		background-color: rgb(17 24 39);
-		border-radius: 0.5rem;
+		background: var(--color-shadow);
+		border-radius: 12px;
 		padding: 0.75rem;
-		border: 1px solid rgb(55 65 81);
+		border: 1px solid var(--color-mist);
 	}
 
 	canvas {

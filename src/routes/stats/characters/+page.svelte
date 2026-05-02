@@ -184,178 +184,141 @@
 	<title>Character Stats | Arc Spirits Spectate</title>
 </svelte:head>
 
-<div class="min-h-screen bg-gray-900 text-white">
-	<main class="mx-auto max-w-6xl px-4 py-8">
-		<div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-			<div class="min-w-0">
-				<a href="/stats" class="text-sm font-semibold text-purple-300 hover:text-purple-200"
-					>← Stats</a
-				>
-				<h1 class="mt-2 text-xl font-bold text-gray-100">Character Stats</h1>
-				<p class="mt-1 text-sm text-gray-400">
-					Computed from verified games (over 10 turns; players with a TTS username and ≥10 VP).
-				</p>
+<div class="stats-page">
+	<main class="stats-main">
+		<a href="/stats" class="back-link">← Stats Index</a>
+		<div class="section-marker">
+			<div class="sm-num">13</div>
+			<div class="sm-label">Guardian Index</div>
+		</div>
+		<h1 class="page-title">Character Stats</h1>
+		<p class="subhead-meta">Computed from verified games (over 10 turns; players with a TTS username and ≥10 VP).</p>
+
+		<div class="toolbar">
+			<div class="toolbar-controls">
+				<div class="ctrl-group">
+					<label for="character-sort" class="ctrl-label">Sort</label>
+					<select id="character-sort" bind:value={sortMode} class="ctrl-select">
+						<option value="avg_victory_points">Avg VP (desc)</option>
+						<option value="avg_placement">Avg Placement (asc)</option>
+						<option value="games_played">Games played (desc)</option>
+					</select>
+				</div>
+				<div class="ctrl-group">
+					<label for="character-search" class="ctrl-label">Search</label>
+					<input
+						id="character-search"
+						bind:value={search}
+						placeholder="Filter characters…"
+						class="ctrl-input"
+					/>
+				</div>
 			</div>
-			<button
-				onclick={load}
-				disabled={loading}
-				class="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-semibold text-gray-100 hover:bg-gray-700 disabled:opacity-50"
-			>
+			<button onclick={load} disabled={loading} class="btn-ghost" type="button">
+				<svg class={loading ? 'spin' : ''} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
 				Refresh
 			</button>
 		</div>
 
-		<div
-			class="mb-6 flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-800/30 p-4 sm:flex-row sm:items-end sm:justify-between"
-		>
-			<div class="min-w-0 flex-1">
-				<label for="character-sort" class="block text-sm font-semibold text-gray-200">Sort</label>
-				<select
-					id="character-sort"
-					bind:value={sortMode}
-					class="mt-3 w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 focus:border-purple-500 focus:outline-none"
-				>
-					<option value="avg_victory_points">Avg VP (desc)</option>
-					<option value="avg_placement">Avg Placement (asc)</option>
-					<option value="games_played">Games played (desc)</option>
-				</select>
-			</div>
-			<div class="min-w-0">
-				<label for="character-search" class="block text-sm font-semibold text-gray-200"
-					>Search</label
-				>
-				<input
-					id="character-search"
-					bind:value={search}
-					placeholder="Filter characters…"
-					class="mt-3 w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-600 focus:border-purple-500 focus:outline-none"
-				/>
-			</div>
-		</div>
-
 		{#if loading && rows.length === 0}
-			<div class="flex flex-col items-center justify-center py-20">
-				<div
-					class="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-purple-500 border-t-transparent"
-				></div>
-				<p class="text-gray-400">Loading character stats…</p>
+			<div class="state-msg">
+				<div class="spin-ring"></div>
+				<p>Loading character stats…</p>
 			</div>
 		{:else if error}
-			<div class="rounded-lg border border-red-800 bg-red-900/20 p-6 text-center">
-				<p class="text-sm text-red-300">{error}</p>
+			<div class="state-error">
+				<p>{error}</p>
 			</div>
 		{:else if filteredSorted().length === 0}
-			<div class="flex flex-col items-center justify-center py-16 text-center">
+			<div class="state-msg">
 				{#if rows.length === 0 && search.trim() === ''}
-					<div class="mb-2 text-sm text-gray-200">No character stats yet.</div>
-					<div class="text-sm text-gray-400">Verify at least one game to populate this page.</div>
+					<p class="state-title">No character stats yet.</p>
+					<p>Verify at least one game to populate this page.</p>
 				{:else}
-					<div class="mb-3 text-sm text-gray-400">No characters match this search.</div>
+					<p>No characters match this search.</p>
 				{/if}
 			</div>
 		{:else}
-			<div class="overflow-hidden rounded-xl border border-gray-800">
-				<div class="overflow-x-auto bg-gray-900/40">
-					<table class="min-w-full divide-y divide-gray-800 text-sm">
-						<thead class="bg-gray-900/70">
-							<tr class="text-left text-xs tracking-wide text-gray-500 uppercase">
-								<th class="px-4 py-3">Character</th>
-								<th class="px-4 py-3">Games</th>
-								<th class="px-4 py-3">Wins</th>
-								<th class="px-4 py-3">Avg VP</th>
-								<th class="px-4 py-3">Avg Place</th>
+			<div class="table-wrap">
+				<div class="table-scroll">
+					<table class="data-table">
+						<thead>
+							<tr class="thead-row">
+								<th class="th">Character</th>
+								<th class="th">Games</th>
+								<th class="th">Wins</th>
+								<th class="th num">Avg VP</th>
+								<th class="th num">Avg Place</th>
 							</tr>
 						</thead>
-						<tbody class="divide-y divide-gray-800">
-							{#each filteredSorted() as r (r.character)}
+						<tbody>
+							{#each filteredSorted() as r, i (r.character)}
 								{@const asset = getGuardianAsset(r.character)}
 								{@const key = r.character}
-								<tr class="hover:bg-gray-800/40">
-									<td class="px-4 py-3">
-										<div class="flex items-center gap-3">
-											<div
-												class="group relative block h-10 w-10 overflow-hidden rounded-lg border border-gray-700 bg-gray-800"
-												title={r.character}
-											>
+								<tr class="td-row" class:alt={i % 2 === 1}>
+									<td class="td">
+										<div class="char-cell">
+											<div class="char-portrait" title={r.character}>
 												{#if asset?.iconUrl}
 													<img
 														src={asset.iconUrl}
 														alt={r.character}
-														class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
+														class="char-img"
 														loading="lazy"
 														decoding="async"
 													/>
 												{:else}
-													<div
-														class="flex h-full w-full items-center justify-center text-xs font-semibold text-gray-300"
-													>
-														{r.character.slice(0, 2)}
-													</div>
+													<div class="char-initials">{r.character.slice(0, 2)}</div>
 												{/if}
 											</div>
-											<div class="min-w-0">
-												<div class="truncate font-semibold text-gray-100">{r.character}</div>
+											<div class="char-meta">
+												<div class="char-name">{r.character}</div>
 												{#if asset?.origin?.name}
-													<div class="mt-1 text-xs text-gray-500">{asset.origin.name}</div>
+													<div class="char-origin">{asset.origin.name}</div>
 												{/if}
 											</div>
 										</div>
 									</td>
-									<td class="px-4 py-3 text-gray-200">
-										<details class="group">
+									<td class="td">
+										<details class="game-details">
 											<summary
 												onclick={() => void ensureCharacterGamesLoaded(r)}
-												class="inline-flex cursor-pointer items-center gap-1 font-semibold text-purple-300 hover:text-purple-200"
+												class="games-summary"
 											>
-												<span>{r.games_played}</span>
-												<span class="text-xs text-gray-500">games</span>
+												<span class="big-num">{r.games_played}</span>
+												<span class="games-label">games</span>
 											</summary>
-
-											<div class="mt-3 rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+											<div class="games-panel">
 												{#if characterGamesLoading[key]}
-													<div class="text-sm text-gray-400">Loading games…</div>
+													<div class="panel-msg">Loading games…</div>
 												{:else if characterGamesErrors[key]}
-													<div class="text-sm text-red-300">{characterGamesErrors[key]}</div>
+													<div class="panel-err">{characterGamesErrors[key]}</div>
 												{:else}
 													{@const games = characterGamesByName[key] ?? []}
 													{#if games.length === 0}
-														<div class="text-sm text-gray-400">No games found.</div>
+														<div class="panel-msg">No games found.</div>
 													{:else}
-														<div class="space-y-2">
+														<div class="game-list">
 															{#each games as g (g.gameId)}
 																<a
-																	href={`/game/${encodeURIComponent(g.gameId)}?round=${g.navigationCount}${
-																		g.examplePlayerColor
-																			? `&player=${encodeURIComponent(g.examplePlayerColor)}`
-																			: ''
-																	}`}
-																	class="block rounded-md border border-gray-800 bg-gray-900/40 p-2 text-xs text-gray-200 hover:bg-gray-900/70"
+																	href={`/game/${encodeURIComponent(g.gameId)}?round=${g.navigationCount}${g.examplePlayerColor ? `&player=${encodeURIComponent(g.examplePlayerColor)}` : ''}`}
+																	class="game-link"
 																	title="Open game at final round"
 																>
-																	<div class="flex items-start justify-between gap-3">
-																		<div class="min-w-0">
-																			<div class="truncate font-semibold text-gray-100">
-																				{shortenGameId(g.gameId)}
-																			</div>
-																			<div class="mt-1 text-[11px] text-gray-500">
-																				Ended {formatTimestamp(g.endedAt)} • {g.navigationCount} rounds
-																			</div>
+																	<div class="game-link-inner">
+																		<div>
+																			<div class="game-id">{shortenGameId(g.gameId)}</div>
+																			<div class="game-meta">Ended {formatTimestamp(g.endedAt)} · {g.navigationCount} rounds</div>
 																			{#if g.examplePlayer}
-																				<div class="mt-1 text-[11px] text-gray-500">
+																				<div class="game-meta">
 																					{g.examplePlayer}
-																					{#if g.bestPlacement != null}
-																						• Place {g.bestPlacement}
-																					{/if}
-																					{#if g.bestVictoryPoints != null}
-																						• {g.bestVictoryPoints} VP
-																					{/if}
-																					{#if g.playersOnCharacter > 1}
-																						• {g.playersOnCharacter} players
-																					{/if}
+																					{#if g.bestPlacement != null} · Place {g.bestPlacement}{/if}
+																					{#if g.bestVictoryPoints != null} · {g.bestVictoryPoints} VP{/if}
+																					{#if g.playersOnCharacter > 1} · {g.playersOnCharacter} players{/if}
 																				</div>
 																			{/if}
 																		</div>
-																		<div class="shrink-0 text-purple-300">Open</div>
+																		<span class="game-open">Open</span>
 																	</div>
 																</a>
 															{/each}
@@ -365,9 +328,9 @@
 											</div>
 										</details>
 									</td>
-									<td class="px-4 py-3 text-gray-200">{r.wins}</td>
-									<td class="px-4 py-3 text-gray-200">{r.avg_victory_points.toFixed(1)}</td>
-									<td class="px-4 py-3 text-gray-200">{r.avg_placement.toFixed(2)}</td>
+									<td class="td big-num">{r.wins}</td>
+									<td class="td big-num accent">{r.avg_victory_points.toFixed(1)}</td>
+									<td class="td big-num">{r.avg_placement.toFixed(2)}</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -377,3 +340,220 @@
 		{/if}
 	</main>
 </div>
+
+<style>
+	.stats-page { min-height: 100vh; position: relative; z-index: 1; }
+	.stats-main { max-width: 1280px; margin: 0 auto; padding: 56px 32px 80px; }
+
+	.back-link {
+		display: inline-flex; align-items: center; gap: 6px;
+		font-family: var(--font-display); font-size: 0.66rem; font-weight: 700;
+		letter-spacing: 0.18em; text-transform: uppercase;
+		color: var(--brand-magenta-soft); text-decoration: none; margin-bottom: 24px;
+	}
+	.back-link:hover { color: var(--brand-magenta); }
+
+	.page-title {
+		font-family: var(--font-display);
+		font-size: clamp(3rem, 6vw, 5rem);
+		font-weight: 400;
+		letter-spacing: 0.02em;
+		text-transform: uppercase;
+		line-height: 0.95;
+		color: var(--color-bone);
+		margin: 16px 0 12px;
+	}
+
+	/* toolbar */
+	.toolbar {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 16px;
+		flex-wrap: wrap;
+		margin: 24px 0 20px;
+		padding: 16px 20px;
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+	}
+	.toolbar-controls { display: flex; gap: 20px; flex-wrap: wrap; flex: 1; }
+	.ctrl-group { display: flex; flex-direction: column; gap: 6px; min-width: 160px; }
+	.ctrl-label {
+		font-family: var(--font-display);
+		font-size: 0.62rem;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		color: var(--color-fog);
+	}
+	.ctrl-select, .ctrl-input {
+		background: var(--color-shadow);
+		border: 1px solid var(--color-mist);
+		color: var(--color-bone);
+		font-family: var(--font-body);
+		font-size: 0.88rem;
+		padding: 8px 12px;
+		border-radius: 0;
+		width: 100%;
+		transition: border-color 160ms ease;
+	}
+	.ctrl-select:focus, .ctrl-input:focus {
+		outline: none;
+		border-color: var(--brand-magenta);
+	}
+	.ctrl-input::placeholder { color: var(--color-whisper); }
+
+	/* table */
+	.table-wrap {
+		border: 1px solid var(--color-mist);
+		overflow: hidden;
+	}
+	.table-scroll { overflow-x: auto; }
+	.data-table {
+		width: 100%;
+		min-width: 640px;
+		border-collapse: collapse;
+	}
+
+	.thead-row {
+		background: var(--brand-magenta);
+	}
+	.th {
+		padding: 14px 16px;
+		font-family: var(--font-display);
+		font-size: 1rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: #fff;
+		font-weight: 400;
+		text-align: left;
+		white-space: nowrap;
+	}
+	.th.num { text-align: right; }
+
+	.td-row {
+		background: var(--color-tomb);
+		border-bottom: 1px solid var(--color-mist);
+		transition: background 140ms ease;
+	}
+	.td-row.alt { background: rgba(34, 20, 64, 0.5); }
+	.td-row:hover { background: rgba(255, 43, 199, 0.07); }
+
+	.td {
+		padding: 12px 16px;
+		color: var(--color-parchment);
+		font-size: 0.9rem;
+		vertical-align: middle;
+	}
+
+	/* big numbers in cells */
+	.big-num {
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		letter-spacing: 0.01em;
+		color: var(--color-bone);
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+	}
+	.big-num.accent { color: var(--brand-magenta); }
+
+	/* character cell */
+	.char-cell { display: flex; align-items: center; gap: 12px; }
+	.char-portrait {
+		width: 44px; height: 44px;
+		flex: none;
+		background: var(--color-shadow);
+		border: 1px solid var(--color-mist);
+		overflow: hidden;
+		display: grid;
+		place-items: center;
+	}
+	.char-img { width: 100%; height: 100%; object-fit: cover; }
+	.char-initials {
+		font-family: var(--font-display);
+		font-size: 0.9rem;
+		color: var(--color-fog);
+	}
+	.char-meta { min-width: 0; }
+	.char-name {
+		font-family: var(--font-body);
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: var(--color-bone);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.char-origin { margin-top: 2px; font-size: 0.75rem; color: var(--color-fog); }
+
+	/* games expandable */
+	.game-details { display: inline; }
+	.games-summary {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		cursor: pointer;
+		list-style: none;
+		color: var(--brand-magenta-soft);
+	}
+	.games-summary::-webkit-details-marker { display: none; }
+	.games-label { font-size: 0.75rem; color: var(--color-fog); }
+
+	.games-panel {
+		margin-top: 10px;
+		background: var(--color-shadow);
+		border: 1px solid var(--color-mist);
+		padding: 10px;
+	}
+	.panel-msg { font-size: 0.82rem; color: var(--color-fog); }
+	.panel-err { font-size: 0.82rem; color: var(--color-blood); }
+
+	.game-list { display: flex; flex-direction: column; gap: 6px; }
+	.game-link {
+		display: block;
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+		padding: 8px 10px;
+		text-decoration: none;
+		color: var(--color-parchment);
+		transition: background 140ms ease, border-color 140ms ease;
+		font-size: 0.78rem;
+	}
+	.game-link:hover { background: rgba(255, 43, 199, 0.07); border-color: var(--brand-magenta); }
+	.game-link-inner { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+	.game-id { font-weight: 600; color: var(--color-bone); font-size: 0.8rem; }
+	.game-meta { margin-top: 2px; font-size: 0.72rem; color: var(--color-fog); }
+	.game-open { flex: none; color: var(--brand-magenta-soft); font-size: 0.72rem; }
+
+	/* states */
+	.state-msg {
+		padding: 60px 24px;
+		text-align: center;
+		color: var(--color-fog);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 8px;
+	}
+	.state-title { font-family: var(--font-display); font-size: 1.4rem; color: var(--color-bone); }
+	.state-error {
+		border: 1px solid var(--color-blood);
+		background: rgba(255, 77, 109, 0.08);
+		padding: 16px 20px;
+		color: var(--color-blood);
+		font-size: 0.88rem;
+	}
+	.spin-ring {
+		width: 36px; height: 36px;
+		border: 2px solid var(--color-mist);
+		border-top-color: var(--brand-magenta);
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+	.spin { animation: spin 1s linear infinite; }
+	@keyframes spin { to { transform: rotate(360deg); } }
+
+	@media (max-width: 640px) {
+		.stats-main { padding: 36px 20px 60px; }
+		.toolbar { flex-direction: column; align-items: stretch; }
+	}
+</style>

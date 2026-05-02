@@ -54,20 +54,11 @@
 </script>
 
 {#if hasContent || onEditNotes}
-	<section class="game-notes-container">
-		<!-- Decorative corner accents -->
-		<div class="corner-accent top-left"></div>
-		<div class="corner-accent top-right"></div>
-		<div class="corner-accent bottom-left"></div>
-		<div class="corner-accent bottom-right"></div>
-
+	<section class="brand-panel brand-panel-glow game-notes-container">
 		<!-- Section Header -->
 		<header class="notes-header">
-			<div class="header-line"></div>
-			<h2 class="header-title">
-				<span class="title-accent">Game</span> Analysis
-			</h2>
-			<div class="header-line"></div>
+			<span class="eyebrow eyebrow-magenta">HOST NOTES</span>
+			<h2 class="header-title">Game Analysis</h2>
 		</header>
 
 		<div class="notes-content">
@@ -137,21 +128,21 @@
 							>
 						</div>
 						<div class="ratings-grid">
-							<div class="rating-card complexity">
+							<div class="stat-tile rating-card complexity">
 								<div class="rating-label">Complexity</div>
 								<div class="rating-value">{avg.complexity}</div>
 								<div class="rating-bar">
 									<div class="rating-fill" style="width: {parseFloat(avg.complexity) * 10}%"></div>
 								</div>
 							</div>
-							<div class="rating-card enjoyment">
+							<div class="stat-tile rating-card enjoyment">
 								<div class="rating-label">My Enjoyment</div>
 								<div class="rating-value">{avg.enjoyment}</div>
 								<div class="rating-bar">
 									<div class="rating-fill" style="width: {parseFloat(avg.enjoyment) * 10}%"></div>
 								</div>
 							</div>
-							<div class="rating-card others">
+							<div class="stat-tile rating-card others">
 								<div class="rating-label">Others' Enjoyment</div>
 								<div class="rating-value">{avg.othersEnjoyment}</div>
 								<div class="rating-bar">
@@ -238,7 +229,7 @@
 		<!-- Action Buttons -->
 		<footer class="notes-actions">
 			{#if onEditNotes}
-				<button class="action-btn host-btn" onclick={onEditNotes}>
+				<button class="btn-flame action-btn" onclick={onEditNotes}>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
 						<path
 							d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"
@@ -248,7 +239,7 @@
 				</button>
 			{/if}
 			{#if onAddFeedback}
-				<button class="action-btn feedback-btn" onclick={onAddFeedback}>
+				<button class="btn-secondary action-btn" onclick={onAddFeedback}>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
 						<path
 							fill-rule="evenodd"
@@ -264,98 +255,38 @@
 {/if}
 
 <style>
-	@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
-
 	.game-notes-container {
-		position: relative;
 		margin: 1.5rem;
 		padding: 2rem;
-		background: linear-gradient(
-			135deg,
-			rgba(15, 15, 25, 0.95) 0%,
-			rgba(25, 20, 40, 0.9) 50%,
-			rgba(15, 15, 25, 0.95) 100%
-		);
-		border: 1px solid rgba(139, 92, 246, 0.2);
+		background: var(--color-shadow);
+		border: 1px solid var(--color-mist);
 		border-radius: 4px;
-		box-shadow:
-			0 0 60px -20px rgba(139, 92, 246, 0.3),
-			inset 0 1px 0 rgba(255, 255, 255, 0.05);
 		animation: container-reveal 0.6s ease-out;
 	}
 
 	@keyframes container-reveal {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	/* Corner accents */
-	.corner-accent {
-		position: absolute;
-		width: 20px;
-		height: 20px;
-		border-color: rgba(139, 92, 246, 0.5);
-		border-style: solid;
-		border-width: 0;
-	}
-	.corner-accent.top-left {
-		top: -1px;
-		left: -1px;
-		border-top-width: 2px;
-		border-left-width: 2px;
-	}
-	.corner-accent.top-right {
-		top: -1px;
-		right: -1px;
-		border-top-width: 2px;
-		border-right-width: 2px;
-	}
-	.corner-accent.bottom-left {
-		bottom: -1px;
-		left: -1px;
-		border-bottom-width: 2px;
-		border-left-width: 2px;
-	}
-	.corner-accent.bottom-right {
-		bottom: -1px;
-		right: -1px;
-		border-bottom-width: 2px;
-		border-right-width: 2px;
+		from { opacity: 0; transform: translateY(10px); }
+		to   { opacity: 1; transform: translateY(0); }
 	}
 
 	/* Header */
 	.notes-header {
 		display: flex;
-		align-items: center;
-		gap: 1.5rem;
+		flex-direction: column;
+		gap: 0.25rem;
 		margin-bottom: 2rem;
-	}
-
-	.header-line {
-		flex: 1;
-		height: 1px;
-		background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.4), transparent);
+		padding-bottom: 1rem;
+		border-bottom: 2px solid var(--brand-magenta);
 	}
 
 	.header-title {
-		font-family: 'Crimson Pro', Georgia, serif;
-		font-size: 1.75rem;
-		font-weight: 400;
-		letter-spacing: 0.15em;
+		font-family: var(--font-display);
+		font-size: 2.2rem;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		color: #e5e5e5;
-		white-space: nowrap;
-	}
-
-	.title-accent {
-		font-weight: 600;
-		color: #a78bfa;
+		color: var(--color-bone);
+		margin: 0;
+		line-height: 1;
 	}
 
 	/* Content */
@@ -370,12 +301,12 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.7rem;
 		font-weight: 500;
 		letter-spacing: 0.2em;
 		text-transform: uppercase;
-		color: #a78bfa;
+		color: var(--brand-violet-soft);
 		margin-bottom: 0.75rem;
 	}
 
@@ -383,6 +314,7 @@
 		display: flex;
 		width: 14px;
 		height: 14px;
+		color: var(--brand-magenta);
 	}
 	.label-icon svg {
 		width: 100%;
@@ -390,7 +322,7 @@
 	}
 
 	.feedback-count {
-		color: #6b7280;
+		color: var(--color-whisper);
 		font-weight: 400;
 	}
 
@@ -400,115 +332,72 @@
 	}
 
 	.summary-text {
-		font-family: 'Crimson Pro', Georgia, serif;
-		font-size: 1.1rem;
-		line-height: 1.7;
-		color: #d1d5db;
+		font-family: var(--font-body);
+		font-size: 1rem;
+		line-height: 1.75;
+		color: var(--color-parchment);
 		padding: 1rem 1.5rem;
-		border-left: 3px solid rgba(139, 92, 246, 0.5);
-		background: rgba(139, 92, 246, 0.05);
+		border-left: 3px solid var(--brand-magenta);
+		background: rgba(255, 43, 199, 0.04);
+		border-radius: 0 8px 8px 0;
 	}
 
-	.summary-text :global(p) {
-		margin: 0 0 0.75rem 0;
-	}
-
-	.summary-text :global(p:last-child) {
-		margin-bottom: 0;
-	}
-
+	.summary-text :global(p)         { margin: 0 0 0.75rem 0; }
+	.summary-text :global(p:last-child) { margin-bottom: 0; }
 	.summary-text :global(ul),
-	.summary-text :global(ol) {
-		margin: 0 0 0.75rem 0;
-		padding-left: 1.5rem;
-	}
-
-	.summary-text :global(li) {
-		margin-bottom: 0.25rem;
-	}
+	.summary-text :global(ol)        { margin: 0 0 0.75rem 0; padding-left: 1.5rem; }
+	.summary-text :global(li)        { margin-bottom: 0.25rem; }
 
 	.summary-text :global(blockquote) {
 		margin: 0.75rem 0;
 		padding-left: 1rem;
-		border-left: 2px solid rgba(139, 92, 246, 0.4);
-		color: #9ca3af;
+		border-left: 2px solid var(--brand-violet);
+		color: var(--color-fog);
 		font-style: italic;
 	}
 
-	.summary-text :global(strong) {
-		font-weight: 600;
-		color: #f3f4f6;
-	}
-
-	.summary-text :global(em) {
-		font-style: italic;
-	}
-
-	.summary-text :global(u) {
-		text-decoration: underline;
-	}
-
+	.summary-text :global(strong) { font-weight: 600; color: var(--color-bone); }
+	.summary-text :global(em)     { font-style: italic; }
+	.summary-text :global(u)      { text-decoration: underline; }
 	.summary-text :global(s),
-	.summary-text :global(del) {
-		text-decoration: line-through;
-		color: #9ca3af;
-	}
+	.summary-text :global(del)    { text-decoration: line-through; color: var(--color-fog); }
 
 	.summary-text :global(h1),
 	.summary-text :global(h2),
 	.summary-text :global(h3),
 	.summary-text :global(h4) {
-		font-family: 'JetBrains Mono', monospace;
-		font-weight: 600;
-		color: #f3f4f6;
+		font-family: var(--font-display);
+		font-weight: 700;
+		color: var(--color-bone);
 		margin: 0 0 0.75rem 0;
 	}
-
-	.summary-text :global(h1) {
-		font-size: 1.4rem;
-	}
-	.summary-text :global(h2) {
-		font-size: 1.2rem;
-	}
-	.summary-text :global(h3) {
-		font-size: 1.05rem;
-	}
+	.summary-text :global(h1) { font-size: 1.4rem; }
+	.summary-text :global(h2) { font-size: 1.2rem; }
+	.summary-text :global(h3) { font-size: 1.05rem; }
 
 	.summary-text :global(code) {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.85em;
 		padding: 0.125rem 0.375rem;
-		background: rgba(139, 92, 246, 0.15);
+		background: rgba(123, 29, 255, 0.18);
 		border-radius: 3px;
-		color: #c4b5fd;
+		color: var(--brand-violet-soft);
 	}
 
 	.summary-text :global(pre) {
 		margin: 0.75rem 0;
 		padding: 0.75rem 1rem;
-		background: rgba(0, 0, 0, 0.4);
-		border-radius: 4px;
+		background: rgba(5, 3, 16, 0.6);
+		border-radius: 8px;
 		overflow-x: auto;
 	}
-
-	.summary-text :global(pre code) {
-		padding: 0;
-		background: transparent;
-	}
-
-	.summary-text :global(a) {
-		color: #a78bfa;
-		text-decoration: underline;
-	}
-
-	.summary-text :global(a:hover) {
-		color: #c4b5fd;
-	}
-
+	.summary-text :global(pre code) { padding: 0; background: transparent; }
+	.summary-text :global(a)        { color: var(--brand-cyan); text-decoration: underline; }
+	.summary-text :global(a:hover)  { color: var(--brand-cyan-soft); }
 	.summary-text :global(hr) {
 		margin: 1rem 0;
 		border: none;
-		border-top: 1px solid rgba(255, 255, 255, 0.1);
+		border-top: 1px solid var(--color-mist);
 	}
 
 	/* Improvements section */
@@ -530,27 +419,28 @@
 		align-items: flex-start;
 		gap: 1rem;
 		padding: 0.75rem 1rem;
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid rgba(255, 255, 255, 0.05);
-		border-radius: 2px;
+		background: rgba(123, 29, 255, 0.05);
+		border: 1px solid var(--color-mist);
+		border-radius: 8px;
 		animation: slide-in 0.4s ease-out calc(0.3s + var(--delay)) both;
 	}
 
 	.improvement-number {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.75rem;
-		font-weight: 500;
-		color: #a78bfa;
-		background: rgba(139, 92, 246, 0.15);
+		font-weight: 700;
+		color: var(--brand-cyan);
+		background: rgba(36, 212, 255, 0.1);
 		padding: 0.25rem 0.5rem;
-		border-radius: 2px;
+		border-radius: 4px;
 		flex-shrink: 0;
+		letter-spacing: 0.05em;
 	}
 
 	.improvement-text {
 		font-size: 0.95rem;
 		line-height: 1.5;
-		color: #d1d5db;
+		color: var(--color-parchment);
 	}
 
 	/* Ratings overview */
@@ -566,42 +456,34 @@
 
 	.rating-card {
 		padding: 1rem;
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid rgba(255, 255, 255, 0.05);
-		border-radius: 4px;
+		border-radius: 14px;
 		text-align: center;
 	}
 
 	.rating-label {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.65rem;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		color: #9ca3af;
+		color: var(--color-fog);
 		margin-bottom: 0.5rem;
 	}
 
 	.rating-value {
-		font-family: 'Crimson Pro', Georgia, serif;
+		font-family: var(--font-display);
 		font-size: 2.5rem;
-		font-weight: 600;
+		font-weight: 700;
 		line-height: 1;
 		margin-bottom: 0.75rem;
 	}
 
-	.rating-card.complexity .rating-value {
-		color: #f59e0b;
-	}
-	.rating-card.enjoyment .rating-value {
-		color: #10b981;
-	}
-	.rating-card.others .rating-value {
-		color: #3b82f6;
-	}
+	.rating-card.complexity .rating-value { color: var(--brand-amber); }
+	.rating-card.enjoyment  .rating-value { color: var(--brand-teal); }
+	.rating-card.others     .rating-value { color: var(--brand-cyan); }
 
 	.rating-bar {
 		height: 4px;
-		background: rgba(255, 255, 255, 0.1);
+		background: rgba(255, 255, 255, 0.08);
 		border-radius: 2px;
 		overflow: hidden;
 	}
@@ -612,15 +494,9 @@
 		transition: width 0.8s ease-out;
 	}
 
-	.rating-card.complexity .rating-fill {
-		background: linear-gradient(90deg, #f59e0b, #fbbf24);
-	}
-	.rating-card.enjoyment .rating-fill {
-		background: linear-gradient(90deg, #10b981, #34d399);
-	}
-	.rating-card.others .rating-fill {
-		background: linear-gradient(90deg, #3b82f6, #60a5fa);
-	}
+	.rating-card.complexity .rating-fill { background: var(--brand-amber); }
+	.rating-card.enjoyment  .rating-fill { background: var(--brand-teal); }
+	.rating-card.others     .rating-fill { background: var(--brand-cyan); }
 
 	/* Feedback section */
 	.feedback-section {
@@ -634,10 +510,10 @@
 
 	.feedback-card {
 		padding: 1rem 1.25rem;
-		background: rgba(255, 255, 255, 0.02);
-		border: 1px solid rgba(255, 255, 255, 0.05);
-		border-left: 3px solid rgba(139, 92, 246, 0.3);
-		border-radius: 0 4px 4px 0;
+		background: rgba(123, 29, 255, 0.04);
+		border: 1px solid var(--color-mist);
+		border-left: 3px solid var(--brand-violet);
+		border-radius: 0 8px 8px 0;
 		animation: slide-in 0.4s ease-out calc(0.5s + var(--delay)) both;
 	}
 
@@ -649,22 +525,22 @@
 	}
 
 	.player-name {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.85rem;
 		font-weight: 500;
-		color: #e5e7eb;
+		color: var(--color-bone);
 	}
 
 	.feedback-date {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.65rem;
-		color: #6b7280;
+		color: var(--color-whisper);
 	}
 
 	.feedback-text {
 		font-size: 0.9rem;
 		line-height: 1.6;
-		color: #9ca3af;
+		color: var(--color-fog);
 		margin: 0 0 0.75rem 0;
 	}
 
@@ -677,24 +553,15 @@
 		display: flex;
 		align-items: center;
 		gap: 0.25rem;
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.75rem;
-		color: #9ca3af;
+		color: var(--color-fog);
 	}
 
-	.rating-icon {
-		width: 14px;
-		height: 14px;
-	}
-	.rating-icon.complexity {
-		color: #f59e0b;
-	}
-	.rating-icon.enjoyment {
-		color: #10b981;
-	}
-	.rating-icon.others {
-		color: #3b82f6;
-	}
+	.rating-icon          { width: 14px; height: 14px; }
+	.rating-icon.complexity { color: var(--brand-amber); }
+	.rating-icon.enjoyment  { color: var(--brand-teal); }
+	.rating-icon.others     { color: var(--brand-cyan); }
 
 	/* Actions */
 	.notes-actions {
@@ -703,23 +570,7 @@
 		gap: 1rem;
 		margin-top: 2rem;
 		padding-top: 1.5rem;
-		border-top: 1px solid rgba(255, 255, 255, 0.05);
-	}
-
-	.action-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.625rem 1.25rem;
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 0.75rem;
-		font-weight: 500;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
-		border: 1px solid;
-		border-radius: 2px;
-		cursor: pointer;
-		transition: all 0.2s ease;
+		border-top: 1px solid var(--color-mist);
 	}
 
 	.action-btn svg {
@@ -727,76 +578,23 @@
 		height: 14px;
 	}
 
-	.host-btn {
-		background: rgba(139, 92, 246, 0.1);
-		border-color: rgba(139, 92, 246, 0.3);
-		color: #a78bfa;
-	}
-	.host-btn:hover {
-		background: rgba(139, 92, 246, 0.2);
-		border-color: rgba(139, 92, 246, 0.5);
-		box-shadow: 0 0 20px -5px rgba(139, 92, 246, 0.3);
-	}
-
-	.feedback-btn {
-		background: rgba(16, 185, 129, 0.1);
-		border-color: rgba(16, 185, 129, 0.3);
-		color: #34d399;
-	}
-	.feedback-btn:hover {
-		background: rgba(16, 185, 129, 0.2);
-		border-color: rgba(16, 185, 129, 0.5);
-		box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.3);
-	}
-
 	/* Animations */
 	@keyframes fade-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
+		from { opacity: 0; }
+		to   { opacity: 1; }
 	}
 
 	@keyframes slide-in {
-		from {
-			opacity: 0;
-			transform: translateX(-10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateX(0);
-		}
+		from { opacity: 0; transform: translateX(-10px); }
+		to   { opacity: 1; transform: translateX(0); }
 	}
 
 	/* Responsive */
 	@media (max-width: 640px) {
-		.game-notes-container {
-			margin: 1rem;
-			padding: 1.25rem;
-		}
-
-		.header-title {
-			font-size: 1.25rem;
-			letter-spacing: 0.1em;
-		}
-
-		.summary-text {
-			font-size: 1.1rem;
-			padding: 0.75rem 1rem;
-		}
-
-		.ratings-grid {
-			grid-template-columns: 1fr;
-		}
-
-		.notes-actions {
-			flex-direction: column;
-		}
-
-		.action-btn {
-			justify-content: center;
-		}
+		.game-notes-container { margin: 1rem; padding: 1.25rem; }
+		.header-title         { font-size: 1.25rem; }
+		.summary-text         { font-size: 0.95rem; padding: 0.75rem 1rem; }
+		.ratings-grid         { grid-template-columns: 1fr; }
+		.notes-actions        { flex-direction: column; }
 	}
 </style>

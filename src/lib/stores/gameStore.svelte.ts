@@ -62,7 +62,8 @@ function rowsToPlayerSnapshots(rows: GameSnapshot[]): PlayerSnapshot[] {
 		spirits: row.spirits,
 		runes: row.runes ?? [],
 		handDraws: row.hand_draws ?? [],
-		spiritRuneAttachments: row.spirit_rune_attachments ?? []
+		spiritRuneAttachments: row.spirit_rune_attachments ?? [],
+		dice: row.dice ?? []
 	}));
 }
 
@@ -118,12 +119,14 @@ async function fetchAllSnapshots(gameId: string): Promise<{
 			blood: snapshot.blood,
 			victoryPoints: snapshot.victory_points,
 			barrier: snapshot.barrier ?? 0,
+			maxTokens: snapshot.max_tokens ?? 4,
 			statusLevel: snapshot.status_level ?? 1,
 			statusToken: snapshot.status_token ?? null,
 			spirits: snapshot.spirits,
 			runes: snapshot.runes ?? [],
 			handDraws: snapshot.hand_draws ?? [],
-			spiritRuneAttachments: snapshot.spirit_rune_attachments ?? []
+			spiritRuneAttachments: snapshot.spirit_rune_attachments ?? [],
+			dice: snapshot.dice ?? []
 		};
 
 		if (!grouped.has(navCount)) {
@@ -264,7 +267,8 @@ function handleInsertSnapshot(payload: RealtimePayload) {
 		spirits: snapshot.spirits,
 		runes: snapshot.runes ?? [],
 		handDraws: snapshot.hand_draws ?? [],
-		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? []
+		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? [],
+		dice: snapshot.dice ?? []
 	};
 
 	if (!allRoundSnapshots.has(navCount)) {
@@ -366,7 +370,8 @@ function handleUpdateSnapshot(payload: RealtimePayload) {
 		spirits: snapshot.spirits,
 		runes: snapshot.runes ?? [],
 		handDraws: snapshot.hand_draws ?? [],
-		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? []
+		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? [],
+		dice: snapshot.dice ?? []
 	};
 
 		// Update in historical data

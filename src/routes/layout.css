@@ -1,354 +1,823 @@
 @import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
+/* === Local brand fonts (matched with arc-spirits-rev-2) === */
+@font-face {
+	font-family: 'Opsilon';
+	src: url('/fonts/Opsilon-Regular.ttf') format('truetype');
+	font-weight: normal;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Opsilon';
+	src: url('/fonts/Opsilon-Italic.ttf') format('truetype');
+	font-weight: normal;
+	font-style: italic;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Vincendo';
+	src: url('/fonts/Vincendo-Regular.ttf') format('truetype');
+	font-weight: normal;
+	font-style: normal;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Vincendo';
+	src: url('/fonts/Vincendo-Italic.ttf') format('truetype');
+	font-weight: normal;
+	font-style: italic;
+	font-display: swap;
+}
+
 /* ============================================================================
-   SPECTRAL SEANCE - Halloween Theme for Arc Spirits
+   ARC SPIRITS — Arcane Lantern Theme
+   "Fight for the Arcane Abyss"
    ============================================================================ */
 
-/* ==========================================================================
-   CSS Custom Properties - The Haunted Palette
-   ========================================================================== */
 :root {
 	color-scheme: dark;
-	--app-topbar-height: 64px;
+	--app-topbar-height: 72px;
 
-	/* === Core Colors === */
-	--color-void: #0a0812; /* Deepest black with purple undertone */
-	--color-obsidian: #120e1a; /* Primary background */
-	--color-shadow: #1a1325; /* Secondary background */
-	--color-crypt: #241a30; /* Elevated surfaces */
-	--color-tomb: #2d2240; /* Cards, panels */
-	--color-mist: #3d3255; /* Subtle borders */
+	/* === Abyss Backgrounds === */
+	--color-void: #050310;          /* Deepest abyss */
+	--color-obsidian: #0a0718;      /* Primary background */
+	--color-shadow: #11091f;        /* Section background */
+	--color-crypt: #1a0f2e;         /* Elevated surfaces */
+	--color-tomb: #221440;          /* Cards, panels */
+	--color-mist: #2e1d52;          /* Subtle borders */
+	--color-aether: #3a2670;        /* Bright borders */
 
-	/* === Accent Colors === */
-	--color-pumpkin: #ea580c; /* Primary orange */
-	--color-pumpkin-glow: #f97316; /* Lighter orange for hover */
-	--color-pumpkin-dim: #c2410c; /* Darker orange */
+	/* === Brand Primary Palette === */
+	--brand-magenta: #ff2bc7;       /* Lantern flame pink */
+	--brand-magenta-soft: #ff5dd1;
+	--brand-magenta-deep: #c41a96;
+	--brand-violet: #7b1dff;        /* Arcane violet */
+	--brand-violet-soft: #9d4dff;
+	--brand-violet-deep: #5a14c4;
+	--brand-royal: #5a2bff;         /* Royal indigo */
+	--brand-cyan: #24d4ff;          /* Spirit cyan */
+	--brand-cyan-soft: #6be3ff;
+	--brand-teal: #20e0c1;          /* Aether teal */
+	--brand-amber: #ffba3d;         /* Treasure amber */
+	--brand-amber-soft: #ffd56a;
+	--brand-coral: #ff704d;         /* Ember coral */
 
-	--color-specter: #a855f7; /* Haunted purple */
-	--color-specter-glow: #c084fc; /* Light purple glow */
-	--color-specter-deep: #7c3aed; /* Deep violet */
+	/* === Pumpkin → Magenta (Tailwind override map) === */
+	--color-pumpkin: var(--brand-magenta);
+	--color-pumpkin-glow: var(--brand-magenta-soft);
+	--color-pumpkin-dim: var(--brand-magenta-deep);
 
-	--color-toxic: #4ade80; /* Spectral green (live indicators) */
-	--color-toxic-glow: #22c55e;
+	/* === Specter → Violet === */
+	--color-specter: var(--brand-violet);
+	--color-specter-glow: var(--brand-violet-soft);
+	--color-specter-deep: var(--brand-violet-deep);
 
-	--color-blood: #dc2626; /* Crimson red */
-	--color-blood-dark: #991b1b;
+	/* === Toxic → Teal === */
+	--color-toxic: var(--brand-teal);
+	--color-toxic-glow: #6ff2dc;
 
-	--color-gold: #fbbf24; /* Victory gold */
-	--color-gold-glow: #f59e0b;
+	/* === Other === */
+	--color-blood: #ff4d6d;
+	--color-blood-dark: #c41a3d;
+	--color-gold: var(--brand-amber-soft);
+	--color-gold-glow: var(--brand-amber);
 
-	/* === Text Colors === */
-	--color-bone: #faf5eb; /* Primary text - warm white */
-	--color-parchment: #e8e2d6; /* Secondary text */
-	--color-fog: #9ca3af; /* Muted text */
-	--color-whisper: #6b7280; /* Very muted */
+	/* === Text === */
+	--color-bone: #f5f0ff;          /* Primary text */
+	--color-parchment: #d8cfee;     /* Secondary */
+	--color-fog: #9a8fb8;           /* Muted */
+	--color-whisper: #6a5d8a;       /* Very muted */
 
-	/* === Effects === */
-	--glow-pumpkin: 0 0 20px rgba(234, 88, 12, 0.4), 0 0 40px rgba(234, 88, 12, 0.2);
-	--glow-specter: 0 0 20px rgba(168, 85, 247, 0.4), 0 0 40px rgba(168, 85, 247, 0.2);
-	--glow-toxic: 0 0 15px rgba(74, 222, 128, 0.5);
-	--glow-blood: 0 0 15px rgba(220, 38, 38, 0.4);
+	/* === Glows === */
+	--glow-magenta: 0 0 20px rgba(255, 43, 199, 0.45), 0 0 48px rgba(255, 43, 199, 0.2);
+	--glow-violet: 0 0 20px rgba(123, 29, 255, 0.45), 0 0 48px rgba(123, 29, 255, 0.2);
+	--glow-cyan: 0 0 18px rgba(36, 212, 255, 0.5), 0 0 40px rgba(36, 212, 255, 0.2);
+	--glow-teal: 0 0 16px rgba(32, 224, 193, 0.55);
+	--glow-amber: 0 0 18px rgba(255, 213, 106, 0.55);
+	--glow-pumpkin: var(--glow-magenta);
+	--glow-specter: var(--glow-violet);
+	--glow-toxic: var(--glow-teal);
+	--glow-blood: 0 0 16px rgba(255, 77, 109, 0.5);
 
-	/* === Gradients === */
-	--gradient-haunted: linear-gradient(
-		135deg,
-		var(--color-obsidian) 0%,
-		var(--color-shadow) 50%,
-		#1a0f20 100%
-	);
-	--gradient-pumpkin: linear-gradient(
-		135deg,
-		var(--color-pumpkin) 0%,
-		var(--color-pumpkin-glow) 100%
-	);
-	--gradient-specter: linear-gradient(
-		135deg,
-		var(--color-specter-deep) 0%,
-		var(--color-specter) 100%
-	);
+	/* === Brand Gradients === */
+	--gradient-flame: linear-gradient(135deg, var(--brand-magenta) 0%, var(--brand-violet) 50%, var(--brand-royal) 100%);
+	--gradient-aurora: linear-gradient(135deg, var(--brand-magenta) 0%, var(--brand-violet) 35%, var(--brand-cyan) 100%);
+	--gradient-spectrum: linear-gradient(90deg, var(--brand-magenta), var(--brand-violet), var(--brand-cyan), var(--brand-teal));
+	--gradient-ember: linear-gradient(135deg, var(--brand-coral), var(--brand-amber-soft));
+	--gradient-haunted: radial-gradient(ellipse at top, #1a0a3a 0%, #0a0718 60%, #050310 100%);
+	--gradient-pumpkin: var(--gradient-flame);
+	--gradient-specter: linear-gradient(135deg, var(--brand-violet-deep) 0%, var(--brand-violet) 100%);
+
+	/* === Type ===
+	   Display = Bebas Neue (per brand kit "Arcane Header — bold, heroic, full of energy").
+	   Opsilon kept as fallback for any glyphs Bebas Neue doesn't ship.
+	   Body = Inter (per brand kit). Montserrat kept as fallback. */
+	--font-display: 'Bebas Neue', 'Opsilon', 'Cinzel', 'Impact', ui-serif, Georgia, serif;
+	--font-script: 'Vincendo', 'Opsilon', ui-serif, serif;
+	--font-body: 'Inter', 'Montserrat', system-ui, -apple-system, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+	/* Bebas Neue is condensed; bump tracking on display headings so it reads bold but airy. */
+	--display-tracking: 0.02em;
 }
 
 /* ==========================================================================
-   Base Styles
+   Base
    ========================================================================== */
 html {
-	background: var(--gradient-haunted);
+	background: var(--color-void);
 	background-attachment: fixed;
 }
 
 body {
 	background: transparent;
 	color: var(--color-bone);
-	font-family:
-		system-ui,
-		-apple-system,
-		BlinkMacSystemFont,
-		'Segoe UI',
-		Roboto,
-		'Helvetica Neue',
-		Arial,
-		sans-serif;
+	font-family: var(--font-body);
+	font-feature-settings: 'cv11', 'ss01', 'ss03';
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+	letter-spacing: 0.005em;
+}
+
+h1, h2, h3, h4, h5, h6, .font-display {
+	font-family: var(--font-display);
+	font-weight: 400; /* Bebas Neue ships at one weight; weight=400 keeps it crisp */
+	letter-spacing: var(--display-tracking);
+	text-transform: uppercase;
+	line-height: 0.95;
+}
+
+.font-mono, code, pre, kbd, samp {
+	font-family: var(--font-mono);
 }
 
 /* ==========================================================================
-   Scrollbar - Gothic Style
+   Scrollbar
    ========================================================================== */
-::-webkit-scrollbar {
-	width: 10px;
-	height: 10px;
-}
-
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track {
 	background: var(--color-obsidian);
 	border-left: 1px solid var(--color-mist);
 }
-
 ::-webkit-scrollbar-thumb {
-	background: linear-gradient(180deg, var(--color-crypt) 0%, var(--color-tomb) 100%);
-	border-radius: 2px;
+	background: linear-gradient(180deg, var(--brand-violet-deep) 0%, var(--brand-magenta-deep) 100%);
+	border-radius: 8px;
 	border: 2px solid var(--color-obsidian);
 }
-
 ::-webkit-scrollbar-thumb:hover {
-	background: linear-gradient(180deg, var(--color-tomb) 0%, var(--color-mist) 100%);
+	background: linear-gradient(180deg, var(--brand-violet) 0%, var(--brand-magenta) 100%);
 }
 
 /* ==========================================================================
-   Focus & Selection Styles
+   Focus & Selection
    ========================================================================== */
 :focus-visible {
-	outline: 2px solid var(--color-pumpkin);
+	outline: 2px solid var(--brand-magenta);
 	outline-offset: 2px;
 	border-radius: 2px;
 }
-
 ::selection {
-	background-color: rgba(234, 88, 12, 0.3);
-	color: var(--color-bone);
+	background-color: rgba(255, 43, 199, 0.35);
+	color: #fff;
 }
 
 /* ==========================================================================
-   Animated Background Mist Effect
+   Atmospheric Background — Lantern light + abyss
    ========================================================================== */
 .haunted-bg::before {
 	content: '';
 	position: fixed;
-	top: 0;
-	left: 0;
-	right: 0;
-	bottom: 0;
+	inset: 0;
 	background:
-		radial-gradient(ellipse at 20% 80%, rgba(168, 85, 247, 0.08) 0%, transparent 50%),
-		radial-gradient(ellipse at 80% 20%, rgba(234, 88, 12, 0.06) 0%, transparent 50%),
-		radial-gradient(ellipse at 50% 50%, rgba(74, 222, 128, 0.03) 0%, transparent 70%);
+		radial-gradient(ellipse 70% 50% at 50% 0%, rgba(123, 29, 255, 0.22) 0%, transparent 60%),
+		radial-gradient(ellipse 50% 40% at 15% 20%, rgba(255, 43, 199, 0.16) 0%, transparent 60%),
+		radial-gradient(ellipse 50% 40% at 85% 30%, rgba(36, 212, 255, 0.12) 0%, transparent 60%),
+		radial-gradient(ellipse 60% 60% at 50% 100%, rgba(90, 43, 255, 0.18) 0%, transparent 65%);
 	pointer-events: none;
 	z-index: 0;
-	animation: mist-drift 20s ease-in-out infinite;
+	/* Aurora drift removed — the bold brand kit calls for solid backdrops, not ambient sci-fi motion. */
 }
 
-@keyframes mist-drift {
-	0%,
-	100% {
-		opacity: 1;
-		transform: scale(1) translateY(0);
-	}
-	50% {
-		opacity: 0.7;
-		transform: scale(1.05) translateY(-20px);
-	}
+.haunted-bg::after {
+	content: '';
+	position: fixed;
+	inset: 0;
+	background-image:
+		radial-gradient(circle at 25% 30%, rgba(255, 255, 255, 0.04) 1px, transparent 1.5px),
+		radial-gradient(circle at 75% 65%, rgba(255, 43, 199, 0.06) 1px, transparent 2px),
+		radial-gradient(circle at 50% 80%, rgba(36, 212, 255, 0.06) 1px, transparent 1.5px);
+	background-size: 240px 240px, 320px 320px, 280px 280px;
+	pointer-events: none;
+	z-index: 0;
+	opacity: 0.7;
+	mix-blend-mode: screen;
 }
 
-/* ==========================================================================
-   Utility Classes
-   ========================================================================== */
-.glow-pumpkin {
-	box-shadow: var(--glow-pumpkin);
-}
-
-.glow-specter {
-	box-shadow: var(--glow-specter);
-}
-
-.glow-toxic {
-	box-shadow: var(--glow-toxic);
-}
-
-/* Flickering candle effect for live indicators */
-.flicker {
-	animation: flicker 3s ease-in-out infinite;
-}
-
-@keyframes flicker {
-	0%,
-	100% {
-		opacity: 1;
-	}
-	5% {
-		opacity: 0.8;
-	}
-	10% {
-		opacity: 1;
-	}
-	15% {
-		opacity: 0.9;
-	}
-	20% {
-		opacity: 1;
-	}
-	50% {
-		opacity: 0.95;
-	}
-	55% {
-		opacity: 0.85;
-	}
-	60% {
-		opacity: 1;
-	}
-}
-
-/* Eerie pulse for buttons/interactive elements */
-.eerie-pulse {
-	animation: eerie-pulse 2s ease-in-out infinite;
-}
-
-@keyframes eerie-pulse {
-	0%,
-	100% {
-		box-shadow: 0 0 5px rgba(234, 88, 12, 0.3);
-	}
-	50% {
-		box-shadow:
-			0 0 20px rgba(234, 88, 12, 0.5),
-			0 0 40px rgba(234, 88, 12, 0.2);
-	}
+@keyframes aurora-drift {
+	0%, 100% { opacity: 1; transform: translateY(0) scale(1); }
+	50%      { opacity: 0.85; transform: translateY(-18px) scale(1.04); }
 }
 
 /* ==========================================================================
-   Component Overrides for Tailwind Classes - Halloween Colors
+   Brand utilities
    ========================================================================== */
-/* Override gray colors to match theme */
-.bg-gray-900 {
-	background-color: var(--color-obsidian);
-}
-.bg-gray-800 {
-	background-color: var(--color-shadow);
-}
-.bg-gray-700 {
-	background-color: var(--color-crypt);
-}
-.bg-gray-950 {
-	background-color: var(--color-void);
+.brand-gradient-text {
+	background: var(--gradient-aurora);
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	color: transparent;
 }
 
-.border-gray-800 {
-	border-color: var(--color-shadow);
-}
-.border-gray-700 {
-	border-color: var(--color-crypt);
-}
-.border-gray-600 {
-	border-color: var(--color-tomb);
+.brand-flame-text {
+	background: var(--gradient-flame);
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	color: transparent;
 }
 
-.text-gray-400 {
+.brand-spectrum-bar {
+	background: var(--gradient-spectrum);
+}
+
+/* Hex clip-path */
+.hex-clip {
+	clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+/* Hex frame with glow ring */
+.hex-frame {
+	position: relative;
+	clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+	background: var(--gradient-flame);
+	padding: 2px;
+}
+.hex-frame > * {
+	clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+/* Glow utilities */
+.glow-magenta { box-shadow: var(--glow-magenta); }
+.glow-violet  { box-shadow: var(--glow-violet); }
+.glow-cyan    { box-shadow: var(--glow-cyan); }
+.glow-teal    { box-shadow: var(--glow-teal); }
+.glow-amber   { box-shadow: var(--glow-amber); }
+.glow-pumpkin { box-shadow: var(--glow-magenta); }
+.glow-specter { box-shadow: var(--glow-violet); }
+.glow-toxic   { box-shadow: var(--glow-teal); }
+
+/* Lantern-pulse for live indicators */
+.flicker { animation: lantern-pulse 3s ease-in-out infinite; }
+
+@keyframes lantern-pulse {
+	0%, 100% { opacity: 1; filter: drop-shadow(0 0 6px rgba(255, 43, 199, 0.65)); }
+	50%      { opacity: 0.92; filter: drop-shadow(0 0 14px rgba(255, 43, 199, 0.95)); }
+}
+
+.eerie-pulse { animation: arcane-pulse 2.4s ease-in-out infinite; }
+
+@keyframes arcane-pulse {
+	0%, 100% { box-shadow: 0 0 8px rgba(255, 43, 199, 0.35); }
+	50%      { box-shadow: 0 0 24px rgba(255, 43, 199, 0.6), 0 0 48px rgba(123, 29, 255, 0.3); }
+}
+
+/* Section eyebrow label like the brand kit "01 OUR LOGO" tags */
+.eyebrow {
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 0.7rem;
+	letter-spacing: 0.32em;
+	text-transform: uppercase;
+	color: var(--brand-cyan);
+}
+
+.eyebrow-magenta { color: var(--brand-magenta); }
+.eyebrow-violet  { color: var(--brand-violet-soft); }
+.eyebrow-amber   { color: var(--brand-amber-soft); }
+
+/* Brand panel — frosted card */
+.brand-panel {
+	position: relative;
+	background:
+		linear-gradient(180deg, rgba(34, 20, 64, 0.78), rgba(17, 9, 31, 0.78));
+	border: 1px solid rgba(123, 29, 255, 0.25);
+	border-radius: 18px;
+	backdrop-filter: blur(12px);
+}
+
+/* Editorial dividers + inline patterns */
+.rule         { height: 1px; background: var(--color-mist); border: 0; margin: 0; }
+.rule-soft    { height: 1px; background: rgba(123, 29, 255, 0.18); border: 0; margin: 0; }
+.rule-flame   { height: 1px; background: var(--gradient-spectrum); border: 0; opacity: 0.6; margin: 0; }
+
+/* Inline stat group: number + label with vertical hairline dividers, no boxes */
+.inline-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0;
+}
+.inline-stats > * {
+	padding: 4px 28px;
+	border-right: 1px solid var(--color-mist);
+}
+.inline-stats > *:first-child { padding-left: 0; }
+.inline-stats > *:last-child { border-right: 0; padding-right: 0; }
+.inline-stat-num {
+	display: block;
+	font-family: var(--font-display);
+	font-weight: 800;
+	font-size: 1.6rem;
+	line-height: 1;
+	color: var(--color-bone);
+	font-variant-numeric: tabular-nums;
+	letter-spacing: -0.01em;
+}
+.inline-stat-label {
+	display: block;
+	margin-top: 6px;
+	font-size: 0.6rem;
+	letter-spacing: 0.24em;
+	text-transform: uppercase;
 	color: var(--color-fog);
 }
-.text-gray-500 {
-	color: var(--color-whisper);
+
+/* Underlined text-only segmented controls */
+.tabs-underline {
+	display: inline-flex;
+	gap: 28px;
+	border-bottom: 1px solid var(--color-mist);
 }
-.text-gray-300 {
+.tab-btn {
+	position: relative;
+	padding: 10px 0;
+	background: transparent;
+	border: 0;
+	font-family: var(--font-display);
+	font-weight: 600;
+	font-size: 0.72rem;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: var(--color-fog);
+	cursor: pointer;
+	transition: color 180ms ease;
+}
+.tab-btn:hover { color: var(--color-bone); }
+.tab-btn.active { color: var(--color-bone); }
+.tab-btn.active::after {
+	content: '';
+	position: absolute;
+	left: 0; right: 0; bottom: -1px;
+	height: 2px;
+	background: var(--gradient-flame);
+}
+
+/* Plain text input (no chamber) */
+.input-bare {
+	background: transparent;
+	border: 0;
+	border-bottom: 1px solid var(--color-mist);
+	padding: 8px 0;
+	color: var(--color-bone);
+	font-family: var(--font-body);
+	font-size: 0.95rem;
+	width: 100%;
+	transition: border-color 180ms ease;
+}
+.input-bare::placeholder { color: var(--color-whisper); }
+.input-bare:focus { outline: none; border-color: var(--brand-magenta); }
+
+/* Eyebrow with number prefix */
+.kicker {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 0.62rem;
+	letter-spacing: 0.32em;
+	text-transform: uppercase;
+	color: var(--color-fog);
+}
+.kicker .kn {
+	font-family: var(--font-mono);
+	color: var(--brand-cyan);
+	font-weight: 700;
+}
+.kicker .kl {
+	width: 24px;
+	height: 1px;
+	background: currentColor;
+	opacity: 0.4;
+}
+
+.brand-panel-glow::before {
+	content: '';
+	position: absolute;
+	inset: -1px;
+	border-radius: inherit;
+	padding: 1px;
+	background: linear-gradient(135deg, rgba(255, 43, 199, 0.5), rgba(123, 29, 255, 0.3) 40%, transparent 70%);
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+	-webkit-mask-composite: xor;
+	mask-composite: exclude;
+	pointer-events: none;
+}
+
+/* Corner brackets — like brand kit cover */
+.corner-brackets {
+	position: relative;
+}
+.corner-brackets::before,
+.corner-brackets::after {
+	content: '';
+	position: absolute;
+	width: 20px;
+	height: 20px;
+	border: 2px solid var(--brand-magenta);
+	pointer-events: none;
+}
+.corner-brackets::before {
+	top: 8px; left: 8px;
+	border-right: none; border-bottom: none;
+}
+.corner-brackets::after {
+	bottom: 8px; right: 8px;
+	border-left: none; border-top: none;
+}
+
+/* Stat tile */
+.stat-tile {
+	background: linear-gradient(180deg, rgba(34, 20, 64, 0.6), rgba(17, 9, 31, 0.85));
+	border: 1px solid var(--color-mist);
+	border-radius: 14px;
+	transition: border-color 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+}
+.stat-tile:hover {
+	border-color: var(--brand-magenta);
+	transform: translateY(-2px);
+	box-shadow: 0 12px 32px -12px rgba(255, 43, 199, 0.4);
+}
+
+/* Brand buttons — match Lantern Light brand kit
+   Primary: solid magenta block, white uppercase
+   Secondary: transparent with violet hairline outline */
+.btn-primary,
+.btn-flame {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	padding: 12px 24px;
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 0.7rem;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: #fff;
+	background: var(--brand-magenta);
+	border: none;
+	border-radius: 8px;
+	cursor: pointer;
+	transition: background 180ms ease;
+}
+.btn-primary:hover,
+.btn-flame:hover {
+	background: var(--brand-magenta-soft);
+}
+.btn-primary:disabled,
+.btn-flame:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.btn-secondary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	padding: 11px 22px;
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 0.7rem;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: var(--brand-violet-soft);
+	background: transparent;
+	border: 1px solid var(--brand-violet);
+	border-radius: 8px;
+	cursor: pointer;
+	transition: all 180ms ease;
+}
+.btn-secondary:hover {
+	color: var(--brand-magenta-soft);
+	border-color: var(--brand-magenta);
+	background: rgba(255, 43, 199, 0.06);
+}
+
+.btn-ghost {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 9px 14px;
+	font-family: var(--font-display);
+	font-weight: 600;
+	font-size: 0.66rem;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
 	color: var(--color-parchment);
+	background: transparent;
+	border: 1px solid var(--color-mist);
+	border-radius: 8px;
+	cursor: pointer;
+	transition: all 180ms ease;
+}
+.btn-ghost:hover {
+	border-color: var(--brand-magenta);
+	color: var(--brand-magenta-soft);
+}
+.btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* "Menu item" pill — pill border with chevron */
+.btn-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 18px;
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 0.7rem;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: var(--color-bone);
+	background: transparent;
+	border: 1px solid var(--color-mist);
+	border-radius: 999px;
+	cursor: pointer;
+	transition: all 180ms ease;
+	text-decoration: none;
+}
+.btn-pill:hover { border-color: var(--brand-magenta); color: var(--brand-magenta-soft); }
+
+/* Section marker (matches brand kit "06 WEBSITE DIRECTION") */
+.section-marker {
+	display: flex;
+	align-items: baseline;
+	gap: 18px;
+	padding-bottom: 14px;
+	border-bottom: 1px solid var(--brand-magenta);
+	margin-bottom: 26px;
+}
+.section-marker .sm-num {
+	font-family: var(--font-display);
+	font-weight: 800;
+	font-size: 1.6rem;
+	color: var(--brand-magenta);
+	letter-spacing: 0.02em;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+.section-marker .sm-label {
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 1.05rem;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--color-bone);
 }
 
-/* Override purple to pumpkin orange for primary accents */
-.text-purple-400 {
-	color: var(--color-pumpkin-glow);
+/* Subhead (matches "DESIGN VISION" / "WHAT TO INCLUDE") */
+.subhead {
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 0.78rem;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--color-bone);
+	margin: 0 0 12px;
 }
-.text-purple-500 {
-	color: var(--color-pumpkin);
-}
-.border-purple-500 {
-	border-color: var(--color-pumpkin);
-}
-.bg-purple-500 {
-	background-color: var(--color-pumpkin);
-}
-.shadow-purple-500\/10 {
-	box-shadow: 0 4px 6px -1px rgba(234, 88, 12, 0.1);
-}
-.shadow-purple-500\/20 {
-	box-shadow: 0 4px 6px -1px rgba(234, 88, 12, 0.2);
-}
-.shadow-purple-500\/30 {
-	box-shadow: 0 4px 6px -1px rgba(234, 88, 12, 0.3);
+.subhead-meta {
+	margin: 0 0 16px;
+	color: var(--color-parchment);
+	font-size: 0.92rem;
+	line-height: 1.55;
+	max-width: 60ch;
 }
 
-.from-purple-500 {
-	--tw-gradient-from: var(--color-specter-deep);
+/* Icon strip (matches "WHAT TO INCLUDE" row of 5 bordered cells) */
+.icon-strip {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 0;
+	border: 1px solid var(--brand-magenta);
+	border-radius: 6px;
+	overflow: hidden;
 }
-.from-purple-600 {
-	--tw-gradient-from: var(--color-specter-deep);
+.icon-strip > * {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 14px;
+	padding: 26px 16px;
+	border-right: 1px solid var(--brand-magenta);
+	color: var(--brand-magenta-soft);
+	text-decoration: none;
+	background: transparent;
+	border-top: 0;
+	border-bottom: 0;
+	border-left: 0;
+	font: inherit;
+	cursor: pointer;
+	transition: background 180ms ease, color 180ms ease;
 }
-.to-blue-600 {
-	--tw-gradient-to: var(--color-pumpkin);
-}
-.to-indigo-600 {
-	--tw-gradient-to: var(--color-pumpkin-dim);
-}
-.to-blue-700 {
-	--tw-gradient-to: var(--color-pumpkin-dim);
+.icon-strip > *:last-child { border-right: 0; }
+.icon-strip > *:hover { background: rgba(255, 43, 199, 0.06); color: var(--brand-magenta); }
+.icon-strip-icon { width: 28px; height: 28px; }
+.icon-strip-icon svg { width: 100%; height: 100%; stroke: currentColor; fill: none; stroke-width: 1.6; }
+.icon-strip-label {
+	font-family: var(--font-display);
+	font-weight: 700;
+	font-size: 0.66rem;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--color-bone);
 }
 
-/* Green stays green but more toxic/spectral */
-.text-green-400 {
-	color: var(--color-toxic);
+/* Hex icon frame (matches the standalone hex icon from brand kit) */
+.hex-icon-frame {
+	position: relative;
+	width: 56px;
+	height: 64px;
+	display: grid;
+	place-items: center;
+}
+.hex-icon-frame::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+	background: var(--brand-magenta);
+	z-index: 0;
+}
+.hex-icon-frame::after {
+	content: '';
+	position: absolute;
+	inset: 1px;
+	clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+	background: var(--color-void);
+	z-index: 1;
+}
+.hex-icon-frame > * {
+	position: relative;
+	z-index: 2;
+	color: var(--brand-magenta);
+	width: 60%;
+	height: 60%;
+	display: grid;
+	place-items: center;
+}
+.hex-icon-frame > * svg { width: 100%; height: 100%; filter: drop-shadow(0 0 6px var(--brand-magenta)); }
+
+/* Lantern icon (used in nav and hero) */
+.lantern-mark {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	border-radius: 12px;
+	background: var(--gradient-flame);
+	box-shadow: var(--glow-magenta);
+	color: #fff;
+	font-family: var(--font-display);
+	font-weight: 800;
+	letter-spacing: 0.05em;
 }
 
+/* Decorative scan line */
+.scanlines::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: repeating-linear-gradient(
+		0deg,
+		transparent,
+		transparent 3px,
+		rgba(255, 255, 255, 0.015) 3px,
+		rgba(255, 255, 255, 0.015) 4px
+	);
+	pointer-events: none;
+	border-radius: inherit;
+}
+
+/* Subtle hex tile background */
+.hex-pattern {
+	background-image:
+		radial-gradient(circle at 0% 50%, rgba(123, 29, 255, 0.05) 1px, transparent 1.5px),
+		radial-gradient(circle at 100% 50%, rgba(255, 43, 199, 0.04) 1px, transparent 1.5px);
+	background-size: 60px 60px;
+}
+
+/* ==========================================================================
+   Tailwind class overrides — remap gray/purple palette to brand colors
+   so existing pages adopt the new theme without rewriting markup.
+   ========================================================================== */
+.bg-gray-900 { background-color: var(--color-obsidian); }
+.bg-gray-800 { background-color: var(--color-shadow); }
+.bg-gray-700 { background-color: var(--color-crypt); }
+.bg-gray-950 { background-color: var(--color-void); }
+
+.bg-gray-900\/40 { background-color: rgba(17, 9, 31, 0.55); }
+.bg-gray-900\/60 { background-color: rgba(17, 9, 31, 0.7); }
+.bg-gray-900\/70 { background-color: rgba(17, 9, 31, 0.78); }
+.bg-gray-900\/80 { background-color: rgba(17, 9, 31, 0.85); }
+.bg-gray-800\/30 { background-color: rgba(34, 20, 64, 0.4); }
+.bg-gray-800\/40 { background-color: rgba(34, 20, 64, 0.5); }
+.bg-gray-800\/50 { background-color: rgba(34, 20, 64, 0.6); }
+.bg-gray-800\/60 { background-color: rgba(34, 20, 64, 0.7); }
+.bg-gray-950\/30 { background-color: rgba(5, 3, 16, 0.4); }
+.bg-gray-950\/60 { background-color: rgba(5, 3, 16, 0.7); }
+.bg-gray-950\/80 { background-color: rgba(5, 3, 16, 0.88); }
+
+.border-gray-800 { border-color: var(--color-mist); }
+.border-gray-700 { border-color: var(--color-aether); }
+.border-gray-600 { border-color: var(--brand-violet-deep); }
+
+.text-gray-100 { color: var(--color-bone); }
+.text-gray-200 { color: var(--color-parchment); }
+.text-gray-300 { color: var(--color-parchment); }
+.text-gray-400 { color: var(--color-fog); }
+.text-gray-500 { color: var(--color-whisper); }
+.text-gray-600 { color: var(--color-whisper); }
+.text-white { color: var(--color-bone); }
+
+.divide-gray-800 > :not([hidden]) ~ :not([hidden]) { border-color: var(--color-mist); }
+
+/* Purple → magenta/violet brand */
+.text-purple-200 { color: var(--brand-magenta-soft); }
+.text-purple-300 { color: var(--brand-magenta-soft); }
+.text-purple-400 { color: var(--brand-magenta); }
+.text-purple-500 { color: var(--brand-magenta); }
+.bg-purple-500 { background-color: var(--brand-magenta); }
+.bg-purple-600 { background-color: var(--brand-violet); }
+.bg-purple-700 { background-color: var(--brand-violet-deep); }
+.bg-purple-950\/50 { background-color: rgba(123, 29, 255, 0.18); }
+.border-purple-500 { border-color: var(--brand-magenta); }
+.border-purple-800 { border-color: var(--brand-violet); }
+.hover\:bg-purple-600:hover { background-color: var(--brand-violet); }
+
+.shadow-purple-500\/10 { box-shadow: 0 4px 20px -4px rgba(255, 43, 199, 0.18); }
+.shadow-purple-500\/20 { box-shadow: 0 4px 20px -4px rgba(255, 43, 199, 0.28); }
+.shadow-purple-500\/30 { box-shadow: 0 4px 20px -4px rgba(255, 43, 199, 0.4); }
+
+.from-purple-500 { --tw-gradient-from: var(--brand-magenta); }
+.from-purple-600 { --tw-gradient-from: var(--brand-violet-deep); }
+.to-blue-600    { --tw-gradient-to: var(--brand-cyan); }
+.to-blue-700    { --tw-gradient-to: var(--brand-royal); }
+.to-indigo-600  { --tw-gradient-to: var(--brand-violet-deep); }
+
+/* Greens → teal */
+.text-green-200 { color: #a8f5e3; }
+.text-green-300 { color: var(--brand-teal); }
+.text-green-400 { color: var(--brand-teal); }
+.text-green-500 { color: var(--brand-teal); }
+.bg-green-400   { background-color: var(--brand-teal); }
+.bg-green-500   { background-color: var(--brand-teal); }
+.border-green-800 { border-color: rgba(32, 224, 193, 0.35); }
+.bg-green-900\/40 { background-color: rgba(32, 224, 193, 0.15); }
+.bg-green-950\/50 { background-color: rgba(32, 224, 193, 0.12); }
+.bg-green-950\/70 { background-color: rgba(32, 224, 193, 0.18); }
+
+/* Reds → coral */
+.text-red-200 { color: #ffc8d1; }
+.text-red-300 { color: var(--color-blood); }
+.text-red-400 { color: var(--color-blood); }
+.text-red-500 { color: var(--color-blood); }
+.bg-red-800   { background-color: var(--color-blood-dark); }
+.bg-red-900\/20 { background-color: rgba(255, 77, 109, 0.12); }
+.border-red-800 { border-color: rgba(255, 77, 109, 0.35); }
+.hover\:bg-red-700:hover { background-color: var(--color-blood); }
+
+/* Yellow → amber */
+.text-yellow-200 { color: var(--brand-amber-soft); }
+.text-yellow-300 { color: var(--brand-amber-soft); }
+.text-yellow-400 { color: var(--brand-amber-soft); }
+.text-yellow-500 { color: var(--brand-amber); }
+.bg-yellow-900\/40 { background-color: rgba(255, 186, 61, 0.18); }
+.bg-yellow-950\/50 { background-color: rgba(255, 186, 61, 0.12); }
+.border-yellow-800 { border-color: rgba(255, 186, 61, 0.4); }
+
+/* Border purple hover for player panels */
+.border-purple-500\/50 { border-color: rgba(255, 43, 199, 0.55); }
+.hover\:border-purple-500\/50:hover { border-color: rgba(255, 43, 199, 0.6); }
+.hover\:border-purple-500\/60:hover { border-color: rgba(255, 43, 199, 0.6); }
+
+/* Print friendliness preserved */
 @media print {
-	.screen-only {
-		display: none !important;
-	}
-}
-.text-green-500 {
-	color: var(--color-toxic-glow);
-}
-.bg-green-400 {
-	background-color: var(--color-toxic);
-}
-.bg-green-500 {
-	background-color: var(--color-toxic-glow);
-}
-.border-green-800 {
-	border-color: rgba(74, 222, 128, 0.3);
-}
-.bg-green-950\/80 {
-	background-color: rgba(20, 83, 45, 0.8);
-}
-
-/* Blood red for stats */
-.text-red-400 {
-	color: var(--color-blood);
-}
-.text-red-500 {
-	color: var(--color-blood);
-}
-
-/* Gold for victory points */
-.text-yellow-400 {
-	color: var(--color-gold);
-}
-.text-yellow-500 {
-	color: var(--color-gold-glow);
-}
-
-/* Border purple overrides for player panel hover */
-.border-purple-500\/50 {
-	border-color: rgba(234, 88, 12, 0.5);
-}
-.hover\:border-purple-500\/50:hover {
-	border-color: rgba(234, 88, 12, 0.5);
+	.screen-only { display: none !important; }
+	html, body { background: white !important; color: black !important; }
 }

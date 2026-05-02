@@ -107,20 +107,23 @@
 	aria-modal="true"
 	aria-labelledby="modal-title"
 >
-	<div class="modal-container">
+	<div class="brand-panel brand-panel-glow modal-container">
 		<!-- Modal Header -->
 		<header class="modal-header">
-			<h2 id="modal-title" class="modal-title">
-				<span class="title-icon">
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-						<path
-							d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"
-						/>
-					</svg>
-				</span>
-				Host Notes Editor
-			</h2>
-			<button class="close-btn" onclick={onClose} aria-label="Close modal">
+			<div class="modal-title-block">
+				<span class="eyebrow eyebrow-magenta">HOST NOTES</span>
+				<h2 id="modal-title" class="modal-title">
+					<span class="title-icon">
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+							<path
+								d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z"
+							/>
+						</svg>
+					</span>
+					Host Notes Editor
+				</h2>
+			</div>
+			<button class="close-btn btn-ghost" onclick={onClose} aria-label="Close modal">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
 					<path
 						d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
@@ -151,7 +154,7 @@
 						type={showSecret ? 'text' : 'password'}
 						bind:value={hostSecret}
 						placeholder="Enter your secret key..."
-						class="secret-input form-input"
+						class="form-input secret-input"
 						autocomplete="off"
 					/>
 					<button
@@ -229,7 +232,7 @@
 								value={improvement}
 								oninput={(e) => updateImprovement(i, e.currentTarget.value)}
 								placeholder="Enter an improvement suggestion..."
-								class="improvement-input form-input"
+								class="form-input improvement-input"
 								aria-label="Improvement {i + 1}"
 							/>
 							<button
@@ -250,7 +253,7 @@
 						</div>
 					{/each}
 				</div>
-				<button type="button" class="add-btn" onclick={addImprovement}>
+				<button type="button" class="add-btn btn-pill" onclick={addImprovement}>
 					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
 						<path
 							d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"
@@ -276,10 +279,10 @@
 
 			<!-- Actions -->
 			<div class="modal-actions">
-				<button type="button" class="btn btn-secondary" onclick={onClose} disabled={isSubmitting}>
+				<button type="button" class="btn-ghost" onclick={onClose} disabled={isSubmitting}>
 					Cancel
 				</button>
-				<button type="submit" class="btn btn-primary" disabled={isSubmitting}>
+				<button type="submit" class="btn-flame" disabled={isSubmitting}>
 					{#if isSubmitting}
 						<span class="spinner"></span>
 						Saving...
@@ -293,8 +296,6 @@
 </div>
 
 <style>
-	@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap');
-
 	.modal-backdrop {
 		position: fixed;
 		inset: 0;
@@ -303,18 +304,14 @@
 		align-items: center;
 		justify-content: center;
 		padding: 1rem;
-		background: rgba(0, 0, 0, 0.8);
-		backdrop-filter: blur(4px);
+		background: rgba(5, 3, 16, 0.85);
+		backdrop-filter: blur(6px);
 		animation: backdrop-in 0.2s ease-out;
 	}
 
 	@keyframes backdrop-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
+		from { opacity: 0; }
+		to   { opacity: 1; }
 	}
 
 	.modal-container {
@@ -322,24 +319,15 @@
 		max-width: 560px;
 		max-height: calc(100vh - 2rem);
 		overflow-y: auto;
-		background: linear-gradient(135deg, rgba(20, 20, 30, 0.98) 0%, rgba(30, 25, 45, 0.95) 100%);
-		border: 1px solid rgba(139, 92, 246, 0.3);
-		border-radius: 8px;
-		box-shadow:
-			0 25px 50px -12px rgba(0, 0, 0, 0.8),
-			0 0 80px -20px rgba(139, 92, 246, 0.3);
+		background: var(--color-shadow);
+		border: 1px solid var(--color-mist);
+		border-radius: 4px;
 		animation: modal-in 0.3s ease-out;
 	}
 
 	@keyframes modal-in {
-		from {
-			opacity: 0;
-			transform: scale(0.95) translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: scale(1) translateY(0);
-		}
+		from { opacity: 0; transform: scale(0.95) translateY(10px); }
+		to   { opacity: 1; transform: scale(1) translateY(0); }
 	}
 
 	.modal-header {
@@ -347,53 +335,40 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 1.25rem 1.5rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+		border-bottom: 1px solid var(--color-mist);
+	}
+
+	.modal-title-block {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
 	}
 
 	.modal-title {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
-		font-family: 'Crimson Pro', Georgia, serif;
-		font-size: 1.25rem;
-		font-weight: 600;
-		color: #e5e5e5;
+		gap: 0.6rem;
+		font-family: var(--font-display);
+		font-size: 1.8rem;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--color-bone);
 		margin: 0;
+		line-height: 1;
 	}
 
 	.title-icon {
 		display: flex;
-		width: 20px;
-		height: 20px;
-		color: #a78bfa;
+		width: 18px;
+		height: 18px;
+		color: var(--brand-magenta);
 	}
-	.title-icon svg {
-		width: 100%;
-		height: 100%;
-	}
+	.title-icon svg { width: 100%; height: 100%; }
 
 	.close-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 32px;
-		height: 32px;
-		background: transparent;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 4px;
-		color: #9ca3af;
-		cursor: pointer;
-		transition: all 0.2s ease;
+		padding: 8px 10px;
 	}
-	.close-btn:hover {
-		background: rgba(255, 255, 255, 0.05);
-		border-color: rgba(255, 255, 255, 0.2);
-		color: #e5e5e5;
-	}
-	.close-btn svg {
-		width: 16px;
-		height: 16px;
-	}
+	.close-btn svg { width: 16px; height: 16px; }
 
 	.modal-content {
 		padding: 1.5rem;
@@ -412,48 +387,45 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.7rem;
 		font-weight: 500;
 		letter-spacing: 0.15em;
 		text-transform: uppercase;
-		color: #a78bfa;
+		color: var(--brand-violet-soft);
 	}
 
 	.label-icon {
 		display: flex;
 		width: 14px;
 		height: 14px;
+		color: var(--brand-magenta);
 	}
-	.label-icon svg {
-		width: 100%;
-		height: 100%;
-	}
+	.label-icon svg { width: 100%; height: 100%; }
 
 	.form-input {
-		font-family: inherit;
+		font-family: var(--font-body);
 		font-size: 0.9rem;
-		color: #e5e5e5;
-		background: rgba(0, 0, 0, 0.3);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 4px;
+		color: var(--color-bone);
+		background: rgba(5, 3, 16, 0.5);
+		border: 1px solid var(--color-mist);
+		border-radius: 8px;
 		padding: 0.75rem 1rem;
-		transition: all 0.2s ease;
+		transition: border-color 180ms ease, box-shadow 180ms ease;
+		width: 100%;
 	}
-	.form-input::placeholder {
-		color: #6b7280;
-	}
+	.form-input::placeholder { color: var(--color-whisper); }
 	.form-input:focus {
 		outline: none;
-		border-color: rgba(139, 92, 246, 0.5);
-		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+		border-color: var(--brand-magenta);
+		box-shadow: 0 0 0 3px rgba(255, 43, 199, 0.12);
 	}
 
 	.secret-section {
 		padding: 1rem;
-		background: rgba(139, 92, 246, 0.05);
-		border: 1px solid rgba(139, 92, 246, 0.15);
-		border-radius: 6px;
+		background: rgba(255, 43, 199, 0.04);
+		border: 1px solid rgba(255, 43, 199, 0.18);
+		border-radius: 10px;
 	}
 
 	.secret-input-wrapper {
@@ -464,7 +436,7 @@
 	.secret-input {
 		flex: 1;
 		padding-right: 3rem;
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		letter-spacing: 0.05em;
 	}
 
@@ -480,21 +452,16 @@
 		height: 32px;
 		background: transparent;
 		border: none;
-		color: #6b7280;
+		color: var(--color-whisper);
 		cursor: pointer;
-		transition: color 0.2s ease;
+		transition: color 180ms ease;
 	}
-	.toggle-secret-btn:hover {
-		color: #a78bfa;
-	}
-	.toggle-secret-btn svg {
-		width: 18px;
-		height: 18px;
-	}
+	.toggle-secret-btn:hover { color: var(--brand-magenta); }
+	.toggle-secret-btn svg   { width: 18px; height: 18px; }
 
 	.form-hint {
 		font-size: 0.75rem;
-		color: #6b7280;
+		color: var(--color-whisper);
 		margin: 0;
 	}
 
@@ -511,19 +478,18 @@
 	}
 
 	.improvement-number {
-		font-family: 'JetBrains Mono', monospace;
+		font-family: var(--font-mono);
 		font-size: 0.7rem;
-		font-weight: 500;
-		color: #a78bfa;
-		background: rgba(139, 92, 246, 0.15);
+		font-weight: 700;
+		color: var(--brand-cyan);
+		background: rgba(36, 212, 255, 0.1);
 		padding: 0.375rem 0.5rem;
-		border-radius: 2px;
+		border-radius: 4px;
 		flex-shrink: 0;
+		letter-spacing: 0.05em;
 	}
 
-	.improvement-input {
-		flex: 1;
-	}
+	.improvement-input { flex: 1; }
 
 	.remove-btn {
 		display: flex;
@@ -532,51 +498,25 @@
 		width: 32px;
 		height: 32px;
 		background: transparent;
-		border: 1px solid rgba(239, 68, 68, 0.2);
-		border-radius: 4px;
-		color: #ef4444;
+		border: 1px solid rgba(255, 77, 109, 0.25);
+		border-radius: 6px;
+		color: var(--color-blood);
 		cursor: pointer;
-		transition: all 0.2s ease;
+		transition: all 180ms ease;
 		flex-shrink: 0;
 	}
 	.remove-btn:hover:not(:disabled) {
-		background: rgba(239, 68, 68, 0.1);
-		border-color: rgba(239, 68, 68, 0.4);
+		background: rgba(255, 77, 109, 0.1);
+		border-color: var(--color-blood);
 	}
-	.remove-btn:disabled {
-		opacity: 0.3;
-		cursor: not-allowed;
-	}
-	.remove-btn svg {
-		width: 14px;
-		height: 14px;
-	}
+	.remove-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+	.remove-btn svg      { width: 14px; height: 14px; }
 
 	.add-btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 0.75rem;
-		font-weight: 500;
-		color: #a78bfa;
-		background: transparent;
-		border: 1px dashed rgba(139, 92, 246, 0.3);
-		border-radius: 4px;
-		cursor: pointer;
-		transition: all 0.2s ease;
+		align-self: flex-start;
+		margin-top: 0.25rem;
 	}
-	.add-btn:hover {
-		background: rgba(139, 92, 246, 0.1);
-		border-color: rgba(139, 92, 246, 0.5);
-		border-style: solid;
-	}
-	.add-btn svg {
-		width: 14px;
-		height: 14px;
-	}
+	.add-btn svg { width: 14px; height: 14px; }
 
 	.error-message {
 		display: flex;
@@ -584,63 +524,19 @@
 		gap: 0.5rem;
 		padding: 0.75rem 1rem;
 		font-size: 0.85rem;
-		color: #ef4444;
-		background: rgba(239, 68, 68, 0.1);
-		border: 1px solid rgba(239, 68, 68, 0.2);
-		border-radius: 4px;
+		color: var(--color-blood);
+		background: rgba(255, 77, 109, 0.08);
+		border: 1px solid rgba(255, 77, 109, 0.25);
+		border-radius: 8px;
 	}
-	.error-message svg {
-		width: 16px;
-		height: 16px;
-		flex-shrink: 0;
-	}
+	.error-message svg { width: 16px; height: 16px; flex-shrink: 0; }
 
 	.modal-actions {
 		display: flex;
 		justify-content: flex-end;
 		gap: 0.75rem;
 		padding-top: 0.5rem;
-		border-top: 1px solid rgba(255, 255, 255, 0.05);
-	}
-
-	.btn {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 0.625rem 1.25rem;
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 0.8rem;
-		font-weight: 500;
-		border-radius: 4px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-	.btn:disabled {
-		opacity: 0.6;
-		cursor: not-allowed;
-	}
-
-	.btn-secondary {
-		color: #9ca3af;
-		background: transparent;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-	}
-	.btn-secondary:hover:not(:disabled) {
-		background: rgba(255, 255, 255, 0.05);
-		border-color: rgba(255, 255, 255, 0.2);
-	}
-
-	.btn-primary {
-		color: white;
-		background: linear-gradient(135deg, #7c3aed, #6d28d9);
-		border: 1px solid rgba(139, 92, 246, 0.5);
-		box-shadow: 0 4px 12px -2px rgba(139, 92, 246, 0.3);
-	}
-	.btn-primary:hover:not(:disabled) {
-		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-		box-shadow: 0 6px 16px -2px rgba(139, 92, 246, 0.4);
-		transform: translateY(-1px);
+		border-top: 1px solid var(--color-mist);
 	}
 
 	.spinner {
@@ -653,23 +549,17 @@
 	}
 
 	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
+		to { transform: rotate(360deg); }
 	}
 
-	/* Scrollbar styling */
-	.modal-container::-webkit-scrollbar {
-		width: 6px;
-	}
-	.modal-container::-webkit-scrollbar-track {
-		background: transparent;
-	}
+	/* Scrollbar */
+	.modal-container::-webkit-scrollbar       { width: 6px; }
+	.modal-container::-webkit-scrollbar-track { background: transparent; }
 	.modal-container::-webkit-scrollbar-thumb {
-		background: rgba(139, 92, 246, 0.3);
+		background: rgba(123, 29, 255, 0.35);
 		border-radius: 3px;
 	}
 	.modal-container::-webkit-scrollbar-thumb:hover {
-		background: rgba(139, 92, 246, 0.5);
+		background: var(--brand-violet);
 	}
 </style>

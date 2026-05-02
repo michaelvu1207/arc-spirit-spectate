@@ -58,7 +58,8 @@
 				runes: (snapshot.runes as PlayerSnapshot['runes']) ?? [],
 				handDraws: (snapshot.hand_draws as PlayerSnapshot['handDraws']) ?? [],
 				spiritRuneAttachments:
-					(snapshot.spirit_rune_attachments as PlayerSnapshot['spiritRuneAttachments']) ?? []
+					(snapshot.spirit_rune_attachments as PlayerSnapshot['spiritRuneAttachments']) ?? [],
+				dice: (snapshot.dice as PlayerSnapshot['dice']) ?? []
 			});
 
 			if (!page.bags && snapshot.bags) {
@@ -143,75 +144,114 @@
 
 <style>
 	.export-root {
-		padding: 16px;
+		padding: 20px;
+		max-width: 1240px;
+		margin: 0 auto;
 	}
 
 	.toolbar {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		padding: 10px 12px;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 12px;
-		background: rgba(17, 24, 39, 0.75);
-		backdrop-filter: blur(8px);
+		gap: 14px;
+		padding: 14px 18px;
+		border: 1px solid rgba(123, 29, 255, 0.3);
+		border-radius: 16px;
+		background: linear-gradient(180deg, rgba(34, 20, 64, 0.85), rgba(17, 9, 31, 0.75));
+		backdrop-filter: blur(14px);
 		position: sticky;
 		top: 12px;
 		z-index: 50;
+		box-shadow: 0 12px 40px -16px rgba(255, 43, 199, 0.3);
+	}
+
+	.toolbar::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 16px;
+		background: linear-gradient(90deg, rgba(255, 43, 199, 0.05), transparent 50%, rgba(36, 212, 255, 0.05));
+		pointer-events: none;
 	}
 
 	.back {
-		color: #e5e7eb;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		font-family: 'Unbounded', system-ui, sans-serif;
 		font-weight: 700;
+		font-size: 0.7rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: #f5f0ff;
 		text-decoration: none;
-		padding: 6px 10px;
-		border-radius: 10px;
-		background: rgba(255, 255, 255, 0.06);
+		padding: 8px 14px;
+		border-radius: 999px;
+		background: rgba(5, 3, 16, 0.6);
+		border: 1px solid rgba(123, 29, 255, 0.3);
+		transition: all 180ms ease;
+		position: relative;
 	}
 
 	.back:hover {
-		background: rgba(255, 255, 255, 0.1);
+		border-color: #ff2bc7;
+		color: #ff5dd1;
+		background: rgba(255, 43, 199, 0.08);
 	}
 
-	.spacer {
-		flex: 1;
-	}
+	.spacer { flex: 1; }
 
 	.meta {
 		display: flex;
-		gap: 10px;
+		gap: 12px;
 		align-items: center;
-		color: #d1d5db;
+		color: #d8cfee;
+		position: relative;
 	}
 
 	.mono {
-		font-family:
-			ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
-			monospace;
-		font-size: 12px;
-		opacity: 0.9;
+		font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 11px;
+		letter-spacing: 0.04em;
+		color: #f5f0ff;
 	}
 
 	.pill {
-		font-size: 12px;
-		font-weight: 800;
-		padding: 4px 8px;
+		font-family: 'Unbounded', system-ui, sans-serif;
+		font-size: 0.6rem;
+		font-weight: 700;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+		padding: 5px 12px;
 		border-radius: 999px;
-		background: rgba(255, 255, 255, 0.08);
+		background: rgba(36, 212, 255, 0.12);
+		border: 1px solid rgba(36, 212, 255, 0.4);
+		color: #24d4ff;
 	}
 
 	.print {
-		background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		background: linear-gradient(135deg, #ff2bc7 0%, #7b1dff 50%, #5a2bff 100%);
 		color: white;
-		font-weight: 800;
+		font-family: 'Unbounded', system-ui, sans-serif;
+		font-weight: 700;
+		font-size: 0.7rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
 		border: none;
-		border-radius: 10px;
-		padding: 8px 12px;
+		border-radius: 999px;
+		padding: 10px 18px;
 		cursor: pointer;
+		box-shadow: 0 8px 24px -8px rgba(255, 43, 199, 0.55);
+		transition: transform 180ms ease, box-shadow 180ms ease, filter 180ms ease;
+		position: relative;
 	}
 
 	.print:hover {
-		filter: brightness(1.06);
+		transform: translateY(-1px);
+		box-shadow: 0 12px 32px -8px rgba(255, 43, 199, 0.7);
+		filter: brightness(1.08);
 	}
 
 	.loading,
