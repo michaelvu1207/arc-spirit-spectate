@@ -62,8 +62,8 @@
 	<!-- PAGE HEADER -->
 	<div class="page-header">
 		<div>
-			<span class="eyebrow">Adventurer Roster</span>
-			<h1 class="page-title">Spirit Binders</h1>
+			<span class="eyebrow">Player Leaderboard</span>
+			<h1 class="page-title">Players</h1>
 			<p class="page-desc">
 				Every TTS username with verified games (over 10 turns, ≥10 VP) — sorted, filterable, searchable.
 				{#if lastRefresh}<span class="upd"><span class="dot-pulse"></span>Synced {lastRefresh.toLocaleTimeString()}</span>{/if}

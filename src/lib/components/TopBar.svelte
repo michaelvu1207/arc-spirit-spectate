@@ -8,11 +8,12 @@
 	{@const isLeaderboard = pathname.startsWith('/leaderboard')}
 	{@const isStats = pathname.startsWith('/stats') && !pathname.startsWith('/stats-analysis')}
 	{@const isStatsAnalysis = pathname.startsWith('/stats-analysis')}
+	{@const isCompositionAnalysis = pathname.startsWith('/composition-analysis')}
 	{@const isAdmin = pathname.startsWith('/admin')}
 	{@const isPlayers = pathname.startsWith('/players')}
 	{@const isClasses = pathname.startsWith('/classes')}
 	{@const isPlay = pathname.startsWith('/play')}
-	{@const isGames = !isLeaderboard && !isPlayers && !isStats && !isStatsAnalysis && !isAdmin && !isClasses && !isPlay}
+	{@const isGames = !isLeaderboard && !isPlayers && !isStats && !isStatsAnalysis && !isCompositionAnalysis && !isAdmin && !isClasses && !isPlay}
 
 	{#if !isImmersivePlay}
 	<header class="screen-only topbar">
@@ -55,6 +56,9 @@
 					</a>
 					<a href="/stats-analysis" class="nav-link" class:active={isStatsAnalysis} aria-current={isStatsAnalysis ? 'page' : undefined}>
 						<span class="nav-dot"></span>Stats Analysis
+					</a>
+					<a href="/composition-analysis" class="nav-link" class:active={isCompositionAnalysis} aria-current={isCompositionAnalysis ? 'page' : undefined}>
+						<span class="nav-dot"></span>Composition Analysis
 					</a>
 					{#if $page.data.isAdmin}
 						<a href="/stats" class="nav-link" class:active={isStats} aria-current={isStats ? 'page' : undefined}>

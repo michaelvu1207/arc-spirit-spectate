@@ -55,6 +55,10 @@
 
 	const last20 = $derived(() => games.slice(0, 20));
 
+	const totalPlayTimeMs = $derived(() =>
+		games.reduce((sum, g) => sum + (gameDurationMs(g) ?? 0), 0)
+	);
+
 	const placementDistribution = $derived(() => {
 		const max = Math.max(0, ...games.map((g) => g.player_count ?? 4));
 		const buckets = max > 0 ? max : 8;
@@ -136,6 +140,14 @@
 		if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 		return `${seconds}s`;
 	}
+	function formatTotalPlayTime(ms: number): { value: string; label: string } {
+		if (!Number.isFinite(ms) || ms <= 0) return { value: '—', label: 'Time Played' };
+		const totalMinutes = Math.floor(ms / 60000);
+		const minutes = totalMinutes % 60;
+		const hours = Math.floor(totalMinutes / 60);
+		if (hours > 0) return { value: `${hours}h ${String(minutes).padStart(2, '0')}m`, label: 'Time Played' };
+		return { value: `${minutes}m`, label: 'Time Played' };
+	}
 	function placementColor(p: number, total: number): string {
 		if (p === 1) return 'p-gold';
 		if (p === 2) return 'p-silver';
@@ -209,7 +221,7 @@
 				</div>
 			</div>
 			<div class="hero-body">
-				<div class="hero-eyebrow">Spirit Binder</div>
+				<div class="hero-eyebrow">Player</div>
 				<h1 class="hero-username">{displayUsername()}</h1>
 				<div class="hero-stats-row">
 					<div class="hero-stat">
@@ -234,6 +246,12 @@
 						<div class="hero-stat">
 							<div class="hero-stat-num">#{leaderboardRank}</div>
 							<div class="hero-stat-lab">Rank</div>
+						</div>
+					{/if}
+					{#if totalPlayTimeMs() > 0}
+						<div class="hero-stat">
+							<div class="hero-stat-num">{formatTotalPlayTime(totalPlayTimeMs()).value}</div>
+							<div class="hero-stat-lab">Time Played</div>
 						</div>
 					{/if}
 				</div>

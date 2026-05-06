@@ -15,7 +15,24 @@ type GameSummaryRow = {
 	avg_navigation_ms: number | null;
 	winner_guardian: string | null;
 	winner_vp: number;
+	display_name: string | null;
 };
+
+// Per-game tables to wipe on a hard delete. Views (game_summaries,
+// *_verified) regenerate automatically; only base tables are listed.
+const GAME_TABLES_TO_DELETE = [
+	'game_state_snapshots',
+	'game_notes',
+	'play_game_sessions',
+	'player_composition_tags',
+	'player_feedback',
+	'player_rating_events',
+	'replay_codes',
+	'verified_games',
+	'verified_match_players',
+	'verified_matches',
+	'game_metadata'
+] as const;
 
 async function recomputeVerifiedStats(supabaseAdmin: NonNullable<ReturnType<typeof getSupabaseAdmin>>): Promise<void> {
 	const { data, error: tokenError } = await supabaseAdmin
@@ -67,20 +84,37 @@ export const load: PageServerLoad = async () => {
 		};
 	}
 
-	const { data, error: fetchError } = await supabaseAdmin
-		.from('game_summaries')
-		.select(
-			'game_id, verified, verified_at, verified_by, started_at, ended_at, navigation_count, player_count, avg_navigation_ms, winner_guardian, winner_vp'
-		)
-		.gt('navigation_count', MIN_TURNS_TO_SHOW)
-		.order('ended_at', { ascending: false });
+	const [{ data: summaries, error: fetchError }, { data: metaRows, error: metaError }] =
+		await Promise.all([
+			supabaseAdmin
+				.from('game_summaries')
+				.select(
+					'game_id, verified, verified_at, verified_by, started_at, ended_at, navigation_count, player_count, avg_navigation_ms, winner_guardian, winner_vp'
+				)
+				.gt('navigation_count', MIN_TURNS_TO_SHOW)
+				.order('ended_at', { ascending: false }),
+			supabaseAdmin.from('game_metadata').select('game_id, display_name')
+		]);
 
 	if (fetchError) {
 		throw error(500, `Failed to load games: ${fetchError.message}`);
 	}
+	if (metaError) {
+		throw error(500, `Failed to load game metadata: ${metaError.message}`);
+	}
+
+	const displayNames = new Map<string, string | null>(
+		((metaRows as Array<{ game_id: string; display_name: string | null }> | null) ?? []).map(
+			(r) => [r.game_id, r.display_name]
+		)
+	);
+
+	const games: GameSummaryRow[] = (summaries as Omit<GameSummaryRow, 'display_name'>[] | null ?? []).map(
+		(g) => ({ ...g, display_name: displayNames.get(g.game_id) ?? null })
+	);
 
 	return {
-		games: (data as GameSummaryRow[] | null) ?? [],
+		games,
 		configError: null
 	};
 };
@@ -131,6 +165,72 @@ export const actions: Actions = {
 		}
 
 		await recomputeVerifiedStats(supabaseAdmin);
+		throw redirect(303, '/admin/games');
+	},
+	rename: async ({ request }) => {
+		const supabaseAdmin = getSupabaseAdmin();
+		if (!supabaseAdmin) throw error(500, 'Missing SUPABASE_SERVICE_ROLE_KEY on the server');
+
+		const form = await request.formData();
+		const gameId = String(form.get('gameId') ?? '').trim();
+		const rawName = String(form.get('displayName') ?? '');
+		const trimmed = rawName.trim();
+		if (!gameId) throw error(400, 'Missing gameId');
+		if (trimmed.length > 120) throw error(400, 'displayName must be ≤ 120 chars');
+
+		// Empty string clears the display name (back to the raw game_id).
+		if (trimmed === '') {
+			const { error: delErr } = await supabaseAdmin
+				.from('game_metadata')
+				.delete()
+				.eq('game_id', gameId);
+			if (delErr) throw error(500, `Failed to clear name: ${delErr.message}`);
+		} else {
+			const { error: upsertErr } = await supabaseAdmin.from('game_metadata').upsert({
+				game_id: gameId,
+				display_name: trimmed,
+				updated_at: new Date().toISOString()
+			});
+			if (upsertErr) throw error(500, `Failed to rename game: ${upsertErr.message}`);
+		}
+
+		throw redirect(303, '/admin/games');
+	},
+	delete: async ({ request }) => {
+		const supabaseAdmin = getSupabaseAdmin();
+		if (!supabaseAdmin) throw error(500, 'Missing SUPABASE_SERVICE_ROLE_KEY on the server');
+
+		const form = await request.formData();
+		const gameId = String(form.get('gameId') ?? '').trim();
+		const confirm = String(form.get('confirm') ?? '');
+		if (!gameId) throw error(400, 'Missing gameId');
+		// Required typed-confirmation guard so a misclick can't wipe a game.
+		if (confirm !== gameId) {
+			throw error(400, 'Delete confirmation must match the game id exactly');
+		}
+
+		// Delete from every base table that holds rows for this game. Order
+		// doesn't strictly matter (no enforced FKs), but doing snapshots last
+		// keeps the row visible if an earlier delete fails.
+		for (const table of GAME_TABLES_TO_DELETE) {
+			if (table === 'game_state_snapshots') continue;
+			const { error: delErr } = await supabaseAdmin.from(table).delete().eq('game_id', gameId);
+			if (delErr) {
+				throw error(500, `Failed to delete from ${table}: ${delErr.message}`);
+			}
+		}
+		const { error: snapErr } = await supabaseAdmin
+			.from('game_state_snapshots')
+			.delete()
+			.eq('game_id', gameId);
+		if (snapErr) throw error(500, `Failed to delete snapshots: ${snapErr.message}`);
+
+		// Don't await recompute — it can take a while and we want the redirect
+		// snappy. The next admin action will pick up fresh stats.
+		recomputeVerifiedStats(supabaseAdmin).catch(() => {
+			// best-effort; if it fails the admin can hit Recompute Stats manually
+		});
+
 		throw redirect(303, '/admin/games');
 	}
 };

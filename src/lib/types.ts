@@ -80,8 +80,10 @@ export interface PurgeBag {
 // Bags data from TTS sync
 export interface BagsData {
 	hexSpirits?: BagSnapshot;
-	monsters?: BagSnapshot;
 	abyssFallen?: BagSnapshot;
+	monstersV2?: BagSnapshot;
+	// Legacy fields kept for snapshots synced before the bag-key migration.
+	monsters?: BagSnapshot;
 	stageDeck?: BagSnapshot;
 	purgeBags?: PurgeBag[] | Record<string, unknown>;
 	// Allow forward-compatible keys without breaking parsing
@@ -221,12 +223,10 @@ export interface CustomDiceSideAsset {
 export interface MonsterAsset {
 	id: string;
 	name: string;
-	stage: string | null;
+	stage: number | string | null;
 	damage: number | null;
 	barrier: number | null;
-	image_path: string | null;
 	card_image_path: string | null;
-	icon: string | null;
 }
 
 // Icon pool entry (central icon registry)

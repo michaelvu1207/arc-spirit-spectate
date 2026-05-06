@@ -83,7 +83,7 @@ export const TABLES = {
 	TRAIT_OCCURRENCES_VERIFIED: 'trait_occurrences_verified',
 	HEX_SPIRITS: 'hex_spirits',
 	RUNES: 'runes',
-	MONSTERS: 'monsters',
+	MONSTERS: 'monsters_v2',
 	GUARDIANS: 'guardians',
 	CLASSES: 'classes',
 	ORIGINS: 'origins',
@@ -786,7 +786,7 @@ export async function fetchAssetsData(): Promise<{
 			),
 		supabaseAssets
 			.from(TABLES.MONSTERS)
-			.select('id, name, stage, damage, barrier, image_path, card_image_path, icon'),
+			.select('id, name, stage, damage, barrier, card_image_path'),
 		supabaseAssets
 			.from(TABLES.ICON_POOL)
 			.select('id, name, file_path, tags')

@@ -15,7 +15,10 @@
 	import type { AvgVpGameSeries, PlayerCountSeries } from './+page.server';
 
 	interface Props {
-		data: { games: AvgVpGameSeries[]; byPlayerCount: PlayerCountSeries[] };
+		data: {
+			games: AvgVpGameSeries[];
+			byPlayerCount: PlayerCountSeries[];
+		};
 	}
 	let { data }: Props = $props();
 

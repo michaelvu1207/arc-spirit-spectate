@@ -22,12 +22,10 @@
 		class: className = ''
 	}: Props = $props();
 
-	// Create the honeycomb grid
 	const grid = createSpiritGrid();
 
-	// Calculate bounds for viewBox with padding
-	const bounds = getGridBounds(grid);
 	const padding = 20;
+	const bounds = getGridBounds(grid);
 	const viewBox = `${bounds.minX - padding} ${bounds.minY - padding} ${bounds.width + padding * 2} ${bounds.height + padding * 2}`;
 
 	// Create a map of slotIndex to spirit for quick lookup
@@ -296,19 +294,12 @@
 
 <style>
 	.hex-grid {
-		width: 520px;
-		height: auto;
-		max-width: 520px;
-		flex: none;
+		width: 100%;
+		height: 100%;
+		max-width: 100%;
+		max-height: 100%;
 		display: block;
 		transition: opacity 0.3s ease;
-	}
-
-	@media (max-width: 640px) {
-		.hex-grid {
-			width: 100%;
-			max-width: 520px;
-		}
 	}
 
 	.hex-grid.loading {

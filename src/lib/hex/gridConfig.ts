@@ -1,14 +1,11 @@
 import { defineHex, Grid, Orientation } from 'honeycomb-grid';
 
 /**
- * Spirit hex with 2.56:2.4 aspect ratio (128:120 in pixels)
- * Using flat-top orientation (two vertices on bottom)
- * For flat-top hex:
- * - xRadius = width / 2 = 64
- * - yRadius = height / 2 = 60
+ * Flat-top spirit hex. xRadius/yRadius dialed in to remove visible column
+ * gaps when spirit art uses `preserveAspectRatio="meet"`.
  */
 export const SpiritHex = defineHex({
-	dimensions: { xRadius: 64, yRadius: 60 },
+	dimensions: { xRadius: 60, yRadius: 60 },
 	origin: 'topLeft',
 	orientation: Orientation.FLAT
 });
@@ -62,11 +59,10 @@ export function getSlotFromCoords(q: number, r: number): number | undefined {
 }
 
 /**
- * Create a 7-hex spirit grid
+ * Create a 7-hex spirit grid using the default cell dimensions.
  */
 export function createSpiritGrid(): Grid<SpiritHexType> {
-	const hexCoords = Object.values(SLOT_TO_COORDS);
-	return new Grid(SpiritHex, hexCoords);
+	return new Grid(SpiritHex, Object.values(SLOT_TO_COORDS));
 }
 
 /**

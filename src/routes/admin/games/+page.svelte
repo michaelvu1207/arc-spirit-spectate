@@ -11,9 +11,27 @@
 		avg_navigation_ms: number | null;
 		winner_guardian: string | null;
 		winner_vp: number;
+		display_name: string | null;
 	};
 
 	export let data: { games: GameSummaryRow[]; configError: string | null };
+
+	// Confirmation guard for the destructive delete action. The action
+	// requires the typed confirmation to match the game id, so the prompt
+	// here is the user-facing equivalent.
+	function confirmDelete(event: Event, gameId: string) {
+		const reply = window.prompt(
+			`Permanently delete game "${gameId}"?\n\nThis wipes snapshots, replays, tags, notes, feedback, ratings, and verification — there is no undo.\n\nType the game id to confirm:`
+		);
+		if (reply !== gameId) {
+			event.preventDefault();
+			return;
+		}
+		// Stuff the matching string into the form so the server-side guard passes.
+		const form = (event.target as HTMLElement).closest('form');
+		const input = form?.querySelector<HTMLInputElement>('input[name="confirm"]');
+		if (input) input.value = gameId;
+	}
 
 	function formatTimestamp(timestamp: string | null): string {
 		if (!timestamp) return '—';
@@ -100,7 +118,12 @@
 								{/if}
 							</td>
 							<td class="td">
-								<div class="game-id">{g.game_id}</div>
+								{#if g.display_name}
+									<div class="game-name">{g.display_name}</div>
+									<div class="game-id-sub">{g.game_id}</div>
+								{:else}
+									<div class="game-id">{g.game_id}</div>
+								{/if}
 								<div class="game-meta">Started {formatTimestamp(g.started_at)}</div>
 							</td>
 							<td class="td td-muted">{formatTimestamp(g.ended_at)}</td>
@@ -119,6 +142,23 @@
 								<div class="row-actions">
 									<a class="btn-ghost btn-sm" href={`/game/${encodeURIComponent(g.game_id)}`}>View</a>
 									<a class="btn-ghost btn-sm" href={`/admin/games/${encodeURIComponent(g.game_id)}`}>Tags</a>
+
+									<details class="rename-wrap">
+										<summary class="btn-ghost btn-sm rename-trigger" title="Rename game">Rename</summary>
+										<form method="POST" action="?/rename" class="rename-form">
+											<input type="hidden" name="gameId" value={g.game_id} />
+											<input
+												type="text"
+												name="displayName"
+												class="rename-input"
+												value={g.display_name ?? ''}
+												maxlength="120"
+												placeholder="display name (blank to clear)"
+											/>
+											<button type="submit" class="btn-primary btn-sm">Save</button>
+										</form>
+									</details>
+
 									{#if g.verified}
 										<form method="POST" action="?/unverify">
 											<input type="hidden" name="gameId" value={g.game_id} />
@@ -130,6 +170,17 @@
 											<button type="submit" class="btn-primary btn-sm">Verify</button>
 										</form>
 									{/if}
+
+									<form method="POST" action="?/delete">
+										<input type="hidden" name="gameId" value={g.game_id} />
+										<input type="hidden" name="confirm" value="" />
+										<button
+											type="submit"
+											class="btn-danger btn-sm"
+											on:click={(e) => confirmDelete(e, g.game_id)}
+											title="Permanently delete this game"
+										>Delete</button>
+									</form>
 								</div>
 							</td>
 						</tr>
@@ -246,6 +297,14 @@
 	.td-muted { color: var(--color-fog); }
 
 	.game-id { font-weight: 600; color: var(--color-bone); font-size: 0.88rem; word-break: break-all; }
+	.game-name { font-weight: 700; color: var(--color-bone); font-size: 0.95rem; }
+	.game-id-sub {
+		margin-top: 2px;
+		font-family: var(--font-mono, ui-monospace, monospace);
+		font-size: 0.7rem;
+		color: var(--color-fog);
+		word-break: break-all;
+	}
 	.game-meta { margin-top: 2px; font-size: 0.72rem; color: var(--color-fog); }
 
 	.big-num {
@@ -307,6 +366,61 @@
 		transition: background 180ms ease;
 	}
 	.btn-warn:hover { background: var(--brand-amber-soft); }
+
+	.btn-danger {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 12px 24px;
+		font-family: var(--font-display);
+		font-weight: 700;
+		font-size: 0.7rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: var(--color-bone);
+		background: rgba(255, 80, 100, 0.18);
+		border: 1px solid rgba(255, 80, 100, 0.55);
+		cursor: pointer;
+		transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+	}
+	.btn-danger:hover {
+		background: rgba(255, 80, 100, 0.32);
+		border-color: rgba(255, 80, 100, 0.85);
+		color: #fff;
+	}
+
+	/* Inline rename editor (uses native <details>/<summary>) */
+	.rename-wrap { position: relative; }
+	.rename-wrap > summary { list-style: none; cursor: pointer; user-select: none; }
+	.rename-wrap > summary::-webkit-details-marker { display: none; }
+	.rename-form {
+		position: absolute;
+		top: calc(100% + 4px);
+		right: 0;
+		z-index: 10;
+		display: flex;
+		gap: 6px;
+		padding: 8px;
+		background: var(--color-tomb);
+		border: 1px solid var(--color-mist);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+		min-width: 18rem;
+	}
+	.rename-input {
+		flex: 1;
+		min-width: 0;
+		padding: 6px 8px;
+		font-family: inherit;
+		font-size: 0.8rem;
+		color: var(--color-bone);
+		background: var(--color-void);
+		border: 1px solid var(--color-mist);
+	}
+	.rename-input:focus {
+		outline: none;
+		border-color: var(--brand-magenta-soft);
+	}
 
 	/* stats panel */
 	.stats-panel {

@@ -418,7 +418,7 @@
 	const monsterImageMap = $derived(() => {
 		const map = new Map<string, string>();
 		for (const [id, asset] of assetState.monsterAssets) {
-			const path = asset.image_path || asset.card_image_path || asset.icon;
+			const path = asset.card_image_path;
 			if (!path) continue;
 			const url = path.startsWith('http') ? path : `${STORAGE_BASE_URL}/${path}`;
 			map.set(id, url);

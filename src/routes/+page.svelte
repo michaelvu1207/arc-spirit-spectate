@@ -40,12 +40,50 @@
 
 	const verifiedCount = $derived(() => games.filter((g) => g.verified).length);
 	const unverifiedCount = $derived(() => games.filter((g) => !g.verified).length);
-	const totalRounds = $derived(() => games.reduce((sum, g) => sum + g.navigation_count, 0));
-	const totalPlayers = $derived(() => games.reduce((sum, g) => sum + g.player_count, 0));
+
+	// "At a Glance" stats only consider the past 8 verified games. Sort by
+	// ended_at desc (falling back to started_at) so we always pick the most
+	// recently completed runs, then truncate to 8.
+	const GLANCE_LIMIT = 8;
+	function gameSortTimestamp(g: GameListItem): number {
+		const t = g.ended_at ?? g.started_at;
+		if (!t) return 0;
+		const ms = Date.parse(t);
+		return Number.isNaN(ms) ? 0 : ms;
+	}
+	const glanceGames = $derived(() =>
+		games
+			.filter((g) => g.verified)
+			.slice()
+			.sort((a, b) => gameSortTimestamp(b) - gameSortTimestamp(a))
+			.slice(0, GLANCE_LIMIT)
+	);
+
+	const totalRounds = $derived(() =>
+		glanceGames().reduce((sum, g) => sum + g.navigation_count, 0)
+	);
+	const totalPlayers = $derived(() =>
+		glanceGames().reduce((sum, g) => sum + g.player_count, 0)
+	);
 	const avgDurationMs = $derived(() => {
-		const durations = games.map((g) => g.total_duration_ms).filter((d): d is number => d != null);
+		const durations = glanceGames()
+			.map((g) => g.total_duration_ms)
+			.filter((d): d is number => d != null);
 		if (durations.length === 0) return null;
 		return durations.reduce((a, b) => a + b, 0) / durations.length;
+	});
+
+	// Median per-turn duration across the past-8 sample. Uses each game's
+	// `avg_navigation_ms` (precomputed server-side) as its representative
+	// turn-length, then medians those values to reduce skew from outlier games.
+	const medianTurnDurationMs = $derived(() => {
+		const turns = glanceGames()
+			.map((g) => g.avg_navigation_ms)
+			.filter((d): d is number => d != null && Number.isFinite(d) && d >= 0)
+			.sort((a, b) => a - b);
+		if (turns.length === 0) return null;
+		const mid = Math.floor(turns.length / 2);
+		return turns.length % 2 === 0 ? (turns[mid - 1] + turns[mid]) / 2 : turns[mid];
 	});
 
 	function formatDate(s: string): string {
@@ -226,15 +264,8 @@
 				<div class="icon-strip-icon">
 					<svg viewBox="0 0 24 24"><polygon points="12,3 21,8 21,16 12,21 3,16 3,8" stroke-linejoin="round"/></svg>
 				</div>
-				<div class="strip-num">{games.length}</div>
-				<div class="icon-strip-label">Games</div>
-			</div>
-			<div>
-				<div class="icon-strip-icon">
-					<svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-				</div>
-				<div class="strip-num">{verifiedCount()}</div>
-				<div class="icon-strip-label">Verified</div>
+				<div class="strip-num">{glanceGames().length}</div>
+				<div class="icon-strip-label">Recent (Verified)</div>
 			</div>
 			<div>
 				<div class="icon-strip-icon">
@@ -256,6 +287,13 @@
 				</div>
 				<div class="strip-num">{formatDurationHoursMinutes(avgDurationMs())}</div>
 				<div class="icon-strip-label">Avg Length</div>
+			</div>
+			<div>
+				<div class="icon-strip-icon">
+					<svg viewBox="0 0 24 24"><path d="M12 2v6m0 8v6M2 12h6m8 0h6" stroke-linecap="round"/><circle cx="12" cy="12" r="3"/></svg>
+				</div>
+				<div class="strip-num">{formatDuration(medianTurnDurationMs())}</div>
+				<div class="icon-strip-label">Median Turn</div>
 			</div>
 		</div>
 	</section>

@@ -70,12 +70,13 @@
 				? 'rgba(0, 0, 0, 0.06)'
 				: 'rgba(17, 9, 31, 0.95)'
 			: `url(#${gradientId})`}
-		stroke={spirit ? 'var(--brand-violet)' : 'var(--color-aether)'}
-		stroke-width={spirit ? '2.5' : '1.5'}
-		filter={spirit ? `url(#${shadowId})` : 'none'}
+		stroke={spirit ? 'transparent' : 'var(--color-aether)'}
+		stroke-width={spirit ? '0' : '1.5'}
 	/>
 
-	<!-- Spirit image with hexagonal clip -->
+	<!-- Spirit image with hexagonal clip — `meet` keeps the entire image
+	     visible (letter-boxed inside the hex) instead of `slice` cropping
+	     the corners. -->
 	{#if spirit && imageUrl}
 		<image
 			href={imageUrl}
@@ -83,17 +84,9 @@
 			y={bounds.minY}
 			width={hexWidth}
 			height={hexHeight}
-			preserveAspectRatio="xMidYMid slice"
+			preserveAspectRatio="xMidYMid meet"
 			clip-path="url(#{clipId})"
 			class="spirit-image"
-		/>
-		<!-- Subtle vignette overlay -->
-		<polygon
-			points={polygonPoints}
-			fill="none"
-			stroke="rgba(0, 0, 0, 0.4)"
-			stroke-width="8"
-			clip-path="url(#{clipId})"
 		/>
 	{:else if spirit && externalImage}
 		<!-- Image rendered externally by parent -->
@@ -138,9 +131,7 @@
 	}
 
 	.spirit-hex:hover .hex-border {
-		stroke: var(--brand-magenta);
-		stroke-width: 3;
-		filter: drop-shadow(0 0 8px rgba(255, 43, 199, 0.6));
+		filter: drop-shadow(0 0 8px rgba(255, 43, 199, 0.4));
 	}
 
 	.spirit-hex .spirit-image {
