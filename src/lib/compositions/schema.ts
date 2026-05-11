@@ -4,7 +4,7 @@
 //
 // If we add zod later, swap these out — but the function signatures stay.
 
-export const CURVE_POINTS = 30;
+export const CURVE_POINTS = 36;
 export const CURVE_Y_MIN = 0;
 export const CURVE_Y_MAX = 40;
 

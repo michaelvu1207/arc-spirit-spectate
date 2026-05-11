@@ -46,7 +46,7 @@
 		Filler
 	);
 
-	const POINTS = data.pointsPerLine; // 30 — one y-value per round 1..POINTS
+	const POINTS = data.pointsPerLine; // one y-value per round 1..POINTS
 	const REFERENCE_TAG = '__reference__';
 	const REFERENCE_COLOR = '#24d4ff';
 	const TAG_PALETTE = [
@@ -651,7 +651,7 @@
 	// returned y is a weighted mean of every input within ±3σ on x. Sigma
 	// is in the same units as `x` (rounds) so the slider is intuitive: σ=1
 	// blurs across one round, σ=3 across about three. With σ=0 the array
-	// passes through unchanged. Cheap (O(N · radius)) — N is at most 30.
+	// passes through unchanged. Cheap (O(N · radius)) — N is small.
 	function smoothSeries(
 		points: Array<{ x: number; y: number }>,
 		sigma: number
@@ -1183,7 +1183,7 @@
 	// same y-delta.
 	// Stored as a plain sorted number[] (Svelte 5 doesn't deep-track Set
 	// internals; arrays are first-class reactive). Lookups use .includes which
-	// is fine at 30 elements. selectedSet is a derived for hot-path checks.
+	// is fine at this curve size. selectedSet is a derived for hot-path checks.
 	let selectedIndices = $state<number[]>([]);
 	const selectedSet = $derived(() => new Set(selectedIndices));
 	let marqueeRect = $state<{ x: number; y: number; w: number; h: number } | null>(null);

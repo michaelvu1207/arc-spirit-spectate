@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { generateDiagnosticReport, type PlayerTag, type PlayerVp } from './diagnosticReport';
-import type { Composition } from './schema';
+import { CURVE_POINTS, type Composition } from './schema';
 
 function comp(overrides: Partial<Composition>): Composition {
 	return {
@@ -17,7 +17,7 @@ function comp(overrides: Partial<Composition>): Composition {
 	};
 }
 
-const linearCurve = Array.from({ length: 30 }, (_, i) => i + 1); // y = x
+const linearCurve = Array.from({ length: CURVE_POINTS }, (_, i) => i + 1); // y = x
 
 function vps(color: string, points: Array<[number, number]>): PlayerVp[] {
 	return points.map(([round, vp]) => ({ playerColor: color, round, vp }));

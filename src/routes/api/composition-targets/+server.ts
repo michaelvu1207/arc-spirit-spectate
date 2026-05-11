@@ -1,8 +1,9 @@
 import { json, error as svelteError } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
+import { CURVE_POINTS } from '$lib/compositions/schema';
 import { getSupabaseAdmin } from '$lib/server/supabaseAdmin';
 
-const POINTS_PER_LINE = 30;
+const POINTS_PER_LINE = CURVE_POINTS;
 const REFERENCE_TAG = '__reference__';
 
 export const POST: RequestHandler = async ({ request }) => {

@@ -1,10 +1,11 @@
 import type { PageServerLoad } from './$types';
 import { supabase, TABLES } from '$lib/supabase';
 import { getSupabaseAdmin } from '$lib/server/supabaseAdmin';
+import { CURVE_POINTS } from '$lib/compositions/schema';
 
 // Each ideal curve is exactly POINTS_PER_LINE y-values, indexed by round
-// (round = index + 1, so points[0] is round 1, points[23] is round 24).
-const POINTS_PER_LINE = 30;
+// (round = index + 1, so points[0] is round 1).
+const POINTS_PER_LINE = CURVE_POINTS;
 const REFERENCE_TAG = '__reference__';
 // y = x: round N earns N VP. Simplest possible "ideal pace" baseline.
 const DEFAULT_REFERENCE_POINTS: number[] = Array.from({ length: POINTS_PER_LINE }, (_, i) => i + 1);
