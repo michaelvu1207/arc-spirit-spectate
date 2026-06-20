@@ -23,6 +23,8 @@ export interface RuneSlotSnapshot {
 	type?: string;
 	originId?: string;
 	classId?: string;
+	/** True for class/named special runes (carried from the reward path's resolved rune). */
+	special?: boolean;
 }
 
 // Rune attached directly on a spirit card (from game sync)
@@ -30,6 +32,12 @@ export interface SpiritRuneAttachmentSnapshot {
 	runeId: string;
 	spiritId: string;
 	spiritSlotIndex: number;
+	/** Cached display name (e.g. the augment's name) so the UI need not re-resolve it. */
+	name?: string;
+	/** For spirit AUGMENTS: the class this augment contributes toward the owner's trait
+	 *  totals, resolved at placement time. Plain rune attachments leave these unset. */
+	classId?: string;
+	className?: string;
 	localPos?: { x: number; y: number; z: number };
 	localRotY?: number;
 	// Allow forward-compatible keys without breaking parsing
@@ -163,6 +171,14 @@ export interface GameSnapshotRow {
 	updated_at: string;
 }
 
+// A spirit's awakening requirement, as stored in hex_spirits.awaken_condition (jsonb).
+// `rune_cost` lists rune UUIDs; a UUID repeated N times means "N of that rune"
+// (with two wildcard UUIDs — see WILDCARD_RUNE_IDS — accepting any matching item).
+// `text` is a free-form, not-yet-encodable requirement.
+export type AwakenCondition =
+	| { type: 'rune_cost'; rune_ids: string[] }
+	| { type: 'text'; text: string };
+
 // HexSpirit asset from Supabase for image lookup
 export interface HexSpiritAsset {
 	id: string;
@@ -172,6 +188,7 @@ export interface HexSpiritAsset {
 		class_ids: string[];
 		origin_ids: string[];
 	};
+	awaken_condition: AwakenCondition | null;
 	game_print_image_path: string | null;
 	art_raw_image_path: string | null;
 }
@@ -224,9 +241,14 @@ export interface MonsterAsset {
 	id: string;
 	name: string;
 	stage: number | string | null;
+	/** Difficulty rung within a stage — the escalation order (0 = weakest). */
+	order_num?: number | null;
 	damage: number | null;
 	barrier: number | null;
 	card_image_path: string | null;
+	reward_track?: string[] | null;
+	dice_pool?: string[] | null;
+	choose_amount?: number | null;
 }
 
 // Icon pool entry (central icon registry)
@@ -235,6 +257,23 @@ export interface IconPoolEntry {
 	name: string;
 	file_path: string;
 	tags: string[] | null;
+}
+
+// ── Game locations (Spirit World) + their reward rows (interactions) ──────────
+// A reward icon is either a single icon_pool id or an "or" choice between several.
+export type RewardIconToken = string | { kind: 'or'; icon_ids: string[] };
+
+export type GameLocationRewardRow =
+	| { type: 'gain'; gain_icon_ids: RewardIconToken[] }
+	| { type: 'trade'; cost_icon_ids: RewardIconToken[]; gain_icon_ids: RewardIconToken[] }
+	| { type: 'text'; text: string };
+
+export interface GameLocationAsset {
+	id: string;
+	name: string;
+	origin_id: string | null;
+	reward_rows: GameLocationRewardRow[];
+	background_image_path: string | null;
 }
 
 // Class trait from Supabase

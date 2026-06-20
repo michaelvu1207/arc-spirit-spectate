@@ -20,6 +20,8 @@ import type {
 	GameSnapshotRow,
 	GameSummaryRow,
 	GameResultRow,
+	GameLocationAsset,
+	GameLocationRewardRow,
 	FavoriteSpiritEntry,
 	GuardianAsset,
 	HandDrawSnapshot,
@@ -89,7 +91,13 @@ export const TABLES = {
 	ORIGINS: 'origins',
 	ICON_POOL: 'icon_pool',
 	CUSTOM_DICE: 'custom_dice',
-	DICE_SIDES: 'dice_sides'
+	DICE_SIDES: 'dice_sides',
+	GAME_LOCATIONS: 'game_locations',
+	// Reward rows were reworked out of the game_locations.reward_rows jsonb into their
+	// own records (game_location_rows) assigned to a location + slot (reward_row_assignments).
+	GAME_LOCATION_ROWS: 'game_location_rows',
+	REWARD_ROW_ASSIGNMENTS: 'reward_row_assignments',
+	EDITIONS: 'editions'
 } as const;
 
 // Create the Supabase client for game state (arc-spirits-game-history schema)
@@ -749,16 +757,24 @@ export async function fetchTraitOccurrencesVerified(params: {
 	return (data as TraitOccurrenceRow[] | null) ?? [];
 }
 
-export async function fetchAssetsData(): Promise<{
+// Aggregate of every static-asset table the play engine needs. Exported so the
+// pure catalog builder and its tests can type fixtures without re-deriving it.
+export interface AssetsData {
 	spirits: HexSpiritAsset[];
 	runes: RuneAsset[];
 	customDice: CustomDiceAsset[];
 	monsters: MonsterAsset[];
 	statusIcons: IconPoolEntry[];
+	iconPool: IconPoolEntry[];
+	gameLocations: GameLocationAsset[];
 	guardians: GuardianAsset[];
 	classes: ClassTrait[];
 	origins: OriginTrait[];
-}> {
+	/** Per-cost bag copy-counts from the Complete edition (`editions.cost_duplicates`). */
+	costDuplicates: Record<string, number> | null;
+}
+
+export async function fetchAssetsData(): Promise<AssetsData> {
 	const [
 		spiritsResult,
 		runesResult,
@@ -766,13 +782,18 @@ export async function fetchAssetsData(): Promise<{
 		customDiceSidesResult,
 		monstersResult,
 		statusIconsResult,
+		iconPoolResult,
+		gameLocationsResult,
 		guardiansResult,
 		classesResult,
-		originsResult
+		originsResult,
+		editionsResult,
+		rewardRowAssignmentsResult,
+		gameLocationRowsResult
 	] = await Promise.all([
 		supabaseAssets
 			.from(TABLES.HEX_SPIRITS)
-			.select('id, name, cost, traits, game_print_image_path, art_raw_image_path'),
+			.select('id, name, cost, traits, awaken_condition, game_print_image_path, art_raw_image_path'),
 		supabaseAssets.from(TABLES.RUNES).select('id, name, origin_id, class_id, icon_path'),
 		supabaseAssets
 			.from(TABLES.CUSTOM_DICE)
@@ -786,18 +807,26 @@ export async function fetchAssetsData(): Promise<{
 			),
 		supabaseAssets
 			.from(TABLES.MONSTERS)
-			.select('id, name, stage, damage, barrier, card_image_path'),
+			.select('id, name, stage, order_num, damage, barrier, card_image_path, reward_track, dice_pool, choose_amount'),
 		supabaseAssets
 			.from(TABLES.ICON_POOL)
 			.select('id, name, file_path, tags')
 			.contains('tags', ['status']),
+		supabaseAssets.from(TABLES.ICON_POOL).select('id, name, file_path, tags'),
+		supabaseAssets
+			.from(TABLES.GAME_LOCATIONS)
+			.select('id, name, origin_id, reward_rows, background_image_path'),
 		supabaseAssets
 			.from(TABLES.GUARDIANS)
 			.select('id, name, origin_id, icon_image_path, image_mat_path, chibi_image_path'),
 		supabaseAssets.from(TABLES.CLASSES).select('id, name, position, icon_png, color, description, effect_schema, footer, class_type, is_special'),
 		supabaseAssets
 			.from(TABLES.ORIGINS)
-			.select('id, name, position, icon_png, icon_token_png, color, description, calling_card')
+			.select('id, name, position, icon_png, icon_token_png, color, description, calling_card'),
+		supabaseAssets.from(TABLES.EDITIONS).select('id, name, is_default, cost_duplicates'),
+		// New reward-row model: assignments bind a row to a location at a slot (row_index).
+		supabaseAssets.from(TABLES.REWARD_ROW_ASSIGNMENTS).select('location_id, row_id, row_index'),
+		supabaseAssets.from(TABLES.GAME_LOCATION_ROWS).select('id, config')
 	]);
 
 	if (spiritsResult.error) throw spiritsResult.error;
@@ -806,6 +835,8 @@ export async function fetchAssetsData(): Promise<{
 	if (customDiceSidesResult.error) throw customDiceSidesResult.error;
 	if (monstersResult.error) throw monstersResult.error;
 	if (statusIconsResult.error) throw statusIconsResult.error;
+	if (iconPoolResult.error) throw iconPoolResult.error;
+	if (gameLocationsResult.error) throw gameLocationsResult.error;
 	if (guardiansResult.error) throw guardiansResult.error;
 	if (classesResult.error) throw classesResult.error;
 	if (originsResult.error) throw originsResult.error;
@@ -821,6 +852,55 @@ export async function fetchAssetsData(): Promise<{
 		sides.sort((a, b) => a.side_number - b.side_number);
 	}
 
+	// Bag copy-counts come from the editions table. The Complete edition is the
+	// canonical play set (the TTS export is fixed to it); fall back to the default
+	// edition, then the first. A fetch error leaves it null → engine uses its
+	// built-in default. Not fatal, so it isn't thrown above.
+	const editions =
+		(editionsResult.data as
+			| { name: string; is_default: boolean; cost_duplicates: Record<string, number> | null }[]
+			| null) ?? [];
+	const playEdition =
+		editions.find((e) => e.name?.toLowerCase() === 'complete') ??
+		editions.find((e) => e.is_default) ??
+		editions[0] ??
+		null;
+
+	// Reward rows now live in their own records (game_location_rows), bound to a
+	// location + slot via reward_row_assignments. Rebuild each location's ordered
+	// reward_rows from that model so the play engine sees the live, authoritative
+	// interactions. The legacy game_locations.reward_rows jsonb is a stale fallback,
+	// used only if the new tables are unavailable/empty (e.g. a different environment).
+	const rawLocations = (gameLocationsResult.data as GameLocationAsset[]) ?? [];
+	const assignments =
+		(rewardRowAssignmentsResult.error
+			? null
+			: (rewardRowAssignmentsResult.data as
+					| { location_id: string; row_id: string; row_index: number | null }[]
+					| null)) ?? [];
+	const rowConfigById = new Map<string, GameLocationRewardRow>();
+	if (!gameLocationRowsResult.error) {
+		for (const row of (gameLocationRowsResult.data as { id: string; config: unknown }[] | null) ?? []) {
+			if (row.config && typeof row.config === 'object') {
+				rowConfigById.set(row.id, row.config as GameLocationRewardRow);
+			}
+		}
+	}
+	const rewardRowsByLocation = new Map<string, GameLocationRewardRow[]>();
+	for (const a of [...assignments].sort((x, y) => (x.row_index ?? 0) - (y.row_index ?? 0))) {
+		const config = rowConfigById.get(a.row_id);
+		if (!config) continue;
+		const list = rewardRowsByLocation.get(a.location_id) ?? [];
+		list.push(config);
+		rewardRowsByLocation.set(a.location_id, list);
+	}
+	// Only switch to the new model when it actually has assignments; otherwise keep
+	// the legacy jsonb so nothing regresses where the rework hasn't been applied.
+	const useNewRewardModel = assignments.length > 0 && rowConfigById.size > 0;
+	const gameLocations = rawLocations.map((loc) =>
+		useNewRewardModel ? { ...loc, reward_rows: rewardRowsByLocation.get(loc.id) ?? [] } : loc
+	);
+
 	return {
 		spirits: (spiritsResult.data as HexSpiritAsset[]) ?? [],
 		runes: (runesResult.data as RuneAsset[]) ?? [],
@@ -830,9 +910,12 @@ export async function fetchAssetsData(): Promise<{
 		})) as CustomDiceAsset[]) ?? [],
 		monsters: (monstersResult.data as MonsterAsset[]) ?? [],
 		statusIcons: (statusIconsResult.data as IconPoolEntry[]) ?? [],
+		iconPool: (iconPoolResult.data as IconPoolEntry[]) ?? [],
+		gameLocations,
 		guardians: (guardiansResult.data as GuardianAsset[]) ?? [],
 		classes: (classesResult.data as ClassTrait[]) ?? [],
-		origins: (originsResult.data as OriginTrait[]) ?? []
+		origins: (originsResult.data as OriginTrait[]) ?? [],
+		costDuplicates: playEdition?.cost_duplicates ?? null
 	};
 }
 

@@ -2,31 +2,10 @@
 	import { onMount } from 'svelte';
 	import { fetchRatingLeaderboard } from '$lib/supabase';
 	import { loadAssets, getGuardianAsset } from '$lib/stores/assetStore.svelte';
-	import type { RatingLeaderboardRow } from '$lib/types';
+	import { toSortedChampions, type ChampionEntry } from '$lib/features/champions/champions';
+	import { formatDateCompact } from '$lib/features/stats/format';
 
-	type LastGameEntry = {
-		gameId: string;
-		round: number;
-		playerColor: string;
-		character: string;
-		endedAt: string;
-		victoryPoints: number;
-		placement: number;
-	};
-
-	type LeaderboardEntry = {
-		username: string;
-		usernameKey: string;
-		rating: number | null;
-		winRatePct: number;
-		gamesPlayed: number;
-		wins: number;
-		avgPoints: number;
-		avgPlacement: number;
-		lastGames: LastGameEntry[];
-	};
-
-	let entries = $state<LeaderboardEntry[]>([]);
+	let entries = $state<ChampionEntry[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let lastRefresh = $state<Date | null>(null);
@@ -38,45 +17,12 @@
 		return entries.filter((e) => e.username.toLowerCase().includes(q));
 	});
 
-	function formatDate(t: string | null): string {
-		if (!t) return '—';
-		const d = new Date(t);
-		if (Number.isNaN(d.getTime())) return String(t);
-		const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
-		if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
-		return d.toLocaleDateString('en-US', opts);
-	}
-
-	function mapEntry(row: RatingLeaderboardRow): LeaderboardEntry {
-		return {
-			username: row.username,
-			usernameKey: row.username_key,
-			rating: row.ordinal,
-			winRatePct: Math.round((((row.win_rate ?? 0) * 100) + Number.EPSILON) * 10) / 10,
-			gamesPlayed: row.games_played,
-			wins: row.wins,
-			avgPoints: row.avg_victory_points,
-			avgPlacement: row.avg_placement,
-			lastGames: row.last_games ?? []
-		};
-	}
-
 	async function refreshLeaderboard() {
 		loading = true;
 		error = null;
 		try {
 			const rows = await fetchRatingLeaderboard();
-			entries = rows.map(mapEntry).sort((a, b) => {
-				const aR = a.rating ?? Number.NEGATIVE_INFINITY;
-				const bR = b.rating ?? Number.NEGATIVE_INFINITY;
-				const byR = bR - aR;
-				if (byR !== 0) return byR;
-				const byG = b.gamesPlayed - a.gamesPlayed;
-				if (byG !== 0) return byG;
-				const byP = a.avgPlacement - b.avgPlacement;
-				if (byP !== 0) return byP;
-				return a.username.localeCompare(b.username);
-			});
+			entries = toSortedChampions(rows);
 			lastRefresh = new Date();
 		} catch (e) {
 			console.error('Error fetching leaderboard:', e);
@@ -189,7 +135,7 @@
 					<div class="player-cell">
 						<a href={`/players/${encodeURIComponent(entry.username)}`} class="player-link">{entry.username}</a>
 						{#if entry.lastGames[0]}
-							<div class="player-meta">Last played {formatDate(entry.lastGames[0].endedAt)}</div>
+							<div class="player-meta">Last played {formatDateCompact(entry.lastGames[0].endedAt)}</div>
 						{/if}
 					</div>
 					<div class="num">

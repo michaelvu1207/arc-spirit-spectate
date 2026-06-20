@@ -4,6 +4,8 @@
  */
 
 import { fetchAssetsData, STORAGE_BASE_URL } from '$lib/supabase';
+import { preloadImages } from '$lib/utils/preloadImages';
+import { prefersReducedData } from '$lib/play/dataSaver';
 import type {
 	HexSpiritAsset,
 	GuardianAsset,
@@ -11,6 +13,7 @@ import type {
 	CustomDiceAsset,
 	MonsterAsset,
 	IconPoolEntry,
+	GameLocationAsset,
 	ClassTrait,
 	OriginTrait,
 	ResolvedSpiritAsset,
@@ -26,9 +29,17 @@ let guardianAssets = $state<Map<string, GuardianAsset>>(new Map());
 let classTraits = $state<Map<string, ClassTrait>>(new Map());
 let originTraits = $state<Map<string, OriginTrait>>(new Map());
 let statusIcons = $state<Map<string, IconPoolEntry>>(new Map()); // key: normalized status token (e.g. "corrupt")
+let iconPool = $state<Map<string, IconPoolEntry>>(new Map()); // key: icon_pool id
+let gameLocations = $state<Map<string, GameLocationAsset>>(new Map()); // key: location name
 let isLoaded = $state<boolean>(false);
 let isLoading = $state<boolean>(false);
 let error = $state<string | null>(null);
+
+// Image cache warming — separate from data loading so only the play board gates
+// on it (the other routes consume asset data without waiting for every image).
+let imagesReady = $state<boolean>(false);
+let imageProgress = $state<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
+let imagePreloadStarted = false;
 
 // Build full storage URL from path
 function getStorageUrl(path: string | null): string | null {
@@ -103,12 +114,89 @@ export async function loadAssets() {
 		}
 		statusIcons = newStatusIcons;
 
+		const newIconPool = new Map<string, IconPoolEntry>();
+		for (const icon of assets.iconPool) newIconPool.set(icon.id, icon);
+		iconPool = newIconPool;
+
+		const newLocations = new Map<string, GameLocationAsset>();
+		for (const loc of assets.gameLocations) newLocations.set(loc.name, loc);
+		gameLocations = newLocations;
+
 		isLoaded = true;
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to load assets';
 		console.error('Error loading assets:', e);
 	} finally {
 		isLoading = false;
+	}
+}
+
+// Gather every *compressed* game image URL from the loaded asset maps. For
+// spirits we deliberately take only `game_print_image_path` (the print-ready,
+// compressed art) and never `art_raw_image_path` (the heavy raw source). All
+// other asset types have a single, already-lightweight image variant.
+function collectCompressedImageUrls(): string[] {
+	const urls = new Set<string>();
+	const add = (path: string | null | undefined) => {
+		const url = getStorageUrl(path ?? null);
+		if (url) urls.add(url);
+	};
+
+	for (const spirit of spiritAssets.values()) add(spirit.game_print_image_path); // compressed only
+	for (const rune of runeAssets.values()) add(rune.icon_path);
+	for (const die of customDiceAssets.values()) {
+		add(die.background_image_path);
+		add(die.template_image_path);
+		add(die.exported_template_path);
+		for (const side of die.sides) add(side.image_path);
+	}
+	for (const monster of monsterAssets.values()) add(monster.card_image_path);
+	for (const icon of statusIcons.values()) add(icon.file_path);
+	for (const icon of iconPool.values()) add(icon.file_path);
+	for (const loc of gameLocations.values()) add(loc.background_image_path);
+	for (const guardian of guardianAssets.values()) {
+		add(guardian.icon_image_path);
+		add(guardian.image_mat_path);
+		add(guardian.chibi_image_path);
+	}
+	for (const cls of classTraits.values()) add(cls.icon_png);
+	for (const origin of originTraits.values()) {
+		add(origin.icon_png);
+		add(origin.icon_token_png);
+	}
+
+	return [...urls];
+}
+
+/**
+ * Warm the browser cache with every compressed game image. Loads asset data
+ * first if needed, then preloads. Safe to call repeatedly — only the first call
+ * does work; a call aborted before completion (e.g. unmount) may be retried.
+ */
+export async function preloadAssetImages(signal?: AbortSignal): Promise<void> {
+	if (imagePreloadStarted) return;
+	imagePreloadStarted = true;
+
+	try {
+		if (!isLoaded) await loadAssets();
+		if (signal?.aborted) return;
+
+		// On metered/slow connections reduce concurrency and use a tighter per-image
+		// timeout so a stalled asset can't block the game for too long.
+		const slowLink = prefersReducedData();
+		await preloadImages(collectCompressedImageUrls(), {
+			concurrency: slowLink ? 3 : 8,
+			timeoutMs: slowLink ? 5000 : 8000,
+			signal,
+			onProgress: (p) => {
+				imageProgress = p;
+			}
+		});
+
+		if (!signal?.aborted) imagesReady = true;
+	} finally {
+		// Allow a fresh attempt if we bailed out before finishing.
+		if (!imagesReady) imagePreloadStarted = false;
 	}
 }
 
@@ -205,11 +293,23 @@ export function getAssetState() {
 		get statusIcons() {
 			return statusIcons;
 		},
+		get iconPool() {
+			return iconPool;
+		},
+		get gameLocations() {
+			return gameLocations;
+		},
 		get isLoaded() {
 			return isLoaded;
 		},
 		get isLoading() {
 			return isLoading;
+		},
+		get imagesReady() {
+			return imagesReady;
+		},
+		get imageProgress() {
+			return imageProgress;
 		},
 		get error() {
 			return error;

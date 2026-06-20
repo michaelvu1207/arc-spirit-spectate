@@ -4,6 +4,13 @@
 	import { fetchGameSummaries } from '$lib/supabase';
 	import { loadAssets, getGuardianAsset } from '$lib/stores/assetStore.svelte';
 	import { toFullReplayCode, toShortReplayCode } from '$lib/replayCodes';
+	import {
+		formatDate,
+		formatDuration,
+		formatDurationHoursMinutes,
+		safeDurationMs
+	} from '$lib/features/stats/format';
+	import { shortenGameId } from '$lib/features/records/records';
 
 	interface GameListItem {
 		game_id: string;
@@ -85,48 +92,6 @@
 		const mid = Math.floor(turns.length / 2);
 		return turns.length % 2 === 0 ? (turns[mid - 1] + turns[mid]) / 2 : turns[mid];
 	});
-
-	function formatDate(s: string): string {
-		const d = new Date(s);
-		return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-	}
-
-	function formatDuration(ms: number | null): string {
-		if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
-		const totalSeconds = Math.floor(ms / 1000);
-		const seconds = totalSeconds % 60;
-		const totalMinutes = Math.floor(totalSeconds / 60);
-		const minutes = totalMinutes % 60;
-		const hours = Math.floor(totalMinutes / 60);
-		if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
-		if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
-		return `${seconds}s`;
-	}
-
-	function formatDurationHoursMinutes(ms: number | null): string {
-		if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
-		if (ms < 60_000) return '<1m';
-		const totalMinutes = Math.floor(ms / 60_000);
-		const minutes = totalMinutes % 60;
-		const hours = Math.floor(totalMinutes / 60);
-		if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
-		return `${minutes}m`;
-	}
-
-	function safeDurationMs(start: string | null, end: string | null): number | null {
-		if (!start || !end) return null;
-		const sM = Date.parse(start);
-		const eM = Date.parse(end);
-		if (Number.isNaN(sM) || Number.isNaN(eM)) return null;
-		const diff = eM - sM;
-		return diff >= 0 ? diff : null;
-	}
-
-	function shortenGameId(gameId: string): string {
-		const parts = gameId.split('_');
-		if (parts.length >= 4) return `${parts[1]}_${parts[2]}_${parts[3]}`;
-		return gameId.length > 22 ? gameId.slice(0, 22) + '…' : gameId;
-	}
 
 	function navigateToGame(gameId: string) { goto(`/game/${encodeURIComponent(gameId)}`); }
 

@@ -1,0 +1,1935 @@
+<script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { browser, dev } from '$app/environment';
+	import { sendPlayCommand } from '$lib/stores/playStore.svelte';
+	import { getAssetState } from '$lib/stores/assetStore.svelte';
+	import type {
+		AwakenDiscardRef,
+		GameCommand,
+		MemberRole,
+		NavigationDestination,
+		SeatColor,
+		SpectatorProjection
+	} from '$lib/play/types';
+	import { RUNE_CARRY_LIMIT, isEvilAlignment } from '$lib/play/types';
+	import { buildLocationInteractions } from '$lib/play/locationInteractions';
+	import { buildMonsterRewards } from '$lib/play/monsterRewards';
+	import {
+		LOCATION_ACCENT,
+		getLocationConfig,
+		splatFor,
+		worldMusicFor,
+		combatMusicFor,
+		NAVIGATION_MUSIC,
+		CLEANUP_MUSIC
+	} from '$lib/play/locations';
+	import { spiritImageMap, seatAccent, storageUrl } from './helpers';
+	import RoundBanner from './RoundBanner.svelte';
+	import PhaseBar from './PhaseBar.svelte';
+	import InfoLegend from './InfoLegend.svelte';
+	import Leaderboard from './Leaderboard.svelte';
+	import TraitTracker from './TraitTracker.svelte';
+	import RuneSlots from './RuneSlots.svelte';
+	import MainStage, { type ActiveAction } from './MainStage.svelte';
+	import CompositionStage from './CompositionStage.svelte';
+	import DestinationReveal from './DestinationReveal.svelte';
+	import GameStartCutscene from './GameStartCutscene.svelte';
+	import SplatBackground from './SplatBackground.svelte';
+	import { prefersReducedData } from '$lib/play/dataSaver';
+	import BagViewer from './BagViewer.svelte';
+	import DebugPanel from './DebugPanel.svelte';
+	import SummonFxLayer from './SummonFxLayer.svelte';
+	import {
+		setMusic,
+		stopMusic,
+		playSfx,
+		toggleAudioMuted,
+		getGameAudio
+	} from '$lib/stores/gameAudio.svelte';
+
+	const audioState = getGameAudio();
+
+	interface Member {
+		id: string | null;
+		role: MemberRole;
+		seatColor: SeatColor | null;
+		displayName: string | null;
+	}
+
+	interface Props {
+		room: SpectatorProjection;
+		member: Member;
+		assets: ReturnType<typeof getAssetState>;
+	}
+
+	let { room, member, assets }: Props = $props();
+
+	let pendingAction = $state<string | null>(null);
+	let actionError = $state<string | null>(null);
+	let settingsOpen = $state(false);
+	let infoOpen = $state(false);
+	let bagOpen = $state(false);
+	/** Which action sub-view the central stage is showing (null = the action grid). */
+	let activeAction = $state<ActiveAction>(null);
+	/** Last group-Encounter (PvP) combat id this client has shown + dismissed, so the
+	 *  auto-surfaced overlay doesn't keep re-opening for the rest of the round. */
+	let seenPvpCombatId = $state<string | null>(null);
+
+	const mySeat = $derived(member.seatColor);
+	const isHost = $derived(member.role === 'host');
+	const myPlayer = $derived(mySeat ? (room.players[mySeat] ?? null) : null);
+	const busy = $derived(pendingAction !== null);
+
+	const spiritImages = $derived(spiritImageMap(assets.spiritAssets));
+
+	// ── Composition view: replace the MainStage content with a player's 7-hex board ──
+	// viewedSeat = null → normal stage; a seat → that player's composition fills the
+	// main stage. Opened (and hidden) by clicking that player in the leaderboard — there
+	// is no back button. The pending action state lives here and MainStage is stateless,
+	// so the stage is restored exactly when viewedSeat clears.
+	let viewedSeat = $state<SeatColor | null>(null);
+	// While viewing, the LEFT trait list reflects the viewed player; otherwise it's mine.
+	const traitPlayer = $derived(viewedSeat ? (room.players[viewedSeat] ?? null) : myPlayer);
+	function scoutSeat(seat: SeatColor) {
+		viewedSeat = viewedSeat === seat ? null : seat;
+		// On mobile the three columns are full-width swipe pages; the composition fills
+		// the Stage page (the middle one). Tapping a player on the Leaderboard page
+		// auto-swipes to the Stage so their board is actually visible.
+		if (viewedSeat) goToPage(STAGE_PAGE);
+	}
+
+	// Drop back to the action grid whenever we leave the Location phase.
+	$effect(() => {
+		if (room.phase !== 'location') activeAction = null;
+	});
+
+	// A group Encounter (PvP) combat resolves as the phase flips to 'location' (it's
+	// driven by the unanimous vote, not a "start" click), so surface its CombatOverlay
+	// the same way monster fights do: flag activeAction='combat' the first time a fresh
+	// pvp combat involving my seat appears. continueAction() marks it seen so the
+	// lingering combat doesn't re-open for the rest of the round.
+	const myPvpCombat = $derived(
+		mySeat
+			? (room.combats.find((c) => c.kind === 'pvp' && c.sides.some((s) => s.seat === mySeat)) ?? null)
+			: null
+	);
+	$effect(() => {
+		if (
+			myPvpCombat &&
+			myPvpCombat.id !== seenPvpCombatId &&
+			room.phase === 'location' &&
+			activeAction === null &&
+			!myPlayer?.pendingDraw &&
+			!myPlayer?.pendingReward
+		) {
+			activeAction = 'combat';
+		}
+	});
+
+	const navOpen = $derived(room.phase === 'navigation' && !room.revealedDestinations);
+
+	// Defensive: a seated player must never be stranded on the composition view while
+	// they owe a turn-blocking action. The destination picker, draw tray, reward menu
+	// and combat overlay all live in MainStage, which the inline view unmounts — and
+	// there is no back button, so snap back to the main stage the instant an obligation
+	// appears. Spectators (no seat) may keep browsing freely.
+	$effect(() => {
+		if (!mySeat) return;
+		if (
+			navOpen ||
+			myPlayer?.pendingDraw ||
+			myPlayer?.pendingReward ||
+			(room.phase === 'cleanup' && myPlayer?.pendingCorruptionDiscard) ||
+			activeAction !== null
+		) {
+			viewedSeat = null;
+		}
+	});
+
+	// Forced corruption discard + Spirit Augment placement render IN-STAGE (inside
+	// MainStage's view), prioritized there ahead of the phase content — no floating
+	// overlay here. The auto-pass / scout-view gates below still key off the raw
+	// pendingCorruptionDiscard / unplacedAugments state.
+
+	// Navigation is interactive whenever it's open — clicking a card locks it in,
+	// clicking the locked card unlocks, clicking another switches the choice.
+	const canPickDestination = $derived(navOpen && !!mySeat);
+	const lockedDestination = $derived(myPlayer?.pendingDestination ?? null);
+	// The local player has locked a destination (navigation still open) → show the
+	// full-screen "confirmed" zoom panel instead of the carousel, with a back-out.
+	const myConfirmedDestination = $derived(
+		navOpen && mySeat && lockedDestination && room.navigation[mySeat]?.locked
+			? lockedDestination
+			: null
+	);
+
+	// ── Splat background ───────────────────────────────────────────────────
+	// On metered/slow/Data-Saver connections skip the WebGL splat entirely —
+	// the board is fully playable with just the radial-gradient base background.
+	// prefersReducedData() is checked once at mount time (Network Information API);
+	// it returns false conservatively where the API is unavailable (Safari/Firefox).
+	const showSplat = !prefersReducedData();
+
+	// Each destination maps to a Gaussian-splat world (static .spz under /splats);
+	// the map + defaults are the single source of truth in locations.ts (splatFor).
+	// Before a destination is picked, the default (sunset valley) shows.
+	// Follow the local player's pick the moment they lock it in (pendingDestination),
+	// then the committed destination keeps it steady through every later phase.
+	const activeDestination = $derived(
+		(myPlayer?.pendingDestination ??
+			myPlayer?.navigationDestination ??
+			null) as NavigationDestination | null
+	);
+	// Browsing the carousel, the world under the cursor previews as a live "portal";
+	// null clears the preview back to the locked / committed pick.
+	let hoveredDestination = $state<NavigationDestination | null>(null);
+	// The carousel unmounts on commit, and a disabled card never fires mouseleave, so
+	// clear the hover whenever the pick UI closes — otherwise a stale hover bleeds a
+	// phantom "Live" portal into the next navigation round.
+	$effect(() => {
+		if (!canPickDestination) hoveredDestination = null;
+	});
+	// The local player has stepped *into* the realm once the round leaves navigation
+	// with a committed destination — the splat stops being wallpaper and becomes the
+	// stage (sharp + dollied in). Spectators always stay in the browsing view.
+	const inRealm = $derived(
+		!!mySeat &&
+			(room.phase === 'location' ||
+				room.phase === 'encounter' ||
+				room.phase === 'benefits' ||
+				room.phase === 'awakening' ||
+				room.phase === 'cleanup')
+	);
+	// Spectators can't hover or lock a pick, so frame the busiest realm for them — one
+	// card always reads as the live window and the splat shows a real world.
+	const spectatorFocus = $derived.by<NavigationDestination | null>(() => {
+		if (mySeat) return null;
+		let best: NavigationDestination | null = null;
+		let most = 0;
+		for (const [dest, occ] of Object.entries(room.locationOccupancy ?? {})) {
+			const n = (occ as SeatColor[]).length;
+			if (n > most) {
+				most = n;
+				best = dest as NavigationDestination;
+			}
+		}
+		return best;
+	});
+	// One shared "browse focus" so the open portal card and the splat always agree on
+	// which world is live: hover → locked pick → committed → (spectator) busiest realm.
+	const browseFocus = $derived(
+		hoveredDestination ?? lockedDestination ?? activeDestination ?? spectatorFocus
+	);
+	// Browse → the shared focus; inside the realm → lock onto the committed destination.
+	// Drives per-scene music (navigation music ignores the destination, so hovering the
+	// carousel never changes the soundtrack — only the realm phases do).
+	const focusDestination = $derived(inRealm ? activeDestination : browseFocus);
+	// ── Navigation → realm presentation choreography (client-only) ─────────────
+	// The engine reveals destinations and steps into the location phase in a single
+	// atomic transition. We replay it as an ordered beat for the local view so the
+	// player reads it as: confirmation panel → "who went where" reveal → realm-enter
+	// flourish (the splat finally dollies in) → location interaction.
+	//   'idle'   — normal play (carousel / confirmed panel / location UI)
+	//   'reveal' — the "Destinations Revealed" overlay (rendered from a frozen snapshot)
+	//   'enter'  — the iris + "Entering {Realm}" flourish while the splat zooms in
+	let revealSeq = $state<'idle' | 'reveal' | 'enter'>('idle');
+	// Occupancy frozen at the instant of reveal so the overlay can never blank out if the
+	// room advances underneath it.
+	let revealOccupancy = $state<SpectatorProjection['locationOccupancy']>({});
+	let enteredRealm = $state<string | null>(null);
+	let enterTimer: ReturnType<typeof setTimeout> | null = null;
+	// ── Portal-dive geometry ───────────────────────────────────────────────────
+	// The realm-enter dive grows a world-filled circle from the navigator's centre (where
+	// the "Going to" circle sits) out past the screen edges, so the picked world engulfs
+	// the view — "jumping into the hole". Captured the instant the enter beat begins (the
+	// stage cell is still mounted under the reveal overlay) so the portal opens from the
+	// right spot with no first-frame jump from a stale origin.
+	let stageCellEl = $state<HTMLDivElement | null>(null);
+	let portal = $state({ cx: 0, cy: 0, hole0: 0, coverR: 0 });
+	function measurePortal() {
+		const vw = window.innerWidth;
+		const vh = window.innerHeight;
+		// Fall back to the viewport centre if the stage cell isn't measurable yet, so the
+		// dive always blooms from a sane origin instead of a zero-radius (all-dark) window.
+		const r = stageCellEl?.getBoundingClientRect();
+		const cx = r ? r.left + r.width / 2 : vw / 2;
+		const cy = r ? r.top + r.height / 2 : vh / 2;
+		// Start ≈ the confirm circle's disc; grow until the circle clears the farthest
+		// viewport corner (so it fully covers the screen before handing off to the realm).
+		const span = r ? Math.min(r.width, r.height) : Math.min(vw, vh);
+		const hole0 = Math.max(70, span * 0.28);
+		const coverR = Math.hypot(Math.max(cx, vw - cx), Math.max(cy, vh - cy)) + 12;
+		portal = { cx, cy, hole0, coverR };
+	}
+
+	// ── Backdrop world continuity ─────────────────────────────────────────────
+	// The full-screen splat follows the MUSIC-continuity rule (see lastVisitedWorldMusic):
+	// it shows the world the local player is engaged with and only CHANGES when they lock a
+	// NEW destination. So it never snaps back to the neutral wallpaper when the navigation
+	// phase re-opens between rounds, and backing out of a pick ("Change selection") leaves
+	// the backdrop untouched. Swiping the carousel never swaps it — only a deliberate lock
+	// does (which fires the splat's own world-switch warp). Before anyone has committed
+	// (round 1) it's the default wallpaper. Through browse/confirm it stays a blurred
+	// wallpaper; it sharpens and dollies in only on the realm-enter dive. The confirm
+	// CIRCLE keeps its OWN sharp mini splat as the focal preview (two separate renderers).
+	let navSplatDestination = $state<NavigationDestination | null>(null);
+	$effect(() => {
+		if (room.status !== 'active') {
+			navSplatDestination = null; // fresh game → reset to the default wallpaper
+			return;
+		}
+		// Inside the realm the backdrop IS the committed world — record it so it carries
+		// through cleanup and into the next navigation phase. A fresh lock during
+		// navigation moves the backdrop to that world at once; unlock leaves it put.
+		if (inRealm && activeDestination) navSplatDestination = activeDestination;
+		else if (lockedDestination) navSplatDestination = lockedDestination;
+	});
+	// In the realm the committed destination is authoritative (no one-frame latch lag);
+	// during navigation the sticky backdrop drives it; spectators frame the busiest realm.
+	const splatFocus = $derived(
+		inRealm ? activeDestination : mySeat ? navSplatDestination : spectatorFocus
+	);
+	const splatSrc = $derived(splatFor(splatFocus as NavigationDestination | null));
+	// Zoom (dolly-in) + full sharpness happen only during the 'enter' flourish and once
+	// settled inside the realm — NOT while merely confirmed or during the reveal overlay,
+	// so the "zoom into the new world" beat lands AFTER the destinations are revealed.
+	const splatZoomed = $derived(revealSeq === 'enter' || (revealSeq === 'idle' && inRealm));
+	const splatPush = $derived(splatZoomed ? 1 : 0);
+	// Wallpaper blur while browsing/confirming (the confirm circle owns the chosen-world
+	// preview now); sharp once zoomed in.
+	const splatBlur = $derived(splatZoomed ? 0 : mySeat ? 13 : 8);
+
+	// ── navView: a single derived presentation state, computed PURELY from existing
+	// flags (no new server state). First match wins (priority order matters). This is the
+	// canonical mapping for which navigator-area view the local player sees.
+	//   'reveal' — DestinationReveal overlay beat (frozen "who went where" snapshot)
+	//   'enter'  — iris + dolly flourish (main splat push→1)
+	//   'realm'  — committed, inside location/encounter/cleanup (splat sharp + dollied)
+	//   'confirm'— locked a pick, navigation still open (the confirm circle)
+	//   'browse' — carousel / compass (or spectator wallpaper)
+	const navView = $derived<'browse' | 'confirm' | 'reveal' | 'enter' | 'realm'>(
+		revealSeq === 'reveal'
+			? 'reveal'
+			: revealSeq === 'enter'
+				? 'enter'
+				: inRealm
+					? 'realm'
+					: myConfirmedDestination
+						? 'confirm'
+						: 'browse'
+	);
+
+	// ── Scene music ────────────────────────────────────────────────────────
+	// Per-location ambience (location/interaction phase) and combat themes
+	// (encounter phase, or a monster fight inside the location phase). The track
+	// maps are the single source of truth in locations.ts (worldMusicFor /
+	// combatMusicFor).
+	//
+	// Music continuity: a world's ambient theme keeps playing once you've VISITED
+	// that location — across the following cleanup and back through the navigation
+	// phase — until you step into your NEXT location. (Visit Cyber City and its
+	// music plays until you next commit to a world.) Before any location is visited
+	// (round 1) we fall back to the navigation / cleanup scene themes.
+	let lastVisitedWorldMusic = $state<string | null>(null);
+	$effect(() => {
+		if (inRealm && activeDestination) {
+			// Recorded the moment the local player is inside their committed realm.
+			lastVisitedWorldMusic = worldMusicFor(activeDestination);
+		} else if (room.status !== 'active') {
+			lastVisitedWorldMusic = null; // reset on game end / leave
+		}
+	});
+	const sceneMusic = $derived.by<string | null>(() => {
+		if (room.status !== 'active') return null;
+		const dest = focusDestination as NavigationDestination | null;
+		if (room.phase === 'navigation') return lastVisitedWorldMusic ?? NAVIGATION_MUSIC;
+		if (room.phase === 'benefits' || room.phase === 'awakening' || room.phase === 'cleanup')
+			return lastVisitedWorldMusic ?? CLEANUP_MUSIC;
+		if (room.phase === 'encounter') return combatMusicFor(dest);
+		if (room.phase === 'location')
+			return activeAction === 'combat' ? combatMusicFor(dest) : worldMusicFor(dest);
+		return null;
+	});
+	$effect(() => {
+		setMusic(sceneMusic);
+	});
+
+	// ── State-change sound effects ───────────────────────────────────────────
+	// Guards seed sentinels (no top-level reactive read) and prime on the first
+	// active frame so nothing fires spuriously on mount.
+	// ── Game-start cutscene ──────────────────────────────────────────────────
+	// A one-shot "here are your spirits — good luck" overlay shown once per game,
+	// to seated players, the first time navigation opens (round 1). Gated on gameId
+	// so SSE polls / reconnects within the same game don't re-trigger it.
+	let showStartCutscene = $state(false);
+	let cutsceneShownFor = $state<string | null>(null);
+	const myGuardianName = $derived(mySeat ? (room.seats[mySeat]?.selectedGuardian ?? null) : null);
+	const myGuardianIcon = $derived(
+		myGuardianName
+			? storageUrl(assets.guardianAssets.get(myGuardianName)?.icon_image_path ?? null)
+			: null
+	);
+	$effect(() => {
+		if (!mySeat || room.status !== 'active') return;
+		const gid = room.gameId;
+		if (!gid || cutsceneShownFor === gid) return;
+		if (
+			room.round === 1 &&
+			room.phase === 'navigation' &&
+			!room.revealedDestinations &&
+			(myPlayer?.spirits?.length ?? 0) > 0
+		) {
+			cutsceneShownFor = gid;
+			showStartCutscene = true;
+		}
+	});
+
+	let prevPhase = '';
+	let prevRound = -1;
+	let prevReveal = false;
+	let prevVp = -1;
+	let prevError: string | null = null;
+	$effect(() => {
+		if (room.status !== 'active') return;
+		if (prevRound < 0) {
+			prevRound = room.round;
+			prevPhase = room.phase;
+			prevReveal = room.revealedDestinations;
+			prevVp = myPlayer?.victoryPoints ?? 0;
+			return;
+		}
+		if (room.round !== prevRound) {
+			prevRound = room.round;
+			prevPhase = room.phase;
+			playSfx('round-start');
+		} else if (room.phase !== prevPhase) {
+			prevPhase = room.phase;
+			playSfx('phase-advance');
+		}
+		if (room.revealedDestinations && !prevReveal) {
+			playSfx('nav-reveal');
+			// Freeze occupancy at the reveal instant, then start the reveal → enter beat.
+			// JSON clone, not structuredClone: `room` is a Svelte reactive proxy and
+			// structuredClone throws DataCloneError on it. locationOccupancy is plain
+			// JSON-safe data (seat→destination map), so a JSON round-trip is a safe freeze.
+			revealOccupancy = JSON.parse(JSON.stringify(room.locationOccupancy ?? {}));
+			revealSeq = 'reveal';
+		}
+		prevReveal = room.revealedDestinations;
+		const vp = myPlayer?.victoryPoints ?? 0;
+		if (vp > prevVp) playSfx('vp-gain');
+		prevVp = vp;
+	});
+	$effect(() => {
+		if (actionError && actionError !== prevError) playSfx('error');
+		prevError = actionError;
+	});
+	let prevStatus = -1;
+	let prevBarrier = -1;
+	let announcedWin = false;
+	$effect(() => {
+		if (room.status === 'finished') {
+			if (!announcedWin) {
+				announcedWin = true;
+				playSfx('victory');
+			}
+			return;
+		}
+		announcedWin = false;
+		if (room.status !== 'active') return;
+		const st = myPlayer?.statusLevel ?? 0;
+		const bar = myPlayer?.barrier ?? 0;
+		if (prevStatus < 0) {
+			prevStatus = st;
+			prevBarrier = bar;
+			return;
+		}
+		if (st !== prevStatus) {
+			prevStatus = st;
+			playSfx('status-change');
+		}
+		if (bar !== prevBarrier) {
+			prevBarrier = bar;
+			playSfx('potential-change');
+		}
+	});
+
+	// ── "Entering the realm" flourish (stage 'enter' of the choreography) ───────
+	// A one-shot iris + title beat that masks the reveal→HUD swap behind the dolly-in.
+	// It runs only after the reveal overlay is dismissed, so the order reads
+	// reveal → zoom-in → location, never all at once. enteredRealm/enterTimer are
+	// declared up top with revealSeq; onDestroy clears the timer on teardown.
+	// Arm the enter stage: the actual enter→idle transition now fires from the MAIN
+	// splat's onZoomSettled (when the dolly reaches the world — the GOAL-B beat "you zoom
+	// into that splat and it becomes the background splat"), NOT a fixed timer. A generous
+	// fallback timeout still GUARANTEES the transition so a missing callback (reduced-motion
+	// edge, lost WebGL context) can never strand the stage in 'enter' — which would freeze
+	// the location auto-pass gate (shouldAutoPassLocation is keyed on revealSeq==='idle').
+	function beginEnterStage() {
+		enteredRealm = activeDestination;
+		measurePortal(); // capture the dive origin before the overlay renders
+		revealSeq = 'enter';
+		playSfx('realm-enter');
+		if (enterTimer) clearTimeout(enterTimer);
+		enterTimer = setTimeout(() => finishEnterStage(), 2000);
+	}
+	// Idempotent: the onZoomSettled callback and the fallback timeout can race, and a fresh
+	// navigation phase can already have snapped us out of 'enter' — only act once, while
+	// still in 'enter'.
+	function finishEnterStage() {
+		if (revealSeq !== 'enter') return;
+		revealSeq = 'idle';
+		if (enterTimer) {
+			clearTimeout(enterTimer);
+			enterTimer = null;
+		}
+	}
+	// Reveal overlay dismissed (auto-timer or tap): seated players dive into the realm
+	// with the zoom flourish; spectators just return to their framed wallpaper.
+	function closeReveal() {
+		if (mySeat && activeDestination) beginEnterStage();
+		else revealSeq = 'idle';
+	}
+	$effect(() => {
+		// Snap the choreography back to idle whenever a fresh navigation phase opens
+		// (next round) or the game ends, so a stranded timer can't keep the stage
+		// hidden. Same-value $state writes are no-ops, so this never loops.
+		if (room.status !== 'active' || (room.phase === 'navigation' && !room.revealedDestinations)) {
+			revealSeq = 'idle';
+			if (enterTimer) {
+				clearTimeout(enterTimer);
+				enterTimer = null;
+			}
+		}
+	});
+	onDestroy(() => {
+		if (enterTimer) clearTimeout(enterTimer);
+		stopMusic();
+	});
+	// Authoring aid: press ` (backtick) to toggle a WASD + mouse fly camera over the
+	// splat to find a good starting pose (press P in-mode to log it to the console).
+	let flyMode = $state(false);
+	function onSplatFlyKey(e: KeyboardEvent) {
+		if (e.code !== 'Backquote') return;
+		const t = e.target as HTMLElement | null;
+		if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+		flyMode = !flyMode;
+	}
+
+	// ── Mobile pager ──────────────────────────────────────────────────────────
+	// On a vertical phone the three columns (trait list · stage · leaderboard)
+	// become full-width horizontal swipe pages under the pinned nav bar. Desktop
+	// renders them as a 3-track grid and ignores all of this. The pattern mirrors
+	// the proven nav carousel in SpiritWorldBoard: definite sizing, min-width:0,
+	// scroll-snap, and a rAF-throttled scroll handler tracking the active page.
+	const TRAITS_PAGE = 0;
+	const STAGE_PAGE = 1;
+	const LEADER_PAGE = 2;
+	let isMobile = $state(false);
+	let pagerEl = $state<HTMLDivElement | null>(null);
+	let activePage = $state(STAGE_PAGE);
+	let didInitPager = false;
+	let pagerRaf = 0;
+
+	$effect(() => {
+		if (!browser) return;
+		const mql = window.matchMedia('(max-width: 600px)');
+		const sync = () => (isMobile = mql.matches);
+		sync();
+		mql.addEventListener('change', sync);
+		return () => mql.removeEventListener('change', sync);
+	});
+
+	// Default page = STAGE (the middle). Jump there the first time the pager lays
+	// out on mobile so the board — not the trait list — is shown first.
+	$effect(() => {
+		if (!isMobile || !pagerEl || didInitPager) return;
+		didInitPager = true;
+		activePage = STAGE_PAGE;
+		pagerEl.scrollLeft = STAGE_PAGE * pagerEl.clientWidth;
+	});
+
+	function onPagerScroll() {
+		if (pagerRaf || !pagerEl) return;
+		pagerRaf = requestAnimationFrame(() => {
+			pagerRaf = 0;
+			const el = pagerEl;
+			if (!el) return;
+			const idx = Math.round(el.scrollLeft / Math.max(1, el.clientWidth));
+			if (idx !== activePage && idx >= 0 && idx <= LEADER_PAGE) activePage = idx;
+		});
+	}
+
+	function goToPage(i: number) {
+		if (!isMobile || !pagerEl) return;
+		pagerEl.scrollTo({ left: i * pagerEl.clientWidth, behavior: 'smooth' });
+	}
+
+	const winnerName = $derived.by(() => {
+		if (!room.winnerSeat) return null;
+		return room.seats[room.winnerSeat]?.displayName ?? room.winnerSeat;
+	});
+
+	async function runAction(label: string, work: () => Promise<unknown>) {
+		pendingAction = label;
+		actionError = null;
+		try {
+			await work();
+		} catch (err) {
+			actionError = err instanceof Error ? err.message : 'Action failed.';
+		} finally {
+			pendingAction = null;
+		}
+	}
+
+	function send(label: string, command: GameCommand) {
+		return runAction(label, () => sendPlayCommand(command));
+	}
+
+	// ── Navigation ─────────────────────────────────────────────────────────
+	function handleSelectDestination(destination: NavigationDestination) {
+		if (!canPickDestination) return;
+		// Clicking a location locks it in immediately; clicking the locked one unlocks.
+		if (lockedDestination === destination) {
+			playSfx('nav-unlock');
+			send('unlock', { type: 'unlockNavigation' });
+		} else {
+			playSfx('nav-lock');
+			send('lock', { type: 'lockNavigation', destination });
+		}
+	}
+
+	// Navigation timeout is enforced SERVER-side (the SSE poll's deadline enforcement
+	// reveals + advances exactly once). The client must NOT also send forceAdvancePhase
+	// here: enforcement runs at the top of runRoomCommand, so a client force would land
+	// on the already-advanced phase and skip a phase (it ate the whole location step).
+
+	// ── Location actions ───────────────────────────────────────────────────
+	// A location's interactions ARE its DB reward rows. Resolving one may grant a
+	// summon (which drives its own DrawTray view via pendingDraw — that branch
+	// takes UI precedence) or runes/potential/cultivate/rest (shown on the result
+	// card). We set `reward` either way; the pendingDraw branch wins when present.
+	async function resolveInteraction(rowIndex: number, choices: number[]) {
+		if (busy) return;
+		// The interaction card flips IN PLACE to show its result (no full-stage result
+		// card) — we stay on the action grid to reduce friction. A summon row still
+		// flows into the DrawTray (driven by pendingDraw, which takes view precedence).
+		pendingAction = `row:${rowIndex}`;
+		actionError = null;
+		try {
+			playSfx('ui-click');
+			await sendPlayCommand({ type: 'resolveLocationInteraction', rowIndex, choices });
+			activeAction = null;
+		} catch (err) {
+			actionError = err instanceof Error ? err.message : 'Action failed.';
+		} finally {
+			pendingAction = null;
+		}
+	}
+
+	async function startCombat() {
+		if (busy) return;
+		pendingAction = 'combat';
+		actionError = null;
+		try {
+			playSfx('combat-start');
+			await sendPlayCommand({ type: 'startCombat' });
+			activeAction = 'combat';
+		} catch (err) {
+			actionError = err instanceof Error ? err.message : 'Action failed.';
+		} finally {
+			pendingAction = null;
+		}
+	}
+
+	// Claim monster-kill rewards (Arcane Abyss). A picked summon flows into the
+	// DrawTray (pendingDraw takes UI precedence); everything else shows the result
+	// card. Mirrors resolveInteraction's draw-vs-result handling.
+	async function claimReward(picks: number[], choices: number[]) {
+		if (busy) return;
+		const byIndex = new Map(
+			buildMonsterRewards(myPlayer?.pendingReward?.rewardTrack ?? []).map((o) => [o.index, o])
+		);
+		const triggersDraw = picks.some((i) => {
+			const e = byIndex.get(i)?.effect;
+			return (
+				e?.type === 'action' && (e.action === 'spiritWorldSummon' || e.action === 'abyssSummon')
+			);
+		});
+		pendingAction = 'claim-reward';
+		actionError = null;
+		try {
+			playSfx('reward-pick');
+			await sendPlayCommand({ type: 'resolveMonsterReward', picks, choices });
+			activeAction = triggersDraw ? null : 'reward';
+		} catch (err) {
+			actionError = err instanceof Error ? err.message : 'Action failed.';
+		} finally {
+			pendingAction = null;
+		}
+	}
+
+	function continueAction() {
+		// Dismissing a group-Encounter combat: remember it so the auto-surface effect
+		// doesn't immediately re-open it (it lingers in room.combats all round).
+		if (activeAction === 'combat' && myPvpCombat) seenPvpCombatId = myPvpCombat.id;
+		activeAction = null;
+	}
+
+	function summonDraw(guid: string) {
+		playSfx('summon-pick');
+		send('summon', { type: 'spawnHandSpirit', guid });
+	}
+	function discardDraws() {
+		playSfx('summon-discard');
+		send('discard', { type: 'discardHandDraws' });
+	}
+	function redrawDraws() {
+		playSfx('summon-draw');
+		send('redraw', { type: 'redrawHandDraws' });
+	}
+	function awakenSpirit(slotIndex: number, discardRefs?: AwakenDiscardRef[]) {
+		playSfx('awaken');
+		send('awaken', { type: 'awakenSpirit', slotIndex, discardRefs });
+	}
+	function infiltratorSwap(
+		swaps: { targetSeat: SeatColor; myInstanceId: string; theirInstanceId: string }[]
+	) {
+		send('infiltrator-swap', { type: 'infiltratorSwap', swaps });
+	}
+	function discardSpirit(slotIndex: number) {
+		send('discard-spirit', { type: 'discardSpirit', slotIndex });
+	}
+	function discardRune(slotIndex: number) {
+		send('discard-rune', { type: 'discardRune', slotIndex });
+	}
+	function resolveDecision(decisionId: string, optionId: string) {
+		send('resolve-decision', { type: 'resolveDecision', decisionId, optionId });
+	}
+	function dismissManual(id: string) {
+		send('dismiss-manual', { type: 'dismissManualPrompt', id });
+	}
+	function grantDebug(
+		grant: import('$lib/play/types').DebugGrant,
+		seatColor?: import('$lib/play/types').SeatColor
+	) {
+		send('debug', { type: 'debugGrant', grant, ...(seatColor ? { seatColor } : {}) });
+	}
+	function placeAugment(
+		augmentIndex: number,
+		augmentRuneId: string,
+		spiritSlotIndex: number,
+		className?: string
+	) {
+		send('place-augment', {
+			type: 'placeAugmentOnSpirit',
+			augmentIndex,
+			augmentRuneId,
+			spiritSlotIndex,
+			className
+		});
+	}
+	// Cast this Evil player's vote to attack the Good players sharing the location.
+	// The group strike fires once every co-located Evil player has agreed (engine-side).
+	function attackGroup() {
+		playSfx('pvp-initiate');
+		send('pvp', { type: 'initiatePvp' });
+	}
+	// Hold / decline the encounter (an Evil decline cancels the group attack here).
+	function holdEncounter() {
+		playSfx('ui-click');
+		send('pass', { type: 'passEncounter' });
+	}
+	// Claim the Cursed Spirit Awakening-Phase rewards (Cleanup). `taintedPotential` =
+	// units of the Tainted line taken as potential (the rest become Enchanted Attack).
+	function claimAwakenReward(taintedPotential: number, relicPicks: number[]) {
+		playSfx('reward-pick');
+		send('awaken-reward', { type: 'resolveAwakenReward', taintedPotential, relicPicks });
+	}
+
+	// Held runes/relics over the carry limit must be discarded before cleanup can end.
+	const runeOverflow = $derived(
+		(myPlayer?.runes ?? []).filter((r) => r.hasRune).length > RUNE_CARRY_LIMIT
+	);
+
+	// ── "Pass turn" — the single per-phase "I'm done" control ───────────────
+	// An Evil player being offered the encounter Attack/Hold decision (co-located Good
+	// targets, not yet voted). They decline via MainStage's "Hold", so we suppress the
+	// generic footer "Pass turn" for them — otherwise two different controls both
+	// decline the group attack, which is ambiguous and accident-prone.
+	const amUndecidedAggressor = $derived(
+		!!mySeat &&
+			room.phase === 'encounter' &&
+			!myPlayer?.phaseReady &&
+			isEvilAlignment(myPlayer?.statusLevel ?? 0) &&
+			myPlayer?.navigationDestination != null &&
+			myPlayer?.navigationDestination !== 'Arcane Abyss' &&
+			room.activeSeats.some(
+				(s) =>
+					s !== mySeat &&
+					room.players[s]?.navigationDestination === myPlayer?.navigationDestination &&
+					!isEvilAlignment(room.players[s]?.statusLevel ?? 0)
+			)
+	);
+	const canPassTurn = $derived(
+		!!mySeat &&
+			room.status === 'active' &&
+			!myPlayer?.phaseReady &&
+			!myPlayer?.pendingDraw &&
+			!myPlayer?.pendingReward &&
+			!myPlayer?.pendingAwakenReward &&
+			activeAction === null &&
+			!amUndecidedAggressor &&
+			!(room.phase === 'cleanup' && runeOverflow) &&
+			// Corruption is a cleanup-only ritual: it blocks ending the round (cleanup)
+			// until resolved, but a corrupted player can still finish location/encounter
+			// at low health and REACH cleanup (no location/encounter deadlock).
+			!(room.phase === 'cleanup' && myPlayer?.pendingCorruptionDiscard) &&
+			(room.phase === 'location' ||
+				room.phase === 'benefits' ||
+				room.phase === 'awakening' ||
+				room.phase === 'cleanup' ||
+				room.phase === 'encounter')
+	);
+	function passTurn() {
+		playSfx('ui-click');
+		if (room.phase === 'location') send('end', { type: 'endLocationActions' });
+		else if (room.phase === 'benefits') send('benefits', { type: 'commitBenefits' });
+		else if (room.phase === 'awakening') send('awakening', { type: 'commitAwakening' });
+		else if (room.phase === 'cleanup') send('cleanup', { type: 'commitCleanup' });
+		else if (room.phase === 'encounter') send('pass', { type: 'passEncounter' });
+	}
+	// Phase-aware label for the single "I'm done" footer control.
+	const passLabel = $derived(
+		room.phase === 'benefits'
+			? 'Continue →'
+			: room.phase === 'awakening'
+				? 'Done awakening →'
+				: room.phase === 'cleanup'
+					? 'Pass turn'
+					: 'Pass turn'
+	);
+	function forceAdvance() {
+		send('force', { type: 'forceAdvancePhase' });
+	}
+
+	// ── Resolution-sequence auto-pass (benefits → awakening → cleanup) ─────────
+	// Awaken-eligible slots that are still face-down (mirrors the MainStage list).
+	const cleanupAwakenSlots = $derived(
+		(myPlayer?.awakenEligible ?? []).filter(
+			(slot) => myPlayer?.spirits.find((s) => s.slotIndex === slot)?.isFaceDown
+		)
+	);
+	// If the local player reaches one of the three post-location steps with nothing to
+	// do in it, commit it for them automatically — no empty "Continue" clicks. The step
+	// still STOPS (showing the sheet) the moment it has a real decision (a reward to
+	// claim, a spirit to awaken, a rune to trim, …). Re-armed per phase so each of
+	// benefits/awakening/cleanup can auto-pass at most once.
+	let autoPassedPhase = $state<string | null>(null);
+	$effect(() => {
+		const phase = room.phase;
+		if (phase !== 'benefits' && phase !== 'awakening' && phase !== 'cleanup') {
+			autoPassedPhase = null; // re-arm for the next round's sequence
+			return;
+		}
+		if (autoPassedPhase === phase || busy) return;
+		// canPassTurn already covers: seated · active · !ready · !pendingDraw/reward ·
+		// !pendingAwakenReward · no open action · rune/corruption gates.
+		if (!canPassTurn) return;
+		if ((myPlayer?.unplacedAugments?.length ?? 0) > 0) return; // an augment is waiting to be placed
+		if (phase === 'awakening') {
+			if (cleanupAwakenSlots.length > 0) return; // there's still something to awaken
+			if ((myPlayer?.manualPrompts?.length ?? 0) > 0) return; // a hand-resolved effect is waiting
+			if ((myPlayer?.pendingDecisions?.length ?? 0) > 0) return; // a decision card is waiting
+		}
+		autoPassedPhase = phase;
+		passTurn(); // → commitBenefits / commitAwakening / commitCleanup
+	});
+
+	// ── Location auto-pass ───────────────────────────────────────────────────
+	// Combat is once per round (plus any extra-action credits).
+	const myCombatUsed = $derived.by(() => {
+		const used = (myPlayer?.actionsUsedThisRound ?? []).filter((a) => a === 'combat').length;
+		return used >= 1 + (myPlayer?.extraActions?.combat ?? 0);
+	});
+	// True while the player's location still has SOMETHING to show — any unused, non-text
+	// interaction row (affordable or NOT), a pending draw/reward, or an unfought monster.
+	// Auto-pass keys off the ABSENCE of this, so we never silently skip a location while
+	// the player could still see/consider an interaction. Affordability is intentionally
+	// NOT a factor: the menu renders an unaffordable trade as a greyed "Can't afford" card,
+	// and hiding the whole location (so the player "couldn't do anything") was the bug.
+	const hasLocationContent = $derived.by(() => {
+		const dest = myPlayer?.navigationDestination ?? null;
+		if (room.phase !== 'location' || !myPlayer || !dest) return false;
+		if (myPlayer.pendingDraw || myPlayer.pendingReward) return true; // must resolve these
+		if (getLocationConfig(dest)?.combatOnly) return !myCombatUsed; // can still fight
+		const loc = assets.gameLocations.get(dest) ?? null;
+		return buildLocationInteractions(loc?.reward_rows).some(
+			(it) => !(myPlayer.actionsUsedThisRound ?? []).includes(`row:${it.rowIndex}`)
+		);
+	});
+	const hasManualPrompts = $derived(
+		(myPlayer?.manualPrompts?.length ?? 0) > 0 || (myPlayer?.pendingDecisions?.length ?? 0) > 0
+	);
+	// A single STABLE boolean: true once there's nothing left to do at the location.
+	// The auto-pass effect depends ONLY on this, so realtime polls (which hand us a
+	// fresh room/myPlayer object every tick) don't re-run the effect and cancel its
+	// timer — it re-runs only when readiness actually flips.
+	// Gated on revealSeq==='idle' so a no-action location is NOT silently auto-passed
+	// while the reveal → realm-enter choreography is still playing over the hidden stage
+	// (otherwise the player never sees their location — the original "skipped" symptom).
+	const shouldAutoPassLocation = $derived(
+		revealSeq === 'idle' &&
+			room.phase === 'location' &&
+			canPassTurn &&
+			!busy &&
+			!hasLocationContent &&
+			!hasManualPrompts
+	);
+	// Pass for the player after a short beat (so a just-flipped result card is read).
+	let locationPassTimer: ReturnType<typeof setTimeout> | null = null;
+	$effect(() => {
+		const ready = shouldAutoPassLocation;
+		if (locationPassTimer !== null) {
+			clearTimeout(locationPassTimer);
+			locationPassTimer = null;
+		}
+		if (!ready) return;
+		locationPassTimer = setTimeout(() => {
+			locationPassTimer = null;
+			passTurn(); // → endLocationActions
+		}, 1300);
+		return () => {
+			if (locationPassTimer !== null) {
+				clearTimeout(locationPassTimer);
+				locationPassTimer = null;
+			}
+		};
+	});
+</script>
+
+<svelte:window onkeydown={onSplatFlyKey} />
+
+<div class="tft">
+	<!-- ── Splat world: blurred, vignetted live background behind everything ── -->
+	<!-- Skipped on metered/slow/Data-Saver connections; board remains fully playable
+	     with the radial-gradient base background defined on .tft in this file. -->
+	{#if showSplat}
+		<div
+			class="splat-layer"
+			class:fly={flyMode}
+			class:in-realm={inRealm}
+			class:diving={revealSeq === 'enter'}
+		>
+			<SplatBackground
+				src={splatSrc}
+				blur={splatBlur}
+				push={splatPush}
+				controls={flyMode}
+				onZoomSettled={() => {
+					// The dolly reaches push≈1 both on the 'enter' beat and when entering
+					// 'realm' directly; only the 'enter' beat consumes it (then hands off to
+					// idle → the location stage un-gates).
+					if (revealSeq === 'enter') finishEnterStage();
+				}}
+			/>
+		</div>
+	{/if}
+
+	<!-- ── Bounded frame: a slim nav bar pinned above a 3-region body. On desktop
+	     the body is a [trait · stage · players] grid; on a phone it's a horizontal
+	     swipe pager of the same three columns. The stage cell strictly clips so its
+	     content can NEVER spill outside the frame. ── -->
+	<div class="shell">
+		<!-- ── Nav bar: round/phase/timer (centered) + game controls (right) ── -->
+		<header class="nav-bar">
+			<div class="nav-center">
+				<!-- Two versions of the top bar: the full phase tracker (round + all four
+				     phases with the current one lit + the navigation timer) on desktop/large
+				     screens; the compact banner on narrow/phone screens. -->
+				<div class="nav-full">
+					<PhaseBar
+						phase={room.phase}
+						round={room.round}
+						revealedDestinations={room.revealedDestinations}
+						navigationDeadline={room.navigationDeadline}
+					/>
+				</div>
+				<div class="nav-mini">
+					<RoundBanner
+						phase={room.phase}
+						round={room.round}
+						revealedDestinations={room.revealedDestinations}
+						navigationDeadline={room.navigationDeadline}
+					/>
+				</div>
+			</div>
+			<div class="nav-controls">
+				<button
+					type="button"
+					class="ghost-btn icon-btn"
+					data-testid="toggle-info"
+					aria-label="Icon guide"
+					title="Icon guide — what the icons mean"
+					onclick={() => (infoOpen = true)}
+				>
+					<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+						<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7" />
+						<circle cx="12" cy="8" r="1.15" fill="currentColor" />
+						<path d="M12 11.2v5.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+					</svg>
+				</button>
+				<div class="settings-wrap">
+					<button
+						type="button"
+						class="ghost-btn icon-btn"
+						data-testid="toggle-settings"
+						aria-haspopup="menu"
+						aria-expanded={settingsOpen}
+						aria-label="Settings"
+						title="Settings"
+						onclick={() => (settingsOpen = !settingsOpen)}
+					>
+						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<path
+								d="M4 7h8M16 7h4M4 12h4M12 12h8M4 17h11M19 17h1"
+								stroke="currentColor"
+								stroke-width="1.7"
+								stroke-linecap="round"
+							/>
+							<circle cx="14" cy="7" r="2.1" stroke="currentColor" stroke-width="1.7" />
+							<circle cx="10" cy="12" r="2.1" stroke="currentColor" stroke-width="1.7" />
+							<circle cx="17" cy="17" r="2.1" stroke="currentColor" stroke-width="1.7" />
+						</svg>
+					</button>
+
+					{#if settingsOpen}
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<button
+							type="button"
+							class="settings-backdrop"
+							aria-label="Close settings"
+							onclick={() => (settingsOpen = false)}
+						></button>
+						<div class="settings-panel" role="menu" data-testid="settings-panel">
+							<span class="settings-title">Settings</span>
+							<button
+								type="button"
+								class="settings-item"
+								role="menuitem"
+								data-testid="toggle-bags"
+								onclick={() => {
+									settingsOpen = false;
+									bagOpen = true;
+								}}
+							>
+								Spirit bags
+							</button>
+							<button
+								type="button"
+								class="settings-item"
+								role="menuitem"
+								onclick={() => toggleAudioMuted()}
+							>
+								{audioState.muted ? 'Unmute audio' : 'Mute audio'}
+							</button>
+							{#if isHost && room.status === 'active'}
+								<button
+									type="button"
+									class="settings-item"
+									role="menuitem"
+									data-testid="force-phase"
+									disabled={busy}
+									onclick={() => {
+										settingsOpen = false;
+										forceAdvance();
+									}}
+								>
+									Force phase ▶
+								</button>
+							{/if}
+							<a class="settings-item" href="/play" role="menuitem" data-testid="exit-game"
+								>Exit Game</a
+							>
+						</div>
+					{/if}
+				</div>
+			</div>
+		</header>
+
+		<!-- Icon guide — a full-screen reference of the game's icons and action types. -->
+		{#if infoOpen}
+			<InfoLegend {assets} onClose={() => (infoOpen = false)} />
+		{/if}
+
+		<!-- ── Pager: trait list · stage · players. Grid on desktop, swipe on phone. ── -->
+		<div class="pager" bind:this={pagerEl} onscroll={onPagerScroll}>
+			<!-- LEFT — trait list (reflects the scouted player while scouting). The
+			     rune/relic carry slots sit as a row directly above it. -->
+			<div class="trait-col">
+				<div class="trait-center">
+					{#if traitPlayer}
+						<div class="rune-row"><RuneSlots player={traitPlayer} {assets} orientation="row" /></div>
+					{/if}
+					<div class="trait-host"><TraitTracker player={traitPlayer} {assets} /></div>
+				</div>
+			</div>
+
+			<!-- CENTER — the main stage (or a player's 7-hex composition), strictly
+			     clipped so it can never spill outside this cell. Pass-turn lives in the
+			     stage footer below it. -->
+			<div class="stage-cell" bind:this={stageCellEl}>
+				<div class="stage-main">
+					{#if viewedSeat}
+						<CompositionStage
+							{room}
+							{viewedSeat}
+							{mySeat}
+							{assets}
+							{spiritImages}
+							{busy}
+							onDiscardSpirit={discardSpirit}
+							onPlaceAugment={placeAugment}
+						/>
+					{:else}
+						<MainStage
+							{room}
+							{mySeat}
+							{myPlayer}
+							{assets}
+							{spiritImages}
+							{activeAction}
+							canPick={canPickDestination}
+							{lockedDestination}
+							confirmedDestination={myConfirmedDestination}
+							onExitConfirmed={() => send('unlock', { type: 'unlockNavigation' })}
+							{inRealm}
+							holdRealmEntry={navView === 'reveal' || navView === 'enter'}
+							focusedDestination={browseFocus}
+							onHoverDestination={(d) => {
+								if (d && d !== hoveredDestination) playSfx('nav-hover', { volume: 0.4 });
+								hoveredDestination = d;
+							}}
+							onSelectDestination={handleSelectDestination}
+							onResolveInteraction={resolveInteraction}
+							onStartCombat={startCombat}
+							onClaimReward={claimReward}
+							onSummon={summonDraw}
+							onDiscard={discardDraws}
+							onRedraw={redrawDraws}
+							onContinue={continueAction}
+							onAwaken={awakenSpirit}
+							onDiscardRune={discardRune}
+							onInfiltratorSwap={infiltratorSwap}
+							onAttackGroup={attackGroup}
+							onPass={holdEncounter}
+							onClaimAwakenReward={claimAwakenReward}
+							onResolveDecision={resolveDecision}
+							onDismissManual={dismissManual}
+							onPlaceAugment={placeAugment}
+							onDiscardSpirit={discardSpirit}
+							{busy}
+						/>
+					{/if}
+				</div>
+				<!-- Pass-turn: the single per-phase "I'm done" control, in the stage footer. -->
+				<div class="stage-foot">
+					{#if canPassTurn}
+						<button
+							type="button"
+							class="pass-btn"
+							data-testid="pass-turn"
+							disabled={busy}
+							onclick={passTurn}
+						>
+							{passLabel}
+						</button>
+					{:else if mySeat && room.status === 'active' && myPlayer?.phaseReady && room.phase !== 'navigation'}
+						<span class="pass-waiting" data-testid="pass-waiting">Ready ✓ — waiting…</span>
+					{/if}
+				</div>
+			</div>
+
+			<!-- RIGHT — player list (leaderboard). -->
+			<div class="players-col">
+				<Leaderboard {room} {mySeat} {assets} activeSeat={viewedSeat} onSelectSeat={scoutSeat} />
+			</div>
+		</div>
+
+		<!-- ── Page dots (mobile only): Traits · Stage · Leaderboard. ── -->
+		<div class="page-dots" role="tablist" aria-label="Pages">
+			<button
+				type="button"
+				class="page-dot"
+				class:active={activePage === TRAITS_PAGE}
+				role="tab"
+				aria-selected={activePage === TRAITS_PAGE}
+				aria-label="Traits"
+				onclick={() => goToPage(TRAITS_PAGE)}
+			>
+				<span class="dot-mark"></span>
+			</button>
+			<button
+				type="button"
+				class="page-dot"
+				class:active={activePage === STAGE_PAGE}
+				role="tab"
+				aria-selected={activePage === STAGE_PAGE}
+				aria-label="Stage"
+				onclick={() => goToPage(STAGE_PAGE)}
+			>
+				<span class="dot-mark"></span>
+			</button>
+			<button
+				type="button"
+				class="page-dot"
+				class:active={activePage === LEADER_PAGE}
+				role="tab"
+				aria-selected={activePage === LEADER_PAGE}
+				aria-label="Leaderboard"
+				onclick={() => goToPage(LEADER_PAGE)}
+			>
+				<span class="dot-mark"></span>
+			</button>
+		</div>
+	</div>
+
+	<!-- ── Overlays: transient modals / FX above the frame ─────────────────── -->
+
+	<!-- ── "Entering the realm" flourish: iris sweep + title over the dolly-in ──
+	     Stage 'enter' of the choreography — runs only after the reveal is dismissed. -->
+	{#if revealSeq === 'enter' && enteredRealm}
+		{@const enterAccent = LOCATION_ACCENT[enteredRealm as NavigationDestination] ?? '#8d8aa1'}
+		<!-- Portal dive: a world-filled circle blooms from the navigator's centre out to
+		     fill the screen — "jumping into the hole" of the world you locked in. A dark
+		     veil retracts through a growing circular window onto the splat (which sharpens
+		     and dollies in beneath it), so the picked world engulfs the view. When the dive
+		     completes it hands off to the realm (HUD rises); the fallback timer +
+		     onZoomSettled still guarantee the handoff if the animation event is missed. -->
+		<div
+			class="portal-dive"
+			style="--accent: {enterAccent}; --cx: {portal.cx}px; --cy: {portal.cy}px; --hole0: {portal.hole0}px; --coverR: {portal.coverR}px;"
+			aria-hidden="true"
+		>
+			<div class="portal-veil" onanimationend={() => finishEnterStage()}></div>
+		</div>
+		<!-- "Entering {Realm}" title rides above the dive. -->
+		<div class="realm-enter" style="--accent: {enterAccent}" aria-hidden="true">
+			<div class="realm-enter-label">
+				<span class="realm-enter-eyebrow">Entering</span>
+				<span class="realm-enter-name">{enteredRealm}</span>
+			</div>
+		</div>
+	{/if}
+
+	<!-- ── Destination reveal: who went where. Its own beat, right after the
+	     confirmation panel; rendered from a frozen occupancy snapshot so it can't
+	     blank, and on close it hands off to the realm-enter zoom. ── -->
+	{#if revealSeq === 'reveal'}
+		<DestinationReveal
+			{room}
+			{assets}
+			occupancy={revealOccupancy}
+			autoCloseMs={4500}
+			onClose={closeReveal}
+		/>
+	{/if}
+
+	{#if showStartCutscene && myPlayer}
+		<GameStartCutscene
+			spirits={myPlayer.spirits}
+			{spiritImages}
+			guardianName={myGuardianName}
+			guardianIcon={myGuardianIcon}
+			accent={mySeat ? seatAccent(mySeat) : '#ff2bc7'}
+			onDone={() => (showStartCutscene = false)}
+		/>
+	{/if}
+
+	{#if bagOpen}
+		<BagViewer {room} {spiritImages} onClose={() => (bagOpen = false)} />
+	{/if}
+
+	{#if actionError}<div class="error">{actionError}</div>{/if}
+	{#if room.status === 'finished'}
+		<div class="winner" data-testid="winner-banner" style="--accent: {seatAccent(room.winnerSeat)}">
+			<span class="winner-eyebrow">Victory</span>
+			<span class="winner-name" data-testid="winner-name">{winnerName} wins!</span>
+		</div>
+	{/if}
+
+	<!-- Spirit/ability interactions (decision cards, corruption discard, Spirit Augment
+	     placement) are NOT floating overlays — they render IN-STAGE inside MainStage's
+	     view (replacing the stage content), like the Spirit Summon tray. See MainStage. -->
+
+	<!-- Persistent summon FX (sparkle bursts + spirits flying into the tableau).
+	     Lives here so the flight finishes even after the draw tray unmounts. -->
+	<SummonFxLayer />
+
+	<!-- Dev-only god-mode panel: give yourself any spirit/rune/augment/dice/etc.
+	     The debugGrant command is server-gated to dev builds; this never ships. -->
+	{#if dev && mySeat}
+		<DebugPanel {room} {mySeat} {assets} {busy} onGrant={grantDebug} />
+	{/if}
+</div>
+
+<style>
+	.tft {
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
+		background: radial-gradient(circle at 50% 0%, #160a2e 0%, var(--color-void, #0c0518) 70%);
+
+		/* ── Frame track widths ──────────────────────────────────────────────
+		   The left trait column and right players column are fixed grid tracks
+		   sized to roughly match the old floats; the stage takes the rest. */
+		--left-w: 336px; /* trait list (matches the old --hud-panel-w of 336px) */
+		--right-w: 280px; /* leaderboard (matches the old --hud-leaderboard-w of 272px) */
+	}
+
+	/* ── Bounded frame ─────────────────────────────────────────────────────
+	   A flex column filling .tft: a slim nav bar pinned on top, the pager body
+	   filling the rest. Sits above the splat (z 1) so the live world reads
+	   through the transparent columns/stage. */
+	.shell {
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		display: flex;
+		flex-direction: column;
+	}
+
+	/* Splat background sits behind the frame (and the live world reads through). */
+	.splat-layer {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+	}
+	/* Fly mode (authoring): bring the splat above the frame and make it
+	   interactive so it can capture the pointer for mouse-look. */
+	.splat-layer.fly {
+		z-index: 100;
+		pointer-events: auto;
+	}
+	/* Realm-enter dive: lift the world ABOVE the frame so the portal veil's growing
+	   window reveals ONLY the splat — otherwise the transparent hole would expose the
+	   trait list / leaderboard / nav bar (z 1) that sit between the splat and the veil.
+	   Dropped back to z 0 on handoff to the realm, where the HUD must sit over the world
+	   again. Still below the veil (z 14) and title (z 15). */
+	.splat-layer.diving {
+		z-index: 13;
+	}
+
+	/* ── Realm-enter dive ("jumping into the hole") ───────────────────────────
+	   A dark veil over the whole frame with a circular window punched at the
+	   navigator's centre; the window grows from the "Going to" circle's size out
+	   past the screen, revealing the splat world (which sharpens + dollies in
+	   beneath). Above it the title rises, holds and lifts away — together they
+	   cover the carousel→HUD swap. pointer-events:none so nothing eats clicks. */
+
+	/* Registered so the gradient's hole radius can be ANIMATED (a plain custom
+	   property can't tween). Modern-browser feature; matches the WebGL splat baseline. */
+	@property --hole {
+		syntax: '<length>';
+		inherits: false;
+		initial-value: 0px;
+	}
+	.portal-dive {
+		position: absolute;
+		inset: 0;
+		z-index: 14;
+		pointer-events: none;
+		overflow: hidden;
+	}
+	/* Dark void with a transparent circular window at (--cx,--cy). A bright accent rim
+	   rides the window edge (the portal mouth). The window radius (--hole) tweens from
+	   the confirm circle's size out to --coverR, then the veil fades so the now-sharp
+	   realm shows through cleanly. */
+	.portal-veil {
+		position: absolute;
+		inset: 0;
+		--hole: var(--hole0);
+		background: radial-gradient(
+			circle at var(--cx) var(--cy),
+			transparent 0 var(--hole),
+			color-mix(in srgb, var(--accent) 60%, transparent) var(--hole),
+			color-mix(in srgb, var(--accent) 18%, rgba(6, 4, 15, 0.97)) calc(var(--hole) + 4px),
+			rgba(6, 4, 15, 0.97) calc(var(--hole) + 26px)
+		);
+		animation: portal-dive 1100ms cubic-bezier(0.5, 0, 0.75, 0.3) forwards;
+	}
+	@keyframes portal-dive {
+		0% {
+			--hole: var(--hole0);
+			opacity: 1;
+		}
+		68% {
+			opacity: 1;
+		}
+		100% {
+			--hole: var(--coverR);
+			opacity: 0;
+		}
+	}
+	.realm-enter {
+		position: absolute;
+		inset: 0;
+		z-index: 15;
+		display: grid;
+		place-items: center;
+		pointer-events: none;
+		overflow: hidden;
+	}
+	.realm-enter-label {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+		text-align: center;
+		animation: realm-title 1100ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+	}
+	.realm-enter-eyebrow {
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.42em;
+		text-transform: uppercase;
+		color: color-mix(in srgb, var(--accent) 75%, #fff);
+		text-shadow: 0 0 18px color-mix(in srgb, var(--accent) 70%, transparent);
+	}
+	.realm-enter-name {
+		font-family: var(--font-display);
+		font-size: clamp(2.4rem, 6vw, 4.6rem);
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		line-height: 1;
+		color: #fff;
+		text-shadow:
+			0 0 30px color-mix(in srgb, var(--accent) 80%, transparent),
+			0 4px 24px rgba(0, 0, 0, 0.6);
+	}
+	@keyframes realm-title {
+		0% {
+			opacity: 0;
+			transform: translateY(26px) scale(0.94);
+			filter: blur(8px);
+		}
+		28% {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+			filter: blur(0);
+		}
+		74% {
+			opacity: 1;
+			transform: translateY(0) scale(1);
+			filter: blur(0);
+		}
+		100% {
+			opacity: 0;
+			transform: translateY(-22px) scale(1.04);
+			filter: blur(6px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.portal-veil {
+			animation: none;
+			opacity: 0;
+		}
+		.realm-enter-label {
+			animation-duration: 1ms;
+		}
+	}
+
+	/* ── Nav bar: slim bounded bar across the top. RoundBanner centered, game
+	   controls (bags + settings) to the right. ── */
+	.nav-bar {
+		flex: 0 0 auto;
+		position: relative;
+		z-index: 20;
+		display: flex;
+		/* Top-align so the banner pill hangs flush from the very top edge (no gap). */
+		align-items: flex-start;
+		gap: 0.75rem;
+		min-height: 52px;
+		padding: 0 0.75rem 0.45rem;
+		/* Ethereal: only the faintest top-edge wash so the bar fades into the board
+		   rather than sitting on a heavy dark slab. */
+		background: linear-gradient(180deg, rgba(10, 7, 20, 0.28), transparent);
+	}
+	/* The RoundBanner self-positions absolute by default (it's normally a free
+	   floating element); inside the bar we host it inline, centered. */
+	.nav-center {
+		flex: 1 1 auto;
+		display: flex;
+		justify-content: center;
+		min-width: 0;
+	}
+	/* Two top-bar versions. Phone/narrow shows the compact banner; desktop (the grid
+	   layout, ≥601px) shows the full phase tracker instead. Both mount; only one shows. */
+	.nav-full {
+		display: none;
+	}
+	.nav-mini {
+		display: flex;
+		flex: 1;
+		min-width: 0;
+		justify-content: center;
+	}
+	@media (min-width: 601px) {
+		.nav-full {
+			display: flex;
+			flex: 1;
+			min-width: 0;
+			justify-content: center;
+		}
+		.nav-mini {
+			display: none;
+		}
+	}
+	.nav-center :global(.banner) {
+		position: static;
+		transform: none;
+		left: auto;
+	}
+	/* Re-anchor the banner's drop-in animation now that it isn't absolutely
+	   centered (the keyframes translate -50%/-100% for the old anchor). */
+	.nav-center :global(.banner),
+	.nav-center :global(.banner.urgent) {
+		animation: nav-banner-drop 520ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+	}
+	@keyframes nav-banner-drop {
+		from {
+			transform: translateY(-100%);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.nav-center :global(.banner),
+		.nav-center :global(.banner.urgent) {
+			animation: none;
+		}
+	}
+	/* Controls float at the right edge, OUT of flow, so they never shrink the
+	   centring region of the banner (which would shove it off-centre). */
+	.nav-controls {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		right: 0.75rem;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		z-index: 21;
+	}
+
+	/* ── Pager: the 3-region body. Desktop grid; phone swipe (media query below). ── */
+	.pager {
+		flex: 1 1 auto;
+		min-height: 0;
+		display: grid;
+		grid-template-columns: var(--left-w, 336px) minmax(0, 1fr) var(--right-w, 280px);
+		gap: 12px;
+		padding: 8px 12px;
+		align-items: stretch;
+	}
+	/* Left/right are scrollable columns over the live world (no panel chrome). */
+	.trait-col,
+	.players-col {
+		min-height: 0;
+		overflow-y: auto;
+		scrollbar-width: none;
+	}
+	.trait-col::-webkit-scrollbar,
+	.players-col::-webkit-scrollbar {
+		width: 0;
+		height: 0;
+	}
+	.trait-col {
+		display: flex;
+		flex-direction: column;
+	}
+	/* Rune slots + trait list, centred vertically on the left as one group.
+	   margin-block:auto centres them when there's spare height yet collapses to 0
+	   so the column still scrolls from the top if the group outgrows the viewport. */
+	.trait-center {
+		margin-block: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		min-height: 0;
+	}
+	/* Rune/relic carry slots as a row directly above the trait list. */
+	.rune-row {
+		flex: 0 0 auto;
+	}
+	/* Trait list sizes to its content (so the group can centre); the column scrolls
+	   if it ever overflows. */
+	.trait-host {
+		flex: 0 0 auto;
+		min-height: 0;
+		display: flex;
+	}
+	.trait-host :global(.traits) {
+		width: 100%;
+	}
+
+	/* Leaderboard: vertically centred on the right side of the board. The column is
+	   a flex track; margin-block:auto on the single child centres it when there's
+	   spare height, yet collapses to 0 so the column still scrolls from the top if
+	   the roster ever outgrows the viewport. */
+	.players-col {
+		display: flex;
+		flex-direction: column;
+	}
+	.players-col > :global(.leaderboard) {
+		margin-block: auto;
+	}
+
+	/* ── Stage cell: the center region. Strictly clips so its content can NEVER
+	   spill outside the frame (the grid max-content blowout trap). ── */
+	.stage-cell {
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+	.stage-main {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: hidden;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.stage-main :global(.board) {
+		width: 100%;
+	}
+	/* Pass-turn footer — never stretches; sits centered under the stage. */
+	.stage-foot {
+		flex: 0 0 auto;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-height: 0;
+		padding-top: 6px;
+	}
+
+	/* ── Page dots (mobile only). Desktop hides them. ── */
+	.page-dots {
+		display: none;
+	}
+	/* Ghost button — white hairline outline over faint glass, matching the
+	   RoundBanner / leaderboard treatment (no brand-magenta chrome). */
+	.ghost-btn {
+		flex: 0 0 auto;
+		padding: 7px 13px;
+		border-radius: 4px;
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		background: rgba(10, 7, 20, 0.4);
+		color: rgba(255, 255, 255, 0.62);
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		text-decoration: none;
+		cursor: pointer;
+		transition:
+			border-color 150ms ease,
+			color 150ms ease;
+	}
+	.ghost-btn:hover {
+		border-color: rgba(255, 255, 255, 0.4);
+		color: #fff;
+	}
+
+	/* Settings menu (gear → dropdown holding Exit). */
+	.settings-wrap {
+		position: relative;
+		flex: 0 0 auto;
+	}
+	.icon-btn {
+		display: grid;
+		place-items: center;
+		width: 36px;
+		height: 32px;
+		padding: 0;
+	}
+	.icon-btn svg {
+		width: 18px;
+		height: 18px;
+	}
+	.settings-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 30;
+		border: 0;
+		padding: 0;
+		margin: 0;
+		background: transparent;
+		cursor: default;
+	}
+	/* Settings dropdown — frosted glass card with a single white hairline,
+	   echoing the RoundBanner strip. */
+	.settings-panel {
+		position: absolute;
+		top: calc(100% + 8px);
+		right: 0;
+		z-index: 31;
+		min-width: 184px;
+		display: flex;
+		flex-direction: column;
+		gap: 7px;
+		padding: 10px;
+		border-radius: 8px;
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		background: linear-gradient(180deg, rgba(10, 7, 20, 0.92), rgba(8, 5, 16, 0.88));
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+		box-shadow: 0 18px 50px -20px rgba(0, 0, 0, 0.7);
+	}
+	.settings-title {
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.3em;
+		text-transform: uppercase;
+		color: rgba(255, 255, 255, 0.5);
+		padding: 2px 4px;
+	}
+	.settings-item {
+		display: block;
+		padding: 8px 10px;
+		border-radius: 4px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: transparent;
+		color: rgba(255, 255, 255, 0.72);
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		text-decoration: none;
+		text-align: center;
+		cursor: pointer;
+		transition:
+			border-color 150ms ease,
+			color 150ms ease;
+	}
+	.settings-item:hover {
+		border-color: rgba(255, 255, 255, 0.4);
+		color: #fff;
+	}
+
+	/* Pass-turn — a pill in the stage footer (never stretches; bounded by .stage-foot). */
+	.pass-btn {
+		padding: 8px 26px;
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		border: none;
+		border-radius: 12px;
+		background: var(--brand-magenta, #ff2bc7);
+		color: #fff;
+		cursor: pointer;
+		box-shadow: 0 12px 26px -8px rgba(255, 43, 199, 0.55);
+		animation: pass-drop 360ms cubic-bezier(0.22, 1.2, 0.36, 1) both;
+		transition:
+			background 140ms ease,
+			transform 140ms ease;
+	}
+	.pass-btn:hover:not(:disabled) {
+		background: var(--brand-magenta-soft, #ff7fd9);
+		transform: translateY(2px);
+	}
+	.pass-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+	@keyframes pass-drop {
+		from {
+			transform: translateY(8px);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
+	}
+	.pass-waiting {
+		padding: 7px 22px 9px;
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--brand-cyan, #5cdfff);
+		background: linear-gradient(180deg, rgba(10, 7, 20, 0.6), rgba(8, 5, 16, 0.4));
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		border-radius: 12px;
+		backdrop-filter: blur(8px);
+		-webkit-backdrop-filter: blur(8px);
+	}
+
+	/* Victory banner — fixed overlay above the frame. */
+	.winner {
+		position: absolute;
+		top: 5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 45;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 1rem 2rem;
+		border: 1px solid var(--accent);
+		border-radius: 6px;
+		background: color-mix(in srgb, var(--accent) 16%, rgba(10, 7, 20, 0.96));
+		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+	}
+	.winner-eyebrow {
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		letter-spacing: 0.3em;
+		text-transform: uppercase;
+		color: var(--brand-amber, #ffba3d);
+	}
+	.winner-name {
+		font-family: var(--font-display);
+		font-size: 2rem;
+		text-transform: uppercase;
+		color: #fff;
+	}
+	.error {
+		position: absolute;
+		top: 56px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 35;
+		padding: 0.5rem 0.9rem;
+		border-left: 3px solid var(--color-blood, #e05858);
+		background: rgba(110, 18, 35, 0.65);
+		color: var(--color-parchment, #e7e0cf);
+		border-radius: 2px;
+	}
+
+	/* ──────────────────────────────────────────────────────────────────────────
+	   PHONE LAYOUT (≤600px). The desktop 3-track grid becomes a horizontal swipe
+	   pager of three full-width pages — Traits · Stage · Leaderboard — under the
+	   pinned nav bar. Page dots track / drive the active page. Mirrors the proven
+	   nav carousel in SpiritWorldBoard (definite sizing, min-width:0, scroll-snap).
+	   ────────────────────────────────────────────────────────────────────────── */
+	@media (max-width: 600px) {
+		/* The pager turns into a snap-scrolling row of three full-width pages. */
+		.pager {
+			display: flex;
+			gap: 0;
+			padding: 0;
+			overflow-x: auto;
+			overflow-y: hidden;
+			scroll-snap-type: x mandatory;
+			-webkit-overflow-scrolling: touch;
+			overscroll-behavior-x: contain;
+			scrollbar-width: none;
+		}
+		.pager::-webkit-scrollbar {
+			display: none;
+		}
+		/* Each column is one full-width page; the stage clips, the others scroll. */
+		.trait-col,
+		.stage-cell,
+		.players-col {
+			flex: 0 0 100%;
+			min-width: 0;
+			min-height: 0;
+			scroll-snap-align: start;
+			scroll-snap-stop: always;
+			box-sizing: border-box;
+		}
+		.trait-col,
+		.players-col {
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+			padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+		}
+		/* Stage page keeps clipping; its main scrolls internally if needed. */
+		.stage-cell {
+			overflow-y: hidden;
+			padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+		}
+		.stage-main {
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+		}
+
+		/* Page dots, pinned just under the pager. ≥44px tap targets. */
+		.page-dots {
+			flex: 0 0 auto;
+			display: flex;
+			gap: 4px;
+			justify-content: center;
+			align-items: center;
+			padding-bottom: env(safe-area-inset-bottom);
+		}
+		.page-dot {
+			display: grid;
+			place-items: center;
+			width: 44px;
+			height: 44px;
+			padding: 0;
+			border: none;
+			background: none;
+			cursor: pointer;
+			touch-action: manipulation;
+			-webkit-tap-highlight-color: transparent;
+		}
+		.page-dot:focus-visible {
+			outline: 2px solid #fff;
+			outline-offset: 2px;
+			border-radius: 10px;
+		}
+		.dot-mark {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: rgba(255, 255, 255, 0.28);
+			transition:
+				background 160ms ease,
+				transform 160ms ease;
+		}
+		.page-dot.active .dot-mark {
+			background: var(--brand-magenta, #ff2bc7);
+			transform: scale(1.6);
+		}
+
+		/* Notch clearance for the nav bar; bump its icon buttons to ≥44px taps. */
+		.nav-bar {
+			padding-top: env(safe-area-inset-top);
+			padding-left: calc(0.75rem + env(safe-area-inset-left));
+			padding-right: calc(0.75rem + env(safe-area-inset-right));
+		}
+		.icon-btn {
+			width: 44px;
+			height: 44px;
+		}
+		.ghost-btn,
+		.icon-btn,
+		.settings-item,
+		.pass-btn,
+		.page-dot {
+			touch-action: manipulation;
+			user-select: none;
+			-webkit-tap-highlight-color: transparent;
+		}
+		.settings-item {
+			padding: 12px 14px;
+			min-height: 44px;
+		}
+		.winner {
+			top: calc(4rem + env(safe-area-inset-top));
+		}
+	}
+</style>

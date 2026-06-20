@@ -59,7 +59,7 @@ async function recomputeVerifiedStats(supabaseAdmin: NonNullable<ReturnType<type
 			Authorization: `Bearer ${PUBLIC_SUPABASE_ANON_KEY}`,
 			apikey: PUBLIC_SUPABASE_ANON_KEY
 		},
-		body: JSON.stringify({ minTurns: 10, minVictoryPoints: 10 })
+		body: JSON.stringify({ minTurns: 10, minVictoryPoints: 0 })
 	});
 
 	if (res.ok) return;

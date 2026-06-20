@@ -1,0 +1,746 @@
+<script lang="ts">
+	import type { PlayerProjection } from '$lib/play/types';
+	import type { GameLocationAsset, IconPoolEntry, RewardIconToken } from '$lib/types';
+	import {
+		buildLocationInteractions,
+		canAfford,
+		meaningFor,
+		type LocationInteraction
+	} from '$lib/play/locationInteractions';
+	import { awakenedClassCounts } from '$lib/play/effects/apply';
+	import { storageUrl } from './helpers';
+
+	interface Props {
+		location: GameLocationAsset | null;
+		iconPool?: Map<string, IconPoolEntry>;
+		player: PlayerProjection | null;
+		accent?: string;
+		busy?: boolean;
+		onResolve?: (rowIndex: number, choices: number[]) => void;
+	}
+
+	let {
+		location,
+		iconPool = new Map(),
+		player,
+		accent = 'var(--brand-violet, #5a2bff)',
+		busy = false,
+		onResolve
+	}: Props = $props();
+
+	const interactions = $derived(buildLocationInteractions(location?.reward_rows));
+	const usedRows = $derived(player?.actionsUsedThisRound ?? []);
+	// Per-row use allowance: 1 + Child Prodigy's locationInteraction credit ("you may
+	// do ALL location interactions up to two times"). When >1 we render one card per
+	// allowed use, each spent left-to-right as the player resolves the row.
+	const rowAllowance = $derived(1 + (player?.extraActions?.locationInteraction ?? 0));
+
+	// Per-row choices for "or" gains: choices[rowIndex][k] = selected option index.
+	let choices = $state<Record<number, number[]>>({});
+	// The row most recently resolved — only this flipped card shows the detailed
+	// result log (lastAction holds just the latest outcome).
+	let lastRow = $state<number | null>(null);
+
+	function isOr(token: RewardIconToken): token is { kind: 'or'; icon_ids: string[] } {
+		return typeof token !== 'string';
+	}
+	function iconUrl(id: string): string | null {
+		return storageUrl(iconPool.get(id)?.file_path ?? null);
+	}
+	// Icon sizing: a consistent set size for every icon, larger when an icon stands
+	// alone, and much larger for game-action tokens (Summon / Cultivate / Rest).
+	function iconSize(token: string, soloRow: boolean): 'act' | 'solo' | 'base' {
+		if (meaningFor(token)?.kind === 'action') return 'act';
+		return soloRow ? 'solo' : 'base';
+	}
+
+	function orSlotOf(interaction: LocationInteraction, tokenIndex: number): number {
+		let slot = 0;
+		for (let i = 0; i < tokenIndex; i += 1) if (isOr(interaction.gainTokens[i])) slot += 1;
+		return slot;
+	}
+	function selectedOption(rowIndex: number, orSlot: number): number {
+		return choices[rowIndex]?.[orSlot] ?? 0;
+	}
+	function selectOption(rowIndex: number, orSlot: number, optionIndex: number) {
+		const current = choices[rowIndex] ? [...choices[rowIndex]] : [];
+		current[orSlot] = optionIndex;
+		choices = { ...choices, [rowIndex]: current };
+	}
+
+	// How many times this row has already been resolved this round (0..rowAllowance).
+	function usedCount(interaction: LocationInteraction): number {
+		return usedRows.filter((a) => a === `row:${interaction.rowIndex}`).length;
+	}
+	// A trade whose cost is WAIVED for this player — mirrors the runtime waiver in
+	// resolveLocationInteraction so the card isn't disabled in the exact case the
+	// ability exists for (an awakened Mod Injector / Undercover who lacks the runes):
+	//   • Mod Injector — any Spirit-Augment trade is free while awakened.
+	//   • Undercover — the player's next rune→relic trade is free (one-shot flag).
+	function freeTrade(interaction: LocationInteraction): boolean {
+		if (!player || interaction.cost.length === 0) return false;
+		// Resolve what the trade grants, honoring an "or" gain's currently-selected
+		// option (mirrors the runtime waiver in resolveLocationInteraction).
+		const picks = choices[interaction.rowIndex] ?? [];
+		let grantsAugment = false;
+		let grantsRelic = false;
+		let cursor = 0;
+		for (const g of interaction.gains) {
+			if (g.type === 'rune') {
+				if (g.rune.type === 'augment') grantsAugment = true;
+				if (g.rune.type === 'relic') grantsRelic = true;
+			} else if (g.type === 'chooseRune') {
+				const chosen = g.options[picks[cursor] ?? 0] ?? g.options[0];
+				cursor += 1;
+				if (chosen?.type === 'augment') grantsAugment = true;
+				if (chosen?.type === 'relic') grantsRelic = true;
+			}
+		}
+		const modInjectorFree = (awakenedClassCounts(player)['Mod Injector'] ?? 0) >= 1 && grantsAugment;
+		const undercoverFree = !!player.freeNextRelicTrade && grantsRelic;
+		return modInjectorFree || undercoverFree;
+	}
+	function affordable(interaction: LocationInteraction): boolean {
+		return freeTrade(interaction) || canAfford(interaction, player?.runes ?? []);
+	}
+	// A specific card instance (`inst`, 0-based) is spent once that many uses have
+	// been made; instances fill left-to-right.
+	function instUsed(interaction: LocationInteraction, inst: number): boolean {
+		return inst < usedCount(interaction);
+	}
+	function instDisabled(interaction: LocationInteraction, inst: number): boolean {
+		return busy || instUsed(interaction, inst) || !affordable(interaction);
+	}
+
+	function resolve(interaction: LocationInteraction, inst: number) {
+		if (instDisabled(interaction, inst)) return;
+		lastRow = interaction.rowIndex; // this card will show the detailed result
+		onResolve?.(interaction.rowIndex, choices[interaction.rowIndex] ?? []);
+	}
+
+	function resultLines(interaction: LocationInteraction, inst: number): string[] {
+		// Only the most-recently-resolved instance of the most-recent row shows the
+		// detailed log; earlier/other flipped cards read as a plain "claimed".
+		const lastInst = usedCount(interaction) - 1;
+		if (interaction.rowIndex === lastRow && inst === lastInst && player?.lastAction?.log?.length) {
+			return player.lastAction.log;
+		}
+		return ['Claimed this round.'];
+	}
+</script>
+
+{#snippet icon(url: string | null, size: 'act' | 'solo' | 'base')}
+	<span class="ico {size}">
+		{#if url}<img src={url} alt="" loading="lazy" />{/if}
+	</span>
+{/snippet}
+
+{#if interactions.length === 0}
+	<div class="empty" data-testid="no-interactions">No interactions here — pass your turn.</div>
+{:else}
+	<div class="int-scroll">
+		<div class="int-grid" data-testid="interaction-grid">
+		{#each interactions as interaction (interaction.rowIndex)}
+			{#each Array(rowAllowance) as _, inst (inst)}
+			{@const isUsed = instUsed(interaction, inst)}
+			{@const cantAfford = !affordable(interaction)}
+			{@const isTrade = interaction.kind === 'trade'}
+			{@const soloGain = interaction.gainTokens.length === 1}
+			{@const soloCost = interaction.costTokens.length === 1}
+			<div
+				class="int-card"
+				class:disabled={instDisabled(interaction, inst)}
+				class:flipped={isUsed}
+				class:trade={isTrade}
+				style="--accent: {accent}"
+				role="button"
+				tabindex={instDisabled(interaction, inst) ? -1 : 0}
+				data-testid={rowAllowance > 1
+					? `interaction-${interaction.rowIndex}-${inst}`
+					: `interaction-${interaction.rowIndex}`}
+				onclick={() => resolve(interaction, inst)}
+				onkeydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						resolve(interaction, inst);
+					}
+				}}
+			>
+				<div class="flipper" class:flipped={isUsed}>
+					<!-- Front: the interaction -->
+					<div class="face front">
+						<div class="type" data-kind={isTrade ? 'trade' : 'gain'}>
+							<span class="type-bullet" aria-hidden="true"></span>
+							<span class="type-label">{isTrade ? 'Trade' : 'Gain'}</span>
+						</div>
+
+						<div class="flow">
+							{#if isTrade}
+								<div class="row cost">
+									{#each interaction.costTokens as token, ci (ci)}
+										{#if !isOr(token)}
+											{@render icon(iconUrl(token), iconSize(token, soloCost))}
+										{/if}
+									{/each}
+								</div>
+								<span class="arrow" aria-hidden="true">
+									<svg viewBox="0 0 24 28" width="22" height="26">
+										<path d="M12 2 V20 M5 14 L12 22 L19 14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+									</svg>
+								</span>
+							{/if}
+
+							<div class="row gain">
+								{#each interaction.gainTokens as token, ti (ti)}
+									{#if isOr(token)}
+										{@const slot = orSlotOf(interaction, ti)}
+										{@const picked = selectedOption(interaction.rowIndex, slot)}
+										<span class="chooser" role="group" aria-label="Choose one of these rewards">
+											<span class="chooser-label">
+												<span class="tap-dot" aria-hidden="true"></span>Choose one
+											</span>
+											<span class="chooser-opts">
+												{#each token.icon_ids as optId, oi (optId + oi)}
+													{#if oi > 0}<span class="or-sep" aria-hidden="true">or</span>{/if}
+													<button
+														type="button"
+														class="opt"
+														class:selected={picked === oi}
+														aria-pressed={picked === oi}
+														title="Tap to choose this reward"
+														onclick={(e) => {
+															e.stopPropagation();
+															selectOption(interaction.rowIndex, slot, oi);
+														}}
+													>
+														{@render icon(iconUrl(optId), 'base')}
+													</button>
+												{/each}
+											</span>
+										</span>
+									{:else}
+										{@render icon(iconUrl(token), iconSize(token, soloGain))}
+									{/if}
+								{/each}
+							</div>
+						</div>
+
+						<span class="cta" class:locked={cantAfford}>
+							{#if cantAfford}
+								<span class="lock" aria-hidden="true"></span>Can't afford
+							{:else if isTrade}
+								Pay · Take
+							{:else}
+								Take
+							{/if}
+						</span>
+					</div>
+
+					<!-- Back: the result (shown once resolved; the card reads as disabled) -->
+					<div class="face back">
+						<div class="type result">
+							<span class="check" aria-hidden="true"></span>
+							<span class="type-label">{isTrade ? 'Trade' : 'Gain'} complete</span>
+						</div>
+						<div class="result-body">
+							{#each resultLines(interaction, inst) as line, li (li)}
+								<p>{line}</p>
+							{/each}
+						</div>
+					</div>
+				</div>
+			</div>
+		{/each}
+		{/each}
+		</div>
+	</div>
+{/if}
+
+<style>
+	/* Keep the whole card set inside the visible stage. The location phase gives .view a
+	   definite height, so this region flexes to fill exactly the space left after the
+	   action heading and scrolls only when the cards genuinely exceed it — no viewport
+	   guesswork, robust to heading wrap / safe-area insets / the in-flow pass-turn footer.
+	   Cards top-align so the scroll top stays reachable; the padding leaves room for the
+	   desktop hover-lift so it isn't clipped when nothing scrolls. */
+	.int-scroll {
+		width: 100%;
+		/* Size to the cards (don't greedily fill the stage) so the header + card row
+		   centre together vertically via .view's justify-content. Still shrinks +
+		   scrolls (min-height:0 + overflow-y) if the cards ever outgrow the stage. */
+		flex: 0 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		padding: 1rem 0.25rem;
+		scrollbar-width: thin;
+	}
+	.int-grid {
+		display: flex;
+		flex-wrap: nowrap;
+		gap: 1rem;
+		justify-content: center;
+		align-items: stretch;
+		/* Stay clear of the side floats (trait list + leaderboard) at any width. */
+		width: 100%;
+		max-width: min(1100px, calc(100vw - 700px));
+		margin: 0 auto;
+		/* Perspective lives here so the cards' content can flip without putting the
+		   frosted glass (backdrop-filter) inside a 3D subtree — where it wouldn't render. */
+		perspective: 1400px;
+	}
+
+	/* ── Card: the frosted-glass panel. The scene behind blurs heavily through it;
+	   only the CONTENT flips (inside this static panel), keeping the blur reliable. ── */
+	.int-card {
+		position: relative;
+		display: flex;
+		flex: 1 1 0;
+		min-width: 0;
+		max-width: 17rem;
+		overflow: hidden;
+		border-radius: 18px;
+		border: 1px solid rgba(255, 255, 255, 0.14);
+		background: rgba(15, 10, 28, 0.26);
+		-webkit-backdrop-filter: blur(40px) saturate(1.4);
+		backdrop-filter: blur(40px) saturate(1.4);
+		box-shadow:
+			0 16px 44px rgba(0, 0, 0, 0.45),
+			inset 0 1px 0 rgba(255, 255, 255, 0.18);
+		cursor: pointer;
+		transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), border-color 200ms ease, box-shadow 200ms ease, background 200ms ease, opacity 200ms ease;
+	}
+	@media (hover: hover) and (pointer: fine) {
+		.int-card:not(.disabled):hover {
+			transform: translateY(-6px);
+			border-color: color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.25));
+			box-shadow:
+				0 22px 54px rgba(0, 0, 0, 0.55),
+				0 0 30px color-mix(in srgb, var(--accent) 26%, transparent),
+				inset 0 1px 0 rgba(255, 255, 255, 0.22);
+		}
+	}
+	.int-card:not(.disabled):focus-visible {
+		outline: none;
+		border-color: color-mix(in srgb, var(--accent) 70%, #fff 20%);
+		box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+	}
+	/* A can't-afford card (disabled, not yet used) dims the whole glass panel. */
+	.int-card.disabled:not(.flipped) {
+		cursor: not-allowed;
+		opacity: 0.5;
+		filter: saturate(0.75);
+	}
+	/* A resolved card reads as done — muted glass, but the result stays legible. */
+	.int-card.flipped {
+		cursor: default;
+		background: rgba(10, 7, 20, 0.42);
+		border-color: rgba(255, 255, 255, 0.08);
+	}
+
+	.flipper {
+		position: relative;
+		flex: 1;
+		display: grid;
+		width: 100%;
+		transform-style: preserve-3d;
+		transition: transform 0.6s cubic-bezier(0.4, 0.15, 0.2, 1);
+	}
+	.flipper.flipped {
+		transform: rotateY(180deg);
+	}
+
+	/* Both faces stack in the same grid cell so the card sizes to the larger. The
+	   faces are transparent content — the frosted glass is on the static .int-card. */
+	.face {
+		grid-area: 1 / 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		min-height: 16rem;
+		padding: 1.4rem 1.15rem 1.2rem;
+		text-align: center;
+		-webkit-backface-visibility: hidden;
+		backface-visibility: hidden;
+	}
+	.face.back {
+		transform: rotateY(180deg);
+		justify-content: center;
+		gap: 0.9rem;
+	}
+
+	/* ── Type label — gradient eyebrow (gain = ember, trade = teal) ─────────── */
+	.type {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.type-bullet {
+		width: 7px;
+		height: 8px;
+		clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+		background: var(--gradient-ember, linear-gradient(135deg, #ff704d, #ffd56a));
+		box-shadow: 0 0 7px color-mix(in srgb, var(--brand-amber, #ffba3d) 70%, transparent);
+	}
+	.type[data-kind='trade'] .type-bullet {
+		background: linear-gradient(135deg, var(--brand-teal, #20e0c1), var(--brand-cyan, #24d4ff));
+		box-shadow: 0 0 7px color-mix(in srgb, var(--brand-teal, #20e0c1) 70%, transparent);
+	}
+	.type-label {
+		font-family: var(--font-display);
+		font-size: 0.82rem;
+		font-weight: 700;
+		letter-spacing: 0.3em;
+		text-transform: uppercase;
+		padding-left: 0.06em;
+		background: var(--gradient-ember, linear-gradient(135deg, #ff704d, #ffd56a));
+		-webkit-background-clip: text;
+		background-clip: text;
+		-webkit-text-fill-color: transparent;
+		color: transparent;
+	}
+	.type[data-kind='trade'] .type-label {
+		background: linear-gradient(135deg, var(--brand-teal, #20e0c1), var(--brand-cyan, #24d4ff));
+		-webkit-background-clip: text;
+		background-clip: text;
+		-webkit-text-fill-color: transparent;
+	}
+	/* Result heading is calm/muted — the card is done. */
+	.type.result .type-label {
+		background: none;
+		-webkit-text-fill-color: initial;
+		color: var(--color-parchment, #d8d2e8);
+	}
+	.check {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background: color-mix(in srgb, var(--brand-teal, #20e0c1) 80%, transparent);
+		position: relative;
+		flex: none;
+	}
+	.check::after {
+		content: '';
+		position: absolute;
+		left: 5px;
+		top: 2.5px;
+		width: 4px;
+		height: 8px;
+		border: solid var(--color-void, #0c0518);
+		border-width: 0 2px 2px 0;
+		transform: rotate(45deg);
+	}
+
+	/* ── Flow: cost → chevron → gain ───────────────────────────────────────── */
+	.flow {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.4rem;
+		flex: 1;
+		justify-content: center;
+		width: 100%;
+	}
+	.row {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+	}
+	.arrow {
+		display: grid;
+		place-items: center;
+		color: color-mix(in srgb, var(--accent) 60%, var(--brand-amber, #ffba3d));
+		filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent));
+		animation: arrow-bob 1.8s ease-in-out infinite;
+	}
+	@keyframes arrow-bob {
+		0%, 100% { transform: translateY(-1px); opacity: 0.8; }
+		50% { transform: translateY(3px); opacity: 1; }
+	}
+
+	/* ── Icons — uniform sized boxes, art floats on a soft shadow ──────────── */
+	.ico {
+		display: inline-grid;
+		place-items: center;
+		width: var(--icon);
+		height: var(--icon);
+	}
+	.ico.base {
+		--icon: 3rem;
+	}
+	.ico.solo {
+		--icon: 4.75rem;
+	}
+	/* A game action (Summon / Cultivate / Rest) reads as the headline of the card. */
+	.ico.act {
+		--icon: 7rem;
+	}
+	.ico img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		filter: drop-shadow(0 3px 9px rgba(0, 0, 0, 0.6));
+		transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1), filter 200ms ease;
+	}
+	@media (hover: hover) and (pointer: fine) {
+		.int-card:not(.disabled):hover .ico img {
+			transform: scale(1.06);
+			filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.6));
+		}
+	}
+
+	/* ── "Or" chooser — an explicit "pick one of these" control. The label + the
+	   "or" divider spell out that it's an either/or choice, each option reads as a
+	   real tappable target (outlined when idle, accent-filled + ticked when chosen)
+	   rather than a faint ghost, and the dashed accent frame sets the whole group
+	   apart from the static reward icons beside it. ──────────────────────────── */
+	.chooser {
+		display: inline-flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0.5rem 0.55rem 0.45rem;
+		border-radius: 16px;
+		background: color-mix(in srgb, var(--accent) 9%, rgba(255, 255, 255, 0.03));
+		border: 1px dashed color-mix(in srgb, var(--accent) 45%, rgba(255, 255, 255, 0.18));
+	}
+	.chooser-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.34rem;
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		font-weight: 700;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: color-mix(in srgb, var(--accent) 55%, #fff 45%);
+	}
+	.tap-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--accent);
+		box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 80%, transparent);
+		animation: tap-pulse 1.6s ease-in-out infinite;
+	}
+	@keyframes tap-pulse {
+		0%, 100% { transform: scale(0.8); opacity: 0.55; }
+		50% { transform: scale(1.15); opacity: 1; }
+	}
+	.chooser-opts {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+	}
+	.or-sep {
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--color-fog, #8d8aa1);
+	}
+	.opt {
+		position: relative;
+		display: grid;
+		place-items: center;
+		padding: 0.3rem;
+		border: 1px solid rgba(255, 255, 255, 0.22);
+		border-radius: 12px;
+		background: rgba(255, 255, 255, 0.04);
+		cursor: pointer;
+		opacity: 0.82;
+		transition: opacity 140ms ease, transform 140ms ease, background 140ms ease,
+			border-color 140ms ease, box-shadow 140ms ease;
+	}
+	@media (hover: hover) and (pointer: fine) {
+		.opt:hover {
+			opacity: 1;
+			transform: translateY(-2px);
+			border-color: color-mix(in srgb, var(--accent) 55%, rgba(255, 255, 255, 0.3));
+		}
+	}
+	.opt.selected {
+		opacity: 1;
+		border-color: color-mix(in srgb, var(--accent) 80%, transparent);
+		background: color-mix(in srgb, var(--accent) 30%, transparent);
+		box-shadow:
+			0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent),
+			0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent);
+	}
+	/* A check badge on the chosen option makes "this is the one you'll get" unmistakable. */
+	.opt.selected::after {
+		content: '';
+		position: absolute;
+		top: -6px;
+		right: -6px;
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		background: var(--accent)
+			url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 13l4 4L19 7' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+			center / 10px no-repeat;
+		box-shadow: 0 0 0 2px rgba(15, 10, 28, 0.9);
+	}
+
+	/* ── Result body ───────────────────────────────────────────────────────── */
+	.result-body {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+	.result-body p {
+		margin: 0;
+		font-size: 0.92rem;
+		line-height: 1.4;
+		color: var(--color-parchment, #d8d2e8);
+	}
+
+	/* ── CTA footer ────────────────────────────────────────────────────────── */
+	.cta {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-family: var(--font-display);
+		font-size: 0.8rem;
+		font-weight: 700;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		padding: 0.52rem 1.1rem;
+		border-radius: 999px;
+		color: var(--color-void, #0c0518);
+		background: var(--gradient-ember, linear-gradient(135deg, #ff704d, #ffd56a));
+		box-shadow: 0 4px 14px color-mix(in srgb, var(--brand-amber, #ffba3d) 35%, transparent);
+		transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+	}
+	.int-card.trade .cta {
+		background: linear-gradient(135deg, var(--brand-teal, #20e0c1), var(--brand-cyan, #24d4ff));
+		box-shadow: 0 4px 14px color-mix(in srgb, var(--brand-teal, #20e0c1) 35%, transparent);
+	}
+	@media (hover: hover) and (pointer: fine) {
+		.int-card:not(.disabled):hover .cta {
+			transform: translateY(-2px);
+			filter: brightness(1.08);
+			box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 45%, transparent);
+		}
+	}
+	.cta.locked {
+		color: var(--color-fog, #8d8aa1);
+		background: rgba(255, 255, 255, 0.04);
+		border: 1px solid color-mix(in srgb, var(--color-fog, #8d8aa1) 40%, transparent);
+		box-shadow: none;
+	}
+	.lock {
+		width: 9px;
+		height: 8px;
+		border-radius: 1px 1px 0 0;
+		background: currentColor;
+		position: relative;
+	}
+	.lock::before {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: -5px;
+		width: 7px;
+		height: 7px;
+		transform: translateX(-50%);
+		border: 1.5px solid currentColor;
+		border-bottom: 0;
+		border-radius: 4px 4px 0 0;
+	}
+
+	/* ── Empty state ───────────────────────────────────────────────────────── */
+	.empty {
+		font-family: var(--font-display);
+		font-size: 0.92rem;
+		letter-spacing: 0.06em;
+		color: var(--color-fog, #8d8aa1);
+		padding: 2rem;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.arrow,
+		.ico img {
+			animation: none;
+			transition: none;
+		}
+		.flipper {
+			transition: none;
+		}
+	}
+
+	/* ── Mobile layout (phones ≤600px) ─────────────────────────────────────── */
+	@media (max-width: 600px) {
+		.int-grid {
+			flex-wrap: wrap;
+			max-width: 100%;
+			gap: 0.75rem;
+		}
+		/* Each card takes ~half the row so 2 cards fit side-by-side at 360px. */
+		.int-card {
+			flex: 0 1 calc(50% - 0.375rem);
+			min-width: 0;
+			max-width: calc(50% - 0.375rem);
+			touch-action: manipulation;
+			-webkit-tap-highlight-color: transparent;
+			user-select: none;
+			/* Cut the heavy backdrop blur for perf on low-end phones: small radius,
+			   no saturate(), and a more opaque solid base so contrast is preserved. */
+			background: rgba(15, 10, 28, 0.72);
+			-webkit-backdrop-filter: blur(8px);
+			backdrop-filter: blur(8px);
+			/* Lighter shadow — big multi-layer blurs are costly to composite. */
+			box-shadow:
+				0 8px 22px rgba(0, 0, 0, 0.45),
+				inset 0 1px 0 rgba(255, 255, 255, 0.16);
+		}
+		.int-card.flipped {
+			background: rgba(10, 7, 20, 0.82);
+		}
+		.face {
+			min-height: 9rem;
+			padding: 0.9rem 0.75rem;
+			gap: 0.7rem;
+		}
+		/* Shrink the headline icons so a 2-column, multi-row grid fits the phone stage
+		   without overflowing under the pass-turn bar. */
+		.ico.base {
+			--icon: 2.4rem;
+		}
+		.ico.solo {
+			--icon: 3.4rem;
+		}
+		.ico.act {
+			--icon: 4.5rem;
+		}
+		.cta {
+			min-height: 44px;
+		}
+		.opt {
+			min-width: 44px;
+			min-height: 44px;
+		}
+	}
+
+	/* On reduced-motion devices, drop backdrop-filter entirely on these large card
+	   panels — it's the most expensive case on mobile GPUs. The opaque base keeps
+	   the content fully legible. */
+	@media (max-width: 600px) and (prefers-reduced-motion: reduce) {
+		.int-card {
+			-webkit-backdrop-filter: none;
+			backdrop-filter: none;
+			background: rgba(15, 10, 28, 0.92);
+		}
+		.int-card.flipped {
+			background: rgba(10, 7, 20, 0.94);
+		}
+	}
+</style>

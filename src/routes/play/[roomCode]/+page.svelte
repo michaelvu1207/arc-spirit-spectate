@@ -1,9 +1,20 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { onDestroy, onMount } from 'svelte';
-	import TabletopScene from '$lib/components/play/TabletopScene.svelte';
-	import { getAssetState, getCustomDiceAsset, getSpiritAsset, loadAssets } from '$lib/stores/assetStore.svelte';
-	import { STORAGE_BASE_URL } from '$lib/supabase';
+	import GameBoard2D from '$lib/components/play2d/GameBoard2D.svelte';
+	import AssetLoadingScreen from '$lib/components/play2d/AssetLoadingScreen.svelte';
+	import MenuShell from '$lib/components/play2d/MenuShell.svelte';
+	import GuardianPicker from '$lib/components/play2d/GuardianPicker.svelte';
+	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
+	import { seatAccent } from '$lib/components/play2d/helpers';
+	import { requestWakeLock, releaseWakeLock } from '$lib/play/wakeLock';
+	import {
+		getAssetState,
+		preloadAssetImages,
+		getGuardianAsset
+	} from '$lib/stores/assetStore.svelte';
+	import { stopMenu, playMenuSfx, primeMenuSfx } from '$lib/stores/menuAudio.svelte';
 	import {
 		claimSeat,
 		getPlayState,
@@ -12,99 +23,142 @@
 		startPlayGame
 	} from '$lib/stores/playStore.svelte';
 	import type { RoomView } from '$lib/play/server/service';
-	import type { GameCommand, MatItemKind, SeatColor, SpiritWorldLocation } from '$lib/play/types';
-	import { SEAT_COLORS, SPIRIT_WORLD_LOCATIONS } from '$lib/play/types';
-	import type { ClassBreakpoint, ClassTrait, EffectEntry, RuneAsset } from '$lib/types';
+	import type { SeatColor } from '$lib/play/types';
+	import { SEAT_COLORS, NAVIGATION_TIMER_OPTIONS } from '$lib/play/types';
 
 	interface Props {
-		data: {
-			initialView: RoomView;
-		};
+		data: { initialView: RoomView };
 	}
-
 	let { data }: Props = $props();
 
 	const playState = getPlayState();
 	const assetState = getAssetState();
 
-	let focusSeat = $state<SeatColor | null>(null);
-	let actionError = $state<string | null>(null);
 	let pendingAction = $state<string | null>(null);
-	let navSelectorOpen = $state(false);
-	let classViewMode = $state<'regular' | 'human' | 'special'>('regular');
-	let selectedClassId = $state<string | null>(null);
-	let diceSpawnerOpen = $state(false);
-	let itemPaletteOpen = $state(false);
-	let settingsOpen = $state(false);
-	let placementEditorEnabled = $state(false);
-	let itemPaletteFilter = $state<MatItemKind>('rune');
-	let diceCounts = $state<Record<string, number>>({ defense_dice: 1 });
-	let placementImportText = $state('');
-	let placementImportError = $state<string | null>(null);
-
-	type TableSceneSettings = {
-		hexRadius: number;
-		spiritSlots: Record<number, { x: number; z: number }>;
-		corruptionStatusToken: { x: number; z: number; scale: number };
-		lighting: {
-			ambientIntensity: number;
-			keyIntensity: number;
-			fillIntensity: number;
-			overheadIntensity: number;
-			overheadHeight: number;
-			overheadAngle: number;
-		};
-	};
-
-	const defaultTableSettings: TableSceneSettings = {
-		hexRadius: 0.81,
-		spiritSlots: {
-			1: { x: 1.629, z: 0.519 },
-			2: { x: 1.611, z: -0.247 },
-			3: { x: 1.047, z: -0.638 },
-			4: { x: 0.499, z: -0.26 },
-			5: { x: 0.491, z: 0.502 },
-			6: { x: 1.049, z: 0.127 },
-			7: { x: 1.052, z: 0.908 }
-		},
-		corruptionStatusToken: { x: 0.05, z: -1.13, scale: 2 },
-		lighting: {
-			ambientIntensity: 1.35,
-			keyIntensity: 0.7,
-			fillIntensity: 2.7,
-			overheadIntensity: 11,
-			overheadHeight: 14,
-			overheadAngle: 0.78
-		}
-	};
-
-	let tableSettings = $state<TableSceneSettings>(structuredClone(defaultTableSettings));
+	let actionError = $state<string | null>(null);
 
 	const room = $derived(playState.room ?? data.initialView.projection);
 	const member = $derived(playState.member ?? data.initialView.member);
 	const isLobby = $derived(room.status === 'lobby');
+	// Terminal state: the room was reaped server-side — a lobby that aged out
+	// (≥30 min unstarted) or was abandoned, or a live game everyone left. Show a
+	// closed card and bounce back to the browser.
+	const isClosed = $derived(room.status === 'closed');
 	const isHost = $derived(member.role === 'host');
+
+	$effect(() => {
+		if (!isLobby) stopMenu();
+	});
+
+	// Once the room reports `closed`, stop the live connection and return the player
+	// to the server browser after a short beat so they can read the message.
+	$effect(() => {
+		if (!isClosed) return;
+		playState.disconnect();
+		const timer = setTimeout(() => void goto('/play'), 4000);
+		return () => clearTimeout(timer);
+	});
+
+	// Keep the screen awake during an active match so the device doesn't sleep
+	// mid-turn (and silently drop the player). Released when the game ends/unmounts.
+	$effect(() => {
+		if (room.status === 'active') {
+			requestWakeLock();
+			return () => void releaseWakeLock();
+		}
+	});
+
+	// Bots carry this display-name prefix (see botSim.ts).
+	const BOT_PREFIX = '🤖 ';
+	const isBot = (name?: string | null) => !!name && name.startsWith(BOT_PREFIX);
+	const botLabel = (name: string) => name.replace(BOT_PREFIX, '').trim();
+	const hasBots = $derived(SEAT_COLORS.some((s) => isBot(room.seats[s]?.displayName)));
+
+	// ── Party derivations ────────────────────────────────────────────────────
+	const mySeat = $derived(SEAT_COLORS.find((s) => room.seats[s]?.memberId === member.id) ?? null);
+	const occupiedSeats = $derived(SEAT_COLORS.filter((s) => room.seats[s]?.memberId));
+	const openSeats = $derived(SEAT_COLORS.filter((s) => !room.seats[s]?.memberId));
+	const canStart = $derived(occupiedSeats.length > 0);
+
+	function guardianArt(name: string): string | null {
+		const g = getGuardianAsset(name);
+		// Show the character icon (fall back to chibi/mat only if it's missing).
+		return g?.iconUrl ?? g?.chibiUrl ?? g?.matUrl ?? null;
+	}
+	function takenByOthers(exceptSeat: SeatColor | null): Set<string> {
+		const set = new Set<string>();
+		for (const s of SEAT_COLORS) {
+			if (s === exceptSeat) continue;
+			const g = room.seats[s]?.selectedGuardian;
+			if (g) set.add(g);
+		}
+		return set;
+	}
+
+	// ── Character picker ─────────────────────────────────────────────────────
+	let pickerSeat = $state<SeatColor | null>(null);
+	let pickerIsBot = $state(false);
+	function openMyPicker() {
+		if (mySeat) {
+			pickerSeat = mySeat;
+			pickerIsBot = false;
+		}
+	}
+	function openBotPicker(seat: SeatColor) {
+		pickerSeat = seat;
+		pickerIsBot = true;
+	}
+	async function handlePick(name: string) {
+		const seat = pickerSeat;
+		const bot = pickerIsBot;
+		pickerSeat = null;
+		if (!seat) return;
+		if (bot)
+			await runAction('botguardian', () => postBots('guardian', { seat, guardianName: name }));
+		else
+			await runAction('guardian', () =>
+				sendPlayCommand({ type: 'selectGuardian', guardianName: name })
+			);
+	}
+
+	// ── Invite ───────────────────────────────────────────────────────────────
+	let inviteOpen = $state(false);
+	let copied = $state(false);
+	const inviteUrl = $derived(
+		browser ? `${location.origin}/play/${room.roomCode}` : `/play/${room.roomCode}`
+	);
+	async function copyInvite() {
+		try {
+			await navigator.clipboard.writeText(inviteUrl);
+			copied = true;
+			setTimeout(() => (copied = false), 1600);
+		} catch {
+			/* clipboard blocked — the field is selectable as a fallback */
+		}
+	}
 
 	onMount(() => {
 		hydratePlayRoom(data.initialView);
-		void loadAssets();
 
+		const preloadAbort = new AbortController();
+		void preloadAssetImages(preloadAbort.signal);
+
+		let botTimer: ReturnType<typeof setInterval> | null = null;
 		if (browser) {
-			const storedSettings = window.localStorage.getItem('arc-spirits.table-scene-settings');
-			if (storedSettings) {
-				try {
-					tableSettings = normalizeTableSettings(JSON.parse(storedSettings));
-				} catch {
-					tableSettings = structuredClone(defaultTableSettings);
-				}
-			}
-			placementImportText = tableSettingsJson;
 			document.documentElement.classList.add('immersive-play');
 			document.body.classList.add('immersive-play');
+			botTimer = setInterval(() => {
+				if (!isHost || room.status !== 'active' || !hasBots) return;
+				void fetch(`/api/play/sessions/${room.roomCode}/bots/tick`, { method: 'POST' }).catch(
+					() => {}
+				);
+			}, 1300);
 		}
 
 		return () => {
+			preloadAbort.abort();
 			playState.disconnect();
+			if (botTimer) clearInterval(botTimer);
 			if (browser) {
 				document.documentElement.classList.remove('immersive-play');
 				document.body.classList.remove('immersive-play');
@@ -112,29 +166,8 @@
 		};
 	});
 
-	$effect(() => {
-		if (!browser) return;
-		window.localStorage.setItem('arc-spirits.table-scene-settings', JSON.stringify(tableSettings));
-	});
-
 	onDestroy(() => {
-		if (!browser) {
-			playState.disconnect();
-		}
-	});
-
-	$effect(() => {
-		if (!focusSeat && room.activeSeats.length > 0) {
-			focusSeat = member.seatColor ?? room.activeSeats[0];
-		}
-	});
-
-	$effect(() => {
-		if (!member.seatColor) {
-			navSelectorOpen = false;
-			diceSpawnerOpen = false;
-			itemPaletteOpen = false;
-		}
+		if (!browser) playState.disconnect();
 	});
 
 	async function runAction(label: string, work: () => Promise<unknown>) {
@@ -149,388 +182,104 @@
 		}
 	}
 
-	function currentSeatGuardian(seatColor: SeatColor): string {
-		return room.seats[seatColor].selectedGuardian ?? '';
+	async function postBots(path: string, body?: unknown) {
+		const res = await fetch(`/api/play/sessions/${room.roomCode}/bots/${path}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body ?? {})
+		});
+		if (!res.ok) {
+			const m = (await res.json().catch(() => null))?.message;
+			throw new Error(typeof m === 'string' ? m : 'Request failed.');
+		}
 	}
 
-	async function chooseGuardian(guardianName: string) {
-		await runAction('guardian', () =>
-			sendPlayCommand({ type: 'selectGuardian', guardianName } as GameCommand)
-		);
+	async function takeSeat() {
+		const seat = openSeats[0];
+		if (!seat) return;
+		await runAction('claim', () => claimSeat(seat));
+		// Seated — open the character picker straight away.
+		pickerSeat = seat;
+		pickerIsBot = false;
 	}
-
-	async function releaseMySeat() {
-		await runAction('release', () => sendPlayCommand({ type: 'releaseSeat' }));
-	}
-
-	async function chooseDestination(destination: SpiritWorldLocation) {
-		navSelectorOpen = false;
-		await runAction('destination', () =>
+	// Strategy/difficulty for newly added bots. Every value is a real BOT_PROFILES key (validated
+	// server-side via profileFor); the strategy rides in the bot's display name. Trimmed to the THREE
+	// strongest PLAYABLE bots (fast heuristics — no rollout-search lag in live, host-run play), ordered
+	// by head-to-head ELO: PvP Hunter (multiplayer champion, ELO 1930), then the two top economy racers.
+	// (Slow search/ISMCTS tiers were dropped — they stutter live play; full roster still in BOT_PROFILES.)
+	let botDifficulty = $state('fast');
+	const BOT_DIFFICULTIES: { value: string; label: string }[] = [
+		{ value: 'pvphunter', label: 'PvP Hunter (hardest · evil)' },
+		{ value: 'fast', label: 'Fast (economy · EA-tuned)' },
+		{ value: 'culrush', label: 'Culrush (economy)' }
+	];
+	const addBotAction = () =>
+		runAction('add-bot', () => postBots('add', { difficulty: botDifficulty }));
+	// Navigation timer (host-only, lobby-only). The <select> works in strings, so "none"
+	// is the sentinel for the no-limit (null) preset.
+	const navTimerValue = $derived(
+		room.navigationDurationMs == null ? 'none' : String(room.navigationDurationMs)
+	);
+	const navTimerLabel = $derived(
+		NAVIGATION_TIMER_OPTIONS.find((o) => o.ms === room.navigationDurationMs)?.label ?? 'Custom'
+	);
+	const setNavTimer = (value: string) =>
+		runAction('nav-timer', () =>
 			sendPlayCommand({
-				type: 'selectNavigationDestination',
-				destination
+				type: 'setNavigationTimer',
+				durationMs: value === 'none' ? null : Number(value)
 			})
 		);
-	}
+	const removeBotAction = (seat: SeatColor) =>
+		runAction(`remove-${seat}`, () => postBots('remove', { seat }));
+	const releaseMySeat = () => runAction('release', () => sendPlayCommand({ type: 'releaseSeat' }));
+	const startGame = () => {
+		playMenuSfx('game-start', { volume: 0.85 });
+		return runAction('start', () => startPlayGame());
+	};
 
-	function toAssetUrl(path: string | null): string | null {
-		if (!path) return null;
-		return path.startsWith('http') ? path : `${STORAGE_BASE_URL}/${path}`;
-	}
-
-	const classHeader = $derived(
-		classViewMode === 'regular'
-			? 'CLASSES'
-			: classViewMode === 'human'
-				? 'HUMAN CLASSES'
-				: 'SPECIAL CLASSES'
-	);
-
-	const classToggleLabel = $derived(
-		classViewMode === 'regular'
-			? 'Show Human ▶'
-			: classViewMode === 'human'
-				? 'Show Special ▶'
-				: '◀ Show Regular'
-	);
-
-	function toggleClassView() {
-		selectedClassId = null;
-		if (classViewMode === 'regular') {
-			classViewMode = 'human';
-			return;
-		}
-		if (classViewMode === 'human') {
-			classViewMode = 'special';
-			return;
-		}
-		classViewMode = 'regular';
-	}
-
-	const classGroups = $derived.by(() => {
-		void assetState.classTraits;
-		const regular: ClassTrait[] = [];
-		const human: ClassTrait[] = [];
-		const special: ClassTrait[] = [];
-
-		for (const classTrait of assetState.classTraits.values()) {
-			if (classTrait.class_type === 'human') {
-				human.push(classTrait);
-			} else if (classTrait.class_type === 'special' || classTrait.is_special) {
-				special.push(classTrait);
-			} else {
-				regular.push(classTrait);
+	// Lobby UI sounds via a delegated action: every button/link plays a hover +
+	// click one-shot (Start Game gets its own launch sound, fired in startGame).
+	// Using use: keeps the handlers off the element as inline attributes, so the
+	// container <div> stays a clean non-interactive node (no a11y warnings).
+	function lobbySfx(node: HTMLElement) {
+		let last: Element | null = null;
+		const over = (e: Event) => {
+			const btn = (e.target as Element)?.closest?.('button, a');
+			if (!btn || (btn as HTMLButtonElement).disabled) {
+				last = null;
+				return;
 			}
-		}
-
-		const sortByPosition = (left: ClassTrait, right: ClassTrait) =>
-			(left.position ?? 999) - (right.position ?? 999) || left.name.localeCompare(right.name);
-
-		regular.sort(sortByPosition);
-		human.sort(sortByPosition);
-		special.sort(sortByPosition);
-
-		return { regular, human, special };
-	});
-
-	const visibleClasses = $derived(
-		classViewMode === 'regular'
-			? classGroups.regular
-			: classViewMode === 'human'
-				? classGroups.human
-				: classGroups.special
-	);
-
-	const selectedClass = $derived.by(() => {
-		void assetState.classTraits;
-		return selectedClassId ? assetState.classTraits.get(selectedClassId) ?? null : null;
-	});
-
-	function toggleClassDetails(classId: string) {
-		selectedClassId = selectedClassId === classId ? null : classId;
-	}
-
-	function classBreakpoints(classTrait: ClassTrait | null): ClassBreakpoint[] {
-		if (!classTrait?.effect_schema) return [];
-		return [...classTrait.effect_schema].sort((left, right) => {
-			const leftCount = typeof left.count === 'number' ? left.count : Number(left.count) || 0;
-			const rightCount = typeof right.count === 'number' ? right.count : Number(right.count) || 0;
-			return leftCount - rightCount;
-		});
-	}
-
-	function breakpointDescription(breakpoint: ClassBreakpoint): string {
-		const parts: string[] = [];
-		const effects = (breakpoint.effects ?? []) as EffectEntry[];
-		for (const effect of effects) {
-			const description = (effect?.description ?? '').trim();
-			if (description) parts.push(description);
-		}
-		if (parts.length > 0) return parts.join('   ');
-		return (breakpoint.description ?? '').trim();
-	}
-
-	const navigationPrimaryLocations = SPIRIT_WORLD_LOCATIONS.filter(
-		(location) => location !== 'Arcane Abyss'
-	);
-
-	const focusedPlayer = $derived(focusSeat ? room.players[focusSeat] ?? null : null);
-	const currentPlayer = $derived(member.seatColor ? room.players[member.seatColor] ?? null : null);
-	const trayDraws = $derived(currentPlayer?.handDraws ?? []);
-	const pendingDrawMeta = $derived(currentPlayer?.pendingDraw ?? null);
-	const defenseDiceUrl = `${STORAGE_BASE_URL}/misc_assets/a3e10c1d-bba0-447e-b10b-45bb7b79d582/D12.png`;
-	const availableDice = $derived.by(() => {
-		void assetState.customDiceAssets;
-		const list: Array<{
-			id: string;
-			name: string;
-			diceType: 'attack' | 'special' | 'defense';
-			previewUrl: string | null;
-		}> = [];
-
-		for (const die of assetState.customDiceAssets.values()) {
-			const previewUrl = die.exported_template_path
-				? toAssetUrl(die.exported_template_path)
-				: die.background_image_path
-					? toAssetUrl(die.background_image_path)
-					: null;
-			list.push({
-				id: die.id,
-				name: die.name,
-				diceType: die.dice_type,
-				previewUrl
-			});
-		}
-
-		list.sort((left, right) => left.name.localeCompare(right.name));
-		list.push({
-			id: 'defense_dice',
-			name: 'Defense Dice',
-			diceType: 'defense',
-			previewUrl: defenseDiceUrl
-		});
-		return list;
-	});
-	const filteredSpawnItems = $derived.by(() => {
-		void assetState.runeAssets;
-		const items: Array<RuneAsset & { kind: MatItemKind }> = [];
-		for (const rune of assetState.runeAssets.values()) {
-			const kind: MatItemKind = rune.class_id ? 'augment' : rune.origin_id ? 'rune' : 'relic';
-			if (kind !== itemPaletteFilter) continue;
-			items.push({ ...rune, kind });
-		}
-		return items.sort((left, right) => left.name.localeCompare(right.name));
-	});
-
-	function spiritFrontUrl(spiritId: string | undefined): string | null {
-		if (!spiritId) return null;
-		const asset = getSpiritAsset(spiritId);
-		return asset?.imageUrl ?? `${STORAGE_BASE_URL}/hex_spirits/${spiritId}_game_print.png`;
-	}
-
-	function spiritBackUrl(spiritId: string | undefined): string | null {
-		if (!spiritId) return null;
-		return `${STORAGE_BASE_URL}/hex_spirits/${spiritId}_back_side_export.png`;
-	}
-
-	function drawPreviewUrl(draw: { id?: string; sourceBag?: string }) {
-		return draw.sourceBag === 'Arcane Abyss Bag' ? spiritBackUrl(draw.id) : spiritFrontUrl(draw.id);
-	}
-
-	function runePreviewUrl(rune: RuneAsset): string | null {
-		if (!rune.icon_path) return null;
-		return toAssetUrl(rune.icon_path);
-	}
-
-	function categoryLabel(kind: MatItemKind) {
-		if (kind === 'augment') return 'Spirit Augments';
-		if (kind === 'relic') return 'Relics';
-		return 'Runes';
-	}
-
-	function adjustDiceCount(diceId: string, delta: number) {
-		const current = diceCounts[diceId] ?? (diceId === 'defense_dice' ? 1 : 0);
-		const next = Math.max(0, Math.min(12, current + delta));
-		diceCounts = { ...diceCounts, [diceId]: next };
-	}
-
-	async function drawSpiritWorldSummon() {
-		await runAction('draw-spirit-world', () => sendPlayCommand({ type: 'drawSpiritWorld' }));
-	}
-
-	async function drawArcaneAbyssSummon() {
-		await runAction('draw-arcane-abyss', () => sendPlayCommand({ type: 'drawArcaneAbyss' }));
-	}
-
-	async function summonDrawnSpirit(guid: string) {
-		await runAction('spawn-hand-spirit', () => sendPlayCommand({ type: 'spawnHandSpirit', guid }));
-	}
-
-	async function discardDrawTray() {
-		await runAction('discard-hand-draws', () => sendPlayCommand({ type: 'discardHandDraws' }));
-	}
-
-	async function requestSpiritFlip(slotIndex: number) {
-		await runAction('flip-spirit', () => sendPlayCommand({ type: 'flipSpirit', slotIndex }));
-	}
-
-	async function requestPotentialFlip(slotIndex: number) {
-		await runAction('flip-potential', () => sendPlayCommand({ type: 'flipPotentialToken', slotIndex }));
-	}
-
-	async function requestMoveMatObject(payload: {
-		objectType: 'die' | 'item';
-		instanceId: string;
-		localX: number;
-		localZ: number;
-	}) {
-		await runAction('move-mat-object', () =>
-			sendPlayCommand({
-				type: 'moveMatObject',
-				...payload
-			})
-		);
-	}
-
-	function normalizeTableSettings(value: unknown): TableSceneSettings {
-		const source = (value ?? {}) as Partial<TableSceneSettings>;
-		const next = structuredClone(defaultTableSettings);
-		const numeric = (candidate: unknown, fallback: number, min: number, max: number) => {
-			const parsed = typeof candidate === 'number' ? candidate : Number(candidate);
-			if (!Number.isFinite(parsed)) return fallback;
-			return Math.max(min, Math.min(max, parsed));
+			if (btn === last) return;
+			last = btn;
+			playMenuSfx('ui-hover', { volume: 0.4 });
 		};
-
-		next.hexRadius = numeric(source.hexRadius, next.hexRadius, 0.25, 1.4);
-
-		for (let slotIndex = 1; slotIndex <= 7; slotIndex += 1) {
-			const slot = source.spiritSlots?.[slotIndex];
-			next.spiritSlots[slotIndex] = {
-				x: numeric(slot?.x, next.spiritSlots[slotIndex].x, -4, 4),
-				z: numeric(slot?.z, next.spiritSlots[slotIndex].z, -3, 3)
-			};
-		}
-
-		next.corruptionStatusToken = {
-			x: numeric(source.corruptionStatusToken?.x, next.corruptionStatusToken.x, -4, 4),
-			z: numeric(source.corruptionStatusToken?.z, next.corruptionStatusToken.z, -3, 3),
-			scale: numeric(source.corruptionStatusToken?.scale, next.corruptionStatusToken.scale, 0.35, 4)
+		const click = (e: Event) => {
+			const btn = (e.target as Element)?.closest?.('button, a');
+			if (!btn || (btn as HTMLButtonElement).disabled) return;
+			if (btn.getAttribute('data-testid') === 'start-game') return; // launch sound instead
+			playMenuSfx('ui-click');
 		};
-
-		next.lighting = {
-			ambientIntensity: numeric(source.lighting?.ambientIntensity, next.lighting.ambientIntensity, 0, 6),
-			keyIntensity: numeric(source.lighting?.keyIntensity, next.lighting.keyIntensity, 0, 8),
-			fillIntensity: numeric(source.lighting?.fillIntensity, next.lighting.fillIntensity, 0, 8),
-			overheadIntensity: numeric(source.lighting?.overheadIntensity, next.lighting.overheadIntensity, 0, 30),
-			overheadHeight: numeric(source.lighting?.overheadHeight, next.lighting.overheadHeight, 6, 28),
-			overheadAngle: numeric(source.lighting?.overheadAngle, next.lighting.overheadAngle, 0.18, 1.4)
+		node.addEventListener('pointerover', over);
+		node.addEventListener('click', click);
+		return {
+			destroy() {
+				node.removeEventListener('pointerover', over);
+				node.removeEventListener('click', click);
+			}
 		};
-
-		return next;
 	}
 
-	const tableSettingsJson = $derived(JSON.stringify(tableSettings, null, 2));
-
-	function updateHexRadius(value: string) {
-		tableSettings = normalizeTableSettings({ ...tableSettings, hexRadius: Number(value) });
-	}
-
-	function updateSpiritSlot(slotIndex: number, axis: 'x' | 'z', value: string | number) {
-		tableSettings = normalizeTableSettings({
-			...tableSettings,
-			spiritSlots: {
-				...tableSettings.spiritSlots,
-				[slotIndex]: {
-					...tableSettings.spiritSlots[slotIndex],
-					[axis]: Number(value)
-				}
+	async function leaveRoom() {
+		// Give up my seat (if I hold one) so it frees up, then exit to the play home.
+		if (member.seatColor) {
+			try {
+				await sendPlayCommand({ type: 'releaseSeat' });
+			} catch {
+				/* leave regardless */
 			}
-		});
-	}
-
-	function updateLighting(key: keyof TableSceneSettings['lighting'], value: string) {
-		tableSettings = normalizeTableSettings({
-			...tableSettings,
-			lighting: {
-				...tableSettings.lighting,
-				[key]: Number(value)
-			}
-		});
-	}
-
-	function updateCorruptionStatusToken(key: keyof TableSceneSettings['corruptionStatusToken'], value: string) {
-		tableSettings = normalizeTableSettings({
-			...tableSettings,
-			corruptionStatusToken: {
-				...tableSettings.corruptionStatusToken,
-				[key]: Number(value)
-			}
-		});
-	}
-
-	function handleSpiritSlotMoved(payload: { slotIndex: number; localX: number; localZ: number }) {
-		const nextSettings = normalizeTableSettings({
-			...tableSettings,
-			spiritSlots: {
-				...tableSettings.spiritSlots,
-				[payload.slotIndex]: {
-					x: payload.localX,
-					z: payload.localZ
-				}
-			}
-		});
-		tableSettings = nextSettings;
-		placementImportText = JSON.stringify(nextSettings, null, 2);
-	}
-
-	function resetTableSettings() {
-		tableSettings = structuredClone(defaultTableSettings);
-		placementImportText = tableSettingsJson;
-		placementImportError = null;
-	}
-
-	function applyImportedTableSettings() {
-		try {
-			tableSettings = normalizeTableSettings(JSON.parse(placementImportText));
-			placementImportText = tableSettingsJson;
-			placementImportError = null;
-		} catch (error) {
-			placementImportError = error instanceof Error ? error.message : 'Invalid JSON.';
 		}
-	}
-
-	async function spawnSelectedDice() {
-		const requests = Object.entries(diceCounts)
-			.map(([diceId, count]) => ({ diceId, count }))
-			.filter((entry) => entry.count > 0);
-		if (requests.length === 0) return;
-
-		await runAction('spawn-dice', async () => {
-			for (const request of requests) {
-				await sendPlayCommand({
-					type: 'spawnDiceBatch',
-					diceId: request.diceId,
-					count: request.count
-				});
-			}
-		});
-		diceSpawnerOpen = false;
-	}
-
-	async function clearSpawnedDice() {
-		await runAction('clear-dice', () => sendPlayCommand({ type: 'clearSpawnedDice' }));
-	}
-
-	async function rollSpawnedDice() {
-		await runAction('roll-dice', () => sendPlayCommand({ type: 'rollSpawnedDice' }));
-	}
-
-	async function spawnMatItem(runeId: string) {
-		await runAction('spawn-item', () => sendPlayCommand({ type: 'spawnMatItem', runeId }));
-	}
-
-	async function clearSpawnedItems() {
-		await runAction('clear-items', () => sendPlayCommand({ type: 'clearSpawnedItems' }));
+		await goto('/play');
 	}
 </script>
 
@@ -538,573 +287,234 @@
 	<title>{room.roomCode} | Arc Spirits Play</title>
 </svelte:head>
 
-<div class:immersive-route={!isLobby} class="play-room">
-	{#if isLobby}
-		<section class="room-header">
-			<div>
-				<div class="eyebrow">Live Room</div>
-				<h1>{room.roomCode}</h1>
-				<p>Seat players, assign guardians, then start the session.</p>
+<div class:immersive-route={!isLobby && !isClosed} class="play-room">
+	{#if isClosed}
+		<MenuShell>
+			<div class="closed">
+				<span class="kicker"><span class="kn">RM</span><span class="kl"></span> {room.roomCode}</span>
+				<h1 class="closed-title brand-flame-text">Room closed</h1>
+				<p class="closed-sub">
+					This room was closed because everyone left, or it stayed open too long without a
+					game finishing.
+				</p>
+				<button type="button" class="closed-btn" onclick={() => goto('/play')}>
+					<span class="arrow" aria-hidden="true">←</span> Back to Servers
+				</button>
+				<span class="closed-hint">Returning you to the server browser…</span>
 			</div>
-			<div class="status-stack">
-				<div class="pill">{room.status}</div>
-				<div class="pill subtle">rev {room.revision}</div>
-				<div class:offline={!playState.isConnected} class="pill subtle">
-					{playState.isConnected ? 'stream live' : 'stream reconnecting'}
-				</div>
-			</div>
-		</section>
+		</MenuShell>
+	{:else if isLobby}
+		<MenuShell>
+			<div class="lobby" use:lobbySfx>
+				<button type="button" class="leave-btn" data-testid="leave-room" title="Leave this room" onclick={leaveRoom}>
+					<span class="arrow" aria-hidden="true">←</span> Leave
+				</button>
+				<header class="lhead reveal" style="--d: 0.04s">
+					<div>
+						<span class="kicker">
+							<span class="kn">RM</span><span class="kl"></span> Live Room · {occupiedSeats.length}/{SEAT_COLORS.length}
+						</span>
+						<h1 class="code brand-flame-text">{room.roomCode}</h1>
+					</div>
+					<span class="pill" class:off={!playState.isConnected}>
+						{playState.isConnected
+							? '● Live'
+							: playState.isReconnecting
+								? '○ Reconnecting'
+								: '○ Offline'}
+					</span>
+				</header>
 
-		{#if actionError}
-			<div class="action-error">{actionError}</div>
-		{/if}
+				{#if actionError}
+					<div class="error reveal" role="alert">{actionError}</div>
+				{/if}
 
-		<section class="identity-panel">
-			<div>
-				<div class="label">Viewer</div>
-				<div class="identity">
-					<strong>{member.displayName ?? 'Spectator'}</strong>
-					<span>{member.role}</span>
-					{#if member.seatColor}
-						<span>{member.seatColor}</span>
+				<ul class="party reveal" style="--d: 0.12s">
+					{#each occupiedSeats as seat (seat)}
+						{@const s = room.seats[seat]}
+						{@const bot = isBot(s.displayName)}
+						{@const mine = s.memberId === member.id}
+						{@const art = s.selectedGuardian ? guardianArt(s.selectedGuardian) : null}
+						<li class="row" class:mine style="--seat: {seatAccent(seat)}">
+							<span class="seatdot"></span>
+							<div class="ava" class:empty={!art}>
+								{#if art}
+									<img src={art} alt={s.selectedGuardian} loading="lazy" />
+								{:else}
+									<span>{(s.selectedGuardian ?? s.displayName ?? '?').slice(0, 1)}</span>
+								{/if}
+							</div>
+							<div class="info">
+								<span class="nm">
+									{bot ? botLabel(s.displayName ?? '') : (s.displayName ?? 'Player')}
+									{#if mine}<b class="tag you">You</b>{/if}
+									{#if bot}<b class="tag bot">Bot</b>{/if}
+								</span>
+								<span class="ch" class:none={!s.selectedGuardian}>
+									{s.selectedGuardian ?? 'No character'}
+								</span>
+							</div>
+							<div class="rowacts">
+								{#if mine}
+									<button class="mini" onclick={openMyPicker} disabled={pendingAction !== null}>
+										{s.selectedGuardian ? 'Change' : 'Choose'}
+									</button>
+									<button
+										class="mini ghosted"
+										onclick={releaseMySeat}
+										disabled={pendingAction !== null}
+									>
+										Leave
+									</button>
+								{:else if isHost && bot}
+									<button
+										class="mini"
+										onclick={() => openBotPicker(seat)}
+										disabled={pendingAction !== null}
+									>
+										{s.selectedGuardian ? 'Change' : 'Choose'}
+									</button>
+									<button
+										class="mini danger"
+										data-testid="remove-bot-{seat}"
+										onclick={() => removeBotAction(seat)}
+										disabled={pendingAction !== null}
+									>
+										Remove
+									</button>
+								{/if}
+							</div>
+						</li>
+					{/each}
+
+					{#each openSeats as seat (seat)}
+						<li class="row open" style="--seat: {seatAccent(seat)}">
+							<span class="seatdot"></span>
+							<div class="ava empty">＋</div>
+							<div class="info">
+								<span class="nm none">Open seat</span>
+								<span class="ch none">{seat}</span>
+							</div>
+						</li>
+					{/each}
+				</ul>
+
+				<div class="bar reveal" style="--d: 0.2s">
+					{#if isHost}
+						<label class="setting" data-testid="nav-timer-field">
+							<span class="setting-label">Nav timer</span>
+							<select
+								class="botdiff"
+								data-testid="nav-timer"
+								value={navTimerValue}
+								onchange={(e) => setNavTimer((e.currentTarget as HTMLSelectElement).value)}
+								disabled={pendingAction !== null}
+								aria-label="Navigation timer per round"
+							>
+								{#each NAVIGATION_TIMER_OPTIONS as opt (opt.label)}
+									<option value={opt.ms == null ? 'none' : String(opt.ms)}>{opt.label}</option>
+								{/each}
+							</select>
+						</label>
+					{:else}
+						<span class="setting-chip" data-testid="nav-timer-readonly">Nav timer · {navTimerLabel}</span>
+					{/if}
+					{#if !mySeat && openSeats.length}
+						<button class="primary" onclick={takeSeat} disabled={pendingAction !== null}>
+							{pendingAction === 'claim' ? 'Seating…' : 'Take a seat'}
+						</button>
+					{/if}
+					{#if isHost}
+						<select
+							class="botdiff"
+							data-testid="bot-difficulty"
+							bind:value={botDifficulty}
+							disabled={pendingAction !== null || openSeats.length === 0}
+							aria-label="Bot difficulty"
+						>
+							{#each BOT_DIFFICULTIES as opt (opt.value)}
+								<option value={opt.value}>{opt.label}</option>
+							{/each}
+						</select>
+						<button
+							class="ghost"
+							data-testid="add-bot"
+							onclick={addBotAction}
+							disabled={pendingAction !== null || openSeats.length === 0}
+						>
+							{pendingAction === 'add-bot' ? 'Summoning…' : '+ Add bot'}
+						</button>
+					{/if}
+					<button class="ghost" onclick={() => (inviteOpen = !inviteOpen)}>
+						{inviteOpen ? 'Hide invite' : 'Invite player'}
+					</button>
+					{#if isHost}
+						<button
+							class="start"
+							data-testid="start-game"
+							onclick={startGame}
+							disabled={pendingAction !== null || !canStart}
+						>
+							<span>{pendingAction === 'start' ? 'Opening gate…' : 'Start Game'}</span>
+							<svg viewBox="0 0 24 24" aria-hidden="true"
+								><path
+									d="M5 12h14M13 6l6 6-6 6"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/></svg
+							>
+						</button>
 					{/if}
 				</div>
-			</div>
-			{#if isHost}
-				<button
-					type="button"
-					class="btn-primary"
-					disabled={pendingAction !== null}
-					onclick={() => runAction('start', () => startPlayGame())}
-				>
-					{pendingAction === 'start' ? 'Starting…' : 'Start game'}
-				</button>
-			{/if}
-		</section>
 
-		<section class="seat-grid">
-			{#each SEAT_COLORS as seatColor (seatColor)}
-				{@const seat = room.seats[seatColor]}
-				<article class="seat-card">
-					<div class="seat-head">
-						<h2>{seatColor}</h2>
-						{#if seat.memberId}
-							<span class="occupied">claimed</span>
-						{:else}
-							<span class="vacant">open</span>
-						{/if}
-					</div>
-
-					<div class="seat-body">
-						<div class="seat-meta">
-							<div>{seat.displayName ?? 'No player'}</div>
-							<div>{seat.selectedGuardian ?? 'No guardian selected'}</div>
+				{#if inviteOpen}
+					<div class="invite reveal">
+						<span class="ieyebrow">Share this link</span>
+						<div class="irow">
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<input
+								readonly
+								value={inviteUrl}
+								onclick={(e) => (e.currentTarget as HTMLInputElement).select()}
+							/>
+							<button class="ghost" onclick={copyInvite}>{copied ? 'Copied ✓' : 'Copy'}</button>
 						</div>
-
-						{#if !seat.memberId && member.id}
-							<button
-								type="button"
-								class="btn-secondary"
-								disabled={pendingAction !== null}
-								onclick={() => runAction(`claim-${seatColor}`, () => claimSeat(seatColor))}
-							>
-								Claim seat
-							</button>
-						{/if}
-
-						{#if seat.memberId === member.id}
-							<div class="seat-actions">
-								<select
-									value={currentSeatGuardian(seatColor)}
-									onchange={(event) =>
-										chooseGuardian((event.currentTarget as HTMLSelectElement).value)}
-								>
-									<option value="">Choose guardian</option>
-									{#each room.guardianPool ?? [] as guardianName (guardianName)}
-										<option value={guardianName}>{guardianName}</option>
-									{/each}
-								</select>
-								<button
-									type="button"
-									class="btn-secondary"
-									disabled={pendingAction !== null}
-									onclick={releaseMySeat}
-								>
-									Release seat
-								</button>
-							</div>
-						{/if}
 					</div>
-				</article>
-			{/each}
-		</section>
+				{/if}
+			</div>
+
+			<GuardianPicker
+				open={pickerSeat !== null}
+				title={pickerIsBot ? `Set ${pickerSeat} bot's Guardian` : 'Choose your Guardian'}
+				subtitle={pickerIsBot
+					? 'As host, you pick the bot’s champion.'
+					: 'Bind a champion to your seat.'}
+				guardians={room.guardianPool ?? []}
+				taken={takenByOthers(pickerSeat)}
+				current={pickerSeat ? (room.seats[pickerSeat]?.selectedGuardian ?? null) : null}
+				accent={pickerSeat ? seatAccent(pickerSeat) : '#ff2bc7'}
+				onPick={handlePick}
+				onClose={() => (pickerSeat = null)}
+			/>
+		</MenuShell>
 	{:else}
 		<div class="game-viewport">
-			<TabletopScene
-				projection={room}
-				focusSeatColor={focusSeat}
-				immersive={true}
-				tableSettings={tableSettings}
-				placementEditorEnabled={placementEditorEnabled}
-				onFlipSpirit={requestSpiritFlip}
-				onFlipPotentialToken={requestPotentialFlip}
-				onSpiritSlotMoved={handleSpiritSlotMoved}
-				onMoveMatObject={requestMoveMatObject}
-			/>
-
-				<div class="hud-layer">
-					{#if actionError}
-						<section class="hud-panel hud-error">{actionError}</section>
-					{/if}
-
-						<section class="hud-panel hud-left hud-actions">
-							<div class="hud-kicker">Summon Spirits</div>
-							<div class="action-stack">
-								<button
-									type="button"
-									class="action-button"
-									disabled={!member.seatColor || trayDraws.length > 0 || pendingAction !== null}
-									onclick={drawSpiritWorldSummon}
-								>
-									Spirit World Draw 4 Pick 2
-								</button>
-								<button
-									type="button"
-									class="action-button abyss"
-									disabled={!member.seatColor || trayDraws.length > 0 || pendingAction !== null}
-									onclick={drawArcaneAbyssSummon}
-								>
-									Arcane Abyss Draw 3 Pick 1
-								</button>
-							</div>
-							<div class="action-hint">Click a tray spirit to spawn it. Press <kbd>F</kbd> on a selected spirit to flip it.</div>
-
-							<div class="action-divider"></div>
-							<div class="hud-kicker">Mat Tools</div>
-							<div class="tool-buttons">
-									<button
-										type="button"
-										class="action-button muted"
-										disabled={!member.seatColor || pendingAction !== null}
-										onclick={() => (diceSpawnerOpen = !diceSpawnerOpen)}
-									>
-										{diceSpawnerOpen ? 'Hide Dice Spawner' : 'Spawn Dice'}
-									</button>
-									<button
-										type="button"
-										class="action-button muted"
-										disabled={!member.seatColor || pendingAction !== null}
-										onclick={rollSpawnedDice}
-									>
-										Roll Dice
-									</button>
-									<button
-									type="button"
-									class="action-button muted"
-									disabled={!member.seatColor || pendingAction !== null}
-									onclick={() => (itemPaletteOpen = !itemPaletteOpen)}
-								>
-									{itemPaletteOpen ? 'Hide Items' : 'Spawn Runes / Relics / Augments'}
-								</button>
-							</div>
-
-							{#if diceSpawnerOpen}
-								<div class="tool-panel">
-									<div class="tool-panel-title">Dice Spawner</div>
-									<div class="dice-list">
-										{#each availableDice as die (die.id)}
-											<div class="dice-row">
-												<div class="dice-meta">
-													{#if die.previewUrl}
-														<img src={die.previewUrl} alt={die.name} />
-													{/if}
-													<div>
-														<strong>{die.name}</strong>
-														<span>{die.diceType === 'attack' ? 'Attack Dice' : die.diceType === 'special' ? 'Special Dice' : 'Defense Dice'}</span>
-													</div>
-												</div>
-												<div class="dice-controls">
-													<button type="button" class="mini-btn" onclick={() => adjustDiceCount(die.id, -1)}>-</button>
-													<span>{diceCounts[die.id] ?? (die.id === 'defense_dice' ? 1 : 0)}</span>
-													<button type="button" class="mini-btn" onclick={() => adjustDiceCount(die.id, 1)}>+</button>
-												</div>
-											</div>
-										{/each}
-									</div>
-									<div class="tool-action-row">
-										<button type="button" class="action-button small" onclick={spawnSelectedDice}>Spawn Selected</button>
-										<button type="button" class="action-button small muted" onclick={clearSpawnedDice}>Clear Dice</button>
-									</div>
-								</div>
-							{/if}
-
-							{#if itemPaletteOpen}
-								<div class="tool-panel">
-									<div class="tool-panel-title">{categoryLabel(itemPaletteFilter)}</div>
-									<div class="filter-tabs">
-										{#each ['rune', 'augment', 'relic'] as kind}
-											<button
-												type="button"
-												class:active={itemPaletteFilter === kind}
-												class="filter-tab"
-												onclick={() => (itemPaletteFilter = kind as MatItemKind)}
-											>
-												{categoryLabel(kind as MatItemKind)}
-											</button>
-										{/each}
-									</div>
-									<div class="item-grid">
-										{#each filteredSpawnItems as rune (rune.id)}
-											<button type="button" class="item-card" onclick={() => spawnMatItem(rune.id)}>
-												{#if runePreviewUrl(rune)}
-													<img src={runePreviewUrl(rune) ?? ''} alt={rune.name} />
-												{/if}
-												<span>{rune.name}</span>
-											</button>
-										{/each}
-									</div>
-									<div class="tool-action-row">
-										<button type="button" class="action-button small muted" onclick={clearSpawnedItems}>Clear Items</button>
-									</div>
-								</div>
-							{/if}
-						</section>
-
-						<section class="hud-panel hud-settings-toggle">
-							<button
-								type="button"
-								class:active={settingsOpen}
-								class="settings-button"
-								onclick={() => (settingsOpen = !settingsOpen)}
-							>
-								Table Settings
-							</button>
-						</section>
-
-						{#if settingsOpen}
-							<section class="hud-panel hud-settings">
-								<div class="settings-header">
-									<div>
-										<div class="hud-kicker">Table Editor</div>
-										<div class="settings-title">Placement</div>
-									</div>
-									<button
-										type="button"
-										class:active={placementEditorEnabled}
-										class="editor-toggle"
-										onclick={() => (placementEditorEnabled = !placementEditorEnabled)}
-									>
-										{placementEditorEnabled ? 'Dragging On' : 'Dragging Off'}
-									</button>
-								</div>
-
-								<div class="settings-section">
-									<label class="range-row">
-										<span>Hex scale</span>
-										<input
-											type="range"
-											min="0.35"
-											max="1.15"
-											step="0.01"
-											value={tableSettings.hexRadius}
-											oninput={(event) => updateHexRadius(event.currentTarget.value)}
-										/>
-										<output>{tableSettings.hexRadius.toFixed(2)}</output>
-									</label>
-								</div>
-
-									<div class="settings-section">
-										<div class="settings-subtitle">Spirit Slots</div>
-										<div class="slot-editor-grid">
-											{#each [1, 2, 3, 4, 5, 6, 7] as slotIndex}
-											<div class="slot-row">
-												<span class="slot-label">{slotIndex}</span>
-												<label>
-													<span>X</span>
-													<input
-														type="number"
-														step="0.01"
-														value={tableSettings.spiritSlots[slotIndex].x}
-														oninput={(event) => updateSpiritSlot(slotIndex, 'x', event.currentTarget.value)}
-													/>
-												</label>
-												<label>
-													<span>Z</span>
-													<input
-														type="number"
-														step="0.01"
-														value={tableSettings.spiritSlots[slotIndex].z}
-														oninput={(event) => updateSpiritSlot(slotIndex, 'z', event.currentTarget.value)}
-													/>
-												</label>
-											</div>
-										{/each}
-										</div>
-									</div>
-
-									<div class="settings-section">
-										<div class="settings-subtitle">Corruption Status Token</div>
-										<div class="slot-row">
-											<span class="slot-label">Status</span>
-											<label>
-												<span>X</span>
-												<input
-													type="number"
-													step="0.01"
-													value={tableSettings.corruptionStatusToken.x}
-													oninput={(event) => updateCorruptionStatusToken('x', event.currentTarget.value)}
-												/>
-											</label>
-											<label>
-												<span>Z</span>
-												<input
-													type="number"
-													step="0.01"
-													value={tableSettings.corruptionStatusToken.z}
-													oninput={(event) => updateCorruptionStatusToken('z', event.currentTarget.value)}
-												/>
-											</label>
-										</div>
-										<label class="range-row">
-											<span>Status scale</span>
-											<input
-												type="range"
-												min="0.5"
-												max="4"
-												step="0.05"
-												value={tableSettings.corruptionStatusToken.scale}
-												oninput={(event) => updateCorruptionStatusToken('scale', event.currentTarget.value)}
-											/>
-											<output>{tableSettings.corruptionStatusToken.scale.toFixed(2)}</output>
-										</label>
-									</div>
-
-									<div class="settings-section">
-										<div class="settings-subtitle">Lighting</div>
-									<label class="range-row">
-										<span>Ambient</span>
-										<input type="range" min="0" max="4" step="0.05" value={tableSettings.lighting.ambientIntensity} oninput={(event) => updateLighting('ambientIntensity', event.currentTarget.value)} />
-										<output>{tableSettings.lighting.ambientIntensity.toFixed(2)}</output>
-									</label>
-									<label class="range-row">
-										<span>Key</span>
-										<input type="range" min="0" max="6" step="0.05" value={tableSettings.lighting.keyIntensity} oninput={(event) => updateLighting('keyIntensity', event.currentTarget.value)} />
-										<output>{tableSettings.lighting.keyIntensity.toFixed(2)}</output>
-									</label>
-									<label class="range-row">
-										<span>Fill</span>
-										<input type="range" min="0" max="6" step="0.05" value={tableSettings.lighting.fillIntensity} oninput={(event) => updateLighting('fillIntensity', event.currentTarget.value)} />
-										<output>{tableSettings.lighting.fillIntensity.toFixed(2)}</output>
-									</label>
-									<label class="range-row">
-										<span>Overhead</span>
-										<input type="range" min="0" max="24" step="0.1" value={tableSettings.lighting.overheadIntensity} oninput={(event) => updateLighting('overheadIntensity', event.currentTarget.value)} />
-										<output>{tableSettings.lighting.overheadIntensity.toFixed(1)}</output>
-									</label>
-									<label class="range-row">
-										<span>Height</span>
-										<input type="range" min="6" max="24" step="0.25" value={tableSettings.lighting.overheadHeight} oninput={(event) => updateLighting('overheadHeight', event.currentTarget.value)} />
-										<output>{tableSettings.lighting.overheadHeight.toFixed(1)}</output>
-									</label>
-									<label class="range-row">
-										<span>Cone</span>
-										<input type="range" min="0.2" max="1.3" step="0.01" value={tableSettings.lighting.overheadAngle} oninput={(event) => updateLighting('overheadAngle', event.currentTarget.value)} />
-										<output>{tableSettings.lighting.overheadAngle.toFixed(2)}</output>
-									</label>
-								</div>
-
-								<div class="settings-section">
-									<div class="settings-subtitle">JSON</div>
-									<textarea
-										class="settings-json"
-										spellcheck="false"
-										value={placementImportText || tableSettingsJson}
-										oninput={(event) => (placementImportText = event.currentTarget.value)}
-									></textarea>
-									{#if placementImportError}
-										<div class="settings-error">{placementImportError}</div>
-									{/if}
-									<div class="settings-actions">
-										<button type="button" class="action-button small" onclick={applyImportedTableSettings}>Apply JSON</button>
-										<button type="button" class="action-button small muted" onclick={resetTableSettings}>Reset</button>
-									</div>
-								</div>
-							</section>
-						{/if}
-
-					<section class="hud-panel hud-right hud-navigator">
-						<div class="hud-kicker">Realm Navigator</div>
-						<div class="navigator-list">
-						{#each room.activeSeats as seatColor (seatColor)}
-							{@const player = room.players[seatColor] ?? null}
-							{@const seat = room.seats[seatColor]}
-							<div class:chosen={!!player?.navigationDestination} class="navigator-row">
-								<div class="navigator-main">
-									<strong>{seat.displayName ?? seatColor}</strong>
-									<span>{player?.navigationDestination ?? 'Waiting for destination'}</span>
-								</div>
-								<div class="navigator-vp">{player?.victoryPoints ?? 0} VP</div>
-							</div>
-						{/each}
-					</div>
-
-					<button
-						type="button"
-						class="navigator-button"
-						disabled={!member.seatColor || pendingAction !== null}
-						onclick={() => (navSelectorOpen = !navSelectorOpen)}
-					>
-						Choose Destination
-					</button>
-
-					{#if navSelectorOpen}
-						<div class="navigator-selector">
-							<div class="navigator-selector-title">Choose Destination</div>
-
-							<div class="navigator-option-group">
-								{#each navigationPrimaryLocations as location (location)}
-									<button
-										type="button"
-										class:active={focusedPlayer?.navigationDestination === location}
-										class="navigator-option priority"
-										disabled={!member.seatColor || pendingAction !== null}
-										onclick={() => chooseDestination(location)}
-									>
-										{location}
-									</button>
-								{/each}
-							</div>
-
-							<div class="navigator-option-gap"></div>
-
-							<div class="navigator-option-group">
-								<button
-									type="button"
-									class:active={focusedPlayer?.navigationDestination === 'Arcane Abyss'}
-									class="navigator-option"
-									disabled={!member.seatColor || pendingAction !== null}
-									onclick={() => chooseDestination('Arcane Abyss')}
-								>
-									Arcane Abyss
-								</button>
-							</div>
-
-							<button
-								type="button"
-								class="navigator-cancel"
-								onclick={() => (navSelectorOpen = false)}
-							>
-								Cancel
-							</button>
-						</div>
-						{/if}
-					</section>
-
-					<section class="hud-panel hud-bottom-right hud-class-sidebar">
-					<div class="class-sidebar-header">
-						<div class:human={classViewMode === 'human'} class:special={classViewMode === 'special'} class="class-sidebar-title">
-							{classHeader}
-						</div>
-						<button type="button" class="class-toggle" onclick={toggleClassView}>
-							{classToggleLabel}
-						</button>
-					</div>
-
-					<div class="class-list">
-						{#each visibleClasses as classTrait (classTrait.id)}
-							<button
-								type="button"
-								class:active={selectedClassId === classTrait.id}
-								class="class-row"
-								onclick={() => toggleClassDetails(classTrait.id)}
-							>
-								{#if toAssetUrl(classTrait.icon_png)}
-									<img src={toAssetUrl(classTrait.icon_png) ?? ''} alt={classTrait.name} />
-								{/if}
-								<span>{classTrait.name}</span>
-							</button>
-						{/each}
-					</div>
-				</section>
-
-				{#if selectedClass}
-					<section class="hud-panel hud-class-detail">
-						<div class="class-detail-header">
-							{#if toAssetUrl(selectedClass.icon_png)}
-								<img src={toAssetUrl(selectedClass.icon_png) ?? ''} alt={selectedClass.name} />
-							{/if}
-							<div>
-								<div class="class-detail-name">{selectedClass.name}</div>
-								{#if selectedClass.description}
-									<div class="class-detail-desc">{selectedClass.description}</div>
-								{/if}
-							</div>
-						</div>
-
-						<div class="class-detail-breakpoints">
-							{#each classBreakpoints(selectedClass) as breakpoint (`${selectedClass.id}:${String(breakpoint.count)}`)}
-								<div class="breakpoint-row">
-									<div class="breakpoint-count">({breakpoint.count})</div>
-									<div class="breakpoint-text">{breakpointDescription(breakpoint)}</div>
-								</div>
-							{/each}
-						</div>
-
-						{#if selectedClass.footer}
-							<div class="class-detail-footer">{selectedClass.footer}</div>
-						{/if}
-					</section>
-				{/if}
-
-				{#if trayDraws.length > 0 && pendingDrawMeta}
-					<section class="hud-panel hud-draw-tray">
-						<div class="draw-tray-header">
-							<div>
-								<div class="draw-tray-title">{pendingDrawMeta.sourceBag}</div>
-								<div class="draw-tray-subtitle">
-									Picks left:
-									{Math.max(0, pendingDrawMeta.summonLimit - pendingDrawMeta.summonedCount)}
-								</div>
-							</div>
-							<button
-								type="button"
-								class="draw-tray-discard"
-								disabled={pendingAction !== null}
-								onclick={discardDrawTray}
-							>
-								Return Unchosen
-							</button>
-						</div>
-
-						<div class="draw-tray-cards">
-							{#each trayDraws as draw (draw.guid)}
-								<button
-									type="button"
-									class="draw-card"
-									disabled={pendingAction !== null}
-									onclick={() => summonDrawnSpirit(draw.guid)}
-								>
-									{#if drawPreviewUrl(draw)}
-										<img src={drawPreviewUrl(draw) ?? ''} alt={draw.name ?? 'Spirit'} />
-									{:else}
-										<div class="draw-card-fallback">{draw.name ?? 'Spirit'}</div>
-									{/if}
-									<div class="draw-card-meta">
-										<strong>{draw.name ?? 'Unknown Spirit'}</strong>
-										<span>
-											{draw.sourceBag === 'Arcane Abyss Bag' ? 'Face-down abyss summon' : 'Face-up spirit world summon'}
-										</span>
-									</div>
-								</button>
-							{/each}
-						</div>
-					</section>
-				{/if}
-
-				<a class="hud-exit" href="/play">Exit room</a>
-			</div>
+			{#if !assetState.imagesReady}
+				<AssetLoadingScreen progress={assetState.imageProgress} dataReady={assetState.isLoaded} />
+			{:else}
+				<GameBoard2D {room} {member} assets={assetState} />
+			{/if}
 		</div>
 	{/if}
+
+	<ConnectionStatus
+		isConnected={playState.isConnected}
+		isReconnecting={playState.isReconnecting}
+		onReconnect={() => playState.connect()}
+	/>
 </div>
 
 <style>
@@ -1113,14 +523,13 @@
 		height: 100%;
 		overflow: hidden;
 	}
-
 	:global(body.immersive-play .topbar) {
 		display: none !important;
 	}
-
 	:global(body.immersive-play .app),
 	:global(body.immersive-play .app > .flex-1) {
-		height: 100vh;
+		height: 100vh; /* fallback */
+		height: 100dvh;
 		overflow: hidden;
 	}
 
@@ -1129,250 +538,17 @@
 		margin: 0 auto;
 		padding: 32px 24px 80px;
 	}
-
 	.play-room.immersive-route {
 		position: fixed;
 		inset: 0;
 		max-width: none;
 		width: 100vw;
-		height: 100vh;
+		height: 100vh; /* fallback */
+		height: 100dvh;
 		margin: 0;
 		padding: 0;
 		overflow: hidden;
 	}
-
-	/* ── Lobby header ─────────────────────────────────────── */
-	.room-header {
-		display: flex;
-		justify-content: space-between;
-		gap: 24px;
-		padding: 32px 36px;
-		background: var(--color-tomb);
-		border: 1px solid var(--brand-violet);
-		border-radius: 4px;
-		position: relative;
-	}
-
-	/* Single magenta underline accent */
-	.room-header::after {
-		content: '';
-		position: absolute;
-		left: 36px;
-		bottom: 0;
-		width: 56px;
-		height: 3px;
-		background: var(--brand-magenta);
-	}
-
-	.identity-panel {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		gap: 16px;
-		margin-top: 16px;
-		padding: 20px 24px;
-		background: var(--color-shadow);
-		border: 1px solid var(--color-mist);
-		border-radius: 4px;
-	}
-
-	.seat-card,
-	.action-error {
-		border: 1px solid var(--color-mist);
-		background: var(--color-tomb);
-	}
-
-	.action-error {
-		margin-top: 16px;
-		padding: 14px 20px;
-		border-left: 3px solid var(--color-blood);
-		color: var(--color-parchment);
-		background: rgba(110, 18, 35, 0.3);
-	}
-
-	.eyebrow,
-	.label {
-		font-family: var(--font-display);
-		font-size: 0.72rem;
-		letter-spacing: 0.28em;
-		text-transform: uppercase;
-		color: var(--brand-cyan);
-	}
-
-	h1,
-	h2 {
-		font-family: var(--font-display);
-		color: #fff;
-	}
-
-	/* Room code: enormous Bebas Neue magenta */
-	h1 {
-		margin: 6px 0 10px;
-		font-size: clamp(3.5rem, 6vw, 5.5rem);
-		color: var(--brand-magenta);
-		font-variant-numeric: tabular-nums;
-		line-height: 0.92;
-	}
-
-	.room-header p,
-	.identity,
-	.seat-meta {
-		color: var(--color-fog);
-	}
-
-	.status-stack {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: flex-start;
-		justify-content: flex-end;
-		gap: 8px;
-	}
-
-	/* Flat pill badges — no gradient backgrounds */
-	.pill {
-		padding: 6px 12px;
-		border-radius: 2px;
-		background: transparent;
-		border: 1px solid var(--brand-magenta);
-		color: var(--brand-magenta);
-		font-family: var(--font-display);
-		font-size: 0.72rem;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-	}
-
-	.pill.subtle {
-		border-color: var(--brand-cyan);
-		color: var(--brand-cyan);
-	}
-
-	.pill.offline {
-		border-color: var(--color-blood);
-		color: var(--color-blood);
-	}
-
-	.identity {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 12px;
-		margin-top: 8px;
-	}
-
-	/* Solid buttons — no gradients */
-	.btn-primary,
-	.btn-secondary {
-		cursor: pointer;
-		font-family: var(--font-display);
-		border-radius: 0;
-	}
-
-	.btn-primary,
-	.btn-secondary {
-		padding: 12px 20px;
-		font-size: 0.85rem;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-		border: none;
-	}
-
-	.btn-primary {
-		background: var(--brand-magenta);
-		color: #fff;
-		transition: background 150ms ease;
-	}
-
-	.btn-primary:hover {
-		background: var(--brand-magenta-soft);
-	}
-
-	.btn-primary:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.btn-secondary {
-		background: transparent;
-		color: var(--brand-cyan);
-		border: 1px solid var(--brand-cyan);
-		transition: background 150ms ease, color 150ms ease;
-	}
-
-	.btn-secondary:hover {
-		background: rgba(36, 212, 255, 0.1);
-	}
-
-	.btn-secondary:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.seat-grid {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 16px;
-		margin-top: 22px;
-	}
-
-	.seat-card {
-		padding: 20px;
-		border-radius: 4px;
-	}
-
-	.seat-head,
-	.seat-actions {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-	}
-
-	/* Seat color names: large Bebas Neue */
-	.seat-head h2 {
-		margin: 0;
-		font-size: 2rem;
-		letter-spacing: 0.06em;
-		color: #fff;
-	}
-
-	.seat-body {
-		display: flex;
-		flex-direction: column;
-		gap: 14px;
-		margin-top: 12px;
-	}
-
-	.occupied {
-		color: var(--brand-amber);
-		font-family: var(--font-display);
-		font-size: 0.72rem;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-	}
-
-	.vacant {
-		color: var(--brand-teal);
-		font-family: var(--font-display);
-		font-size: 0.72rem;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-	}
-
-	select {
-		width: 100%;
-		padding: 12px 14px;
-		border-radius: 0;
-		border: 1px solid var(--color-aether);
-		background: var(--color-shadow);
-		color: #fff;
-		font-family: var(--font-body);
-		transition: border-color 150ms ease;
-	}
-
-	select:focus {
-		outline: none;
-		border-color: var(--brand-magenta);
-	}
-
 	.game-viewport {
 		position: relative;
 		width: 100%;
@@ -1381,916 +557,529 @@
 		background: var(--color-void);
 	}
 
-	.game-viewport :global(.scene-shell) {
+	/* ── Lobby (minimal list over the abyss) ──────────────────── */
+	.lobby {
+		position: relative;
+		width: 100%;
+		min-height: 100%;
+		max-width: 680px;
+		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+		gap: 18px;
+		padding: 104px 24px 64px;
+	}
+
+	/* Top-left "leave room" — sits in the lobby's top padding band. */
+	.leave-btn {
 		position: absolute;
-		inset: 0;
-	}
-
-	.hud-layer {
-		position: absolute;
-		inset: 0;
-		pointer-events: none;
-	}
-
-	.hud-panel,
-	.hud-exit {
-		pointer-events: auto;
-	}
-
-	/* HUD panels: solid dark block, single 1px violet border, blur for legibility */
-	.hud-panel {
-		position: absolute;
-		padding: 14px 16px;
-		border-radius: 2px;
-		background: rgba(10, 7, 20, 0.84);
-		border: 1px solid var(--brand-violet);
-		backdrop-filter: blur(10px);
-	}
-
-	.hud-left {
-		top: 20px;
-		left: 20px;
-		width: 286px;
-	}
-
-	.hud-right {
-		top: 20px;
-		right: 20px;
-		width: 220px;
-	}
-
-	.hud-navigator {
-		width: 286px;
-		overflow: visible;
-	}
-
-	.hud-bottom-right {
-		right: 20px;
-		bottom: 20px;
-		width: 240px;
-	}
-
-	.hud-settings-toggle {
-		top: 20px;
-		left: 326px;
-		padding: 6px;
-		border-radius: 2px;
-	}
-
-	.settings-button,
-	.editor-toggle {
-		border: 1px solid var(--color-mist);
-		background: transparent;
-		color: var(--color-parchment);
+		top: 30px;
+		left: 24px;
+		z-index: 3;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 16px;
 		font-family: var(--font-display);
 		font-size: 0.72rem;
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
+		color: var(--color-parchment, #e7e0cf);
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		border-radius: 999px;
 		cursor: pointer;
-		transition: border-color 150ms ease, color 150ms ease;
+		-webkit-backdrop-filter: blur(8px);
+		backdrop-filter: blur(8px);
+		transition: background 140ms ease, border-color 140ms ease, transform 140ms ease, color 140ms ease;
+	}
+	.leave-btn:hover {
+		background: rgba(255, 255, 255, 0.1);
+		border-color: var(--brand-magenta, #ff2bc7);
+		color: #fff;
+		transform: translateX(-2px);
+	}
+	.leave-btn .arrow {
+		font-size: 0.95rem;
+		line-height: 1;
 	}
 
-	.settings-button {
-		padding: 10px 14px;
-		border-radius: 2px;
-	}
-
-	.settings-button.active,
-	.editor-toggle.active {
-		border-color: var(--brand-cyan);
-		color: var(--brand-cyan);
-	}
-
-	.hud-settings {
-		top: 72px;
-		left: 326px;
-		width: 386px;
-		max-height: calc(100vh - 112px);
-		overflow: auto;
+	.lhead {
 		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.settings-header,
-	.settings-actions,
-	.range-row,
-	.slot-row {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-	}
-
-	.settings-header {
 		justify-content: space-between;
+		align-items: flex-start;
+		gap: 16px;
 	}
-
-	.settings-title,
-	.settings-subtitle {
-		font-family: var(--font-display);
-		text-transform: uppercase;
-		color: #fff;
-	}
-
-	.settings-title {
-		margin-top: 4px;
-		font-size: 1rem;
-		letter-spacing: 0.08em;
-	}
-
-	.settings-subtitle {
-		font-size: 0.72rem;
-		letter-spacing: 0.14em;
-		color: var(--brand-cyan);
-	}
-
-	.editor-toggle {
-		padding: 8px 10px;
-		border-radius: 2px;
-	}
-
-	.settings-section {
-		display: flex;
-		flex-direction: column;
-		gap: 9px;
-		padding: 10px;
-		border-radius: 2px;
-		background: rgba(8, 6, 17, 0.92);
-		border: 1px solid var(--color-mist);
-	}
-
-	.range-row {
-		display: grid;
-		grid-template-columns: 74px minmax(0, 1fr) 46px;
-	}
-
-	.range-row span,
-	.slot-row label span {
-		font-size: 0.68rem;
-		text-transform: uppercase;
-		color: var(--color-fog);
-	}
-
-	.range-row input[type='range'] {
-		width: 100%;
-		accent-color: var(--brand-magenta);
-	}
-
-	.range-row output {
-		font-variant-numeric: tabular-nums;
-		color: #fff;
-		font-size: 0.72rem;
-		text-align: right;
-	}
-
-	.slot-editor-grid {
-		display: grid;
-		grid-template-columns: 1fr;
-		gap: 6px;
-	}
-
-	.slot-row {
-		display: grid;
-		grid-template-columns: 22px 1fr 1fr;
-	}
-
-	.slot-label {
-		display: grid;
-		place-items: center;
-		width: 22px;
-		height: 22px;
-		border-radius: 50%;
-		background: rgba(36, 212, 255, 0.14);
-		color: var(--brand-cyan);
-		font-family: var(--font-display);
-		font-size: 0.7rem;
-	}
-
-	.slot-row label {
-		display: grid;
-		grid-template-columns: 16px minmax(0, 1fr);
+	.kicker {
+		display: inline-flex;
 		align-items: center;
-		gap: 5px;
-	}
-
-	.slot-row input {
-		width: 100%;
-		min-width: 0;
-		padding: 6px 7px;
-		border-radius: 0;
-		border: 1px solid var(--color-mist);
-		background: var(--color-shadow);
-		color: #fff;
-		font-size: 0.74rem;
-	}
-
-	.settings-json {
-		width: 100%;
-		min-height: 156px;
-		resize: vertical;
-		padding: 9px;
-		border-radius: 0;
-		border: 1px solid var(--color-mist);
-		background: var(--color-void);
-		color: var(--color-parchment);
-		font-family: var(--font-mono);
-		font-size: 0.68rem;
-		line-height: 1.45;
-	}
-
-	.settings-error {
-		color: var(--color-blood);
-		font-size: 0.74rem;
-	}
-
-	.hud-actions {
-		display: flex;
-		flex-direction: column;
 		gap: 10px;
-	}
-
-	/* Exit: ghost button, bottom-left */
-	.hud-exit {
-		position: absolute;
-		left: 20px;
-		bottom: 20px;
-		padding: 10px 18px;
-		border-radius: 2px;
-		background: rgba(10, 7, 20, 0.84);
-		border: 1px solid var(--color-mist);
-		color: var(--color-parchment);
-		text-decoration: none;
 		font-family: var(--font-display);
-		font-size: 0.8rem;
+		font-size: 0.64rem;
+		letter-spacing: 0.3em;
+		text-transform: uppercase;
+		color: var(--color-fog, #9a8fb8);
+	}
+	.kicker .kn {
+		font-family: var(--font-mono);
+		color: var(--brand-cyan, #24d4ff);
+	}
+	.kicker .kl {
+		width: 20px;
+		height: 1px;
+		background: currentColor;
+		opacity: 0.5;
+	}
+	.code {
+		margin: 6px 0 0;
+		font-family: var(--font-display);
+		font-size: clamp(2.4rem, 5vw, 3.8rem);
+		line-height: 0.9;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		font-variant-numeric: tabular-nums;
+		filter: drop-shadow(0 6px 22px rgba(123, 29, 255, 0.45));
+	}
+	.pill {
+		flex: 0 0 auto;
+		padding: 5px 12px;
+		border-radius: 999px;
+		border: 1px solid var(--brand-teal, #20e0c1);
+		color: var(--brand-teal, #20e0c1);
+		font-family: var(--font-display);
+		font-size: 0.64rem;
 		letter-spacing: 0.16em;
 		text-transform: uppercase;
-		backdrop-filter: blur(8px);
-		transition: border-color 150ms ease, color 150ms ease;
+		background: rgba(5, 3, 16, 0.4);
+		backdrop-filter: blur(6px);
+	}
+	.pill.off {
+		border-color: var(--color-blood, #ff4d6d);
+		color: var(--color-blood, #ff4d6d);
 	}
 
-	.hud-exit:hover {
-		border-color: var(--brand-magenta);
-		color: var(--brand-magenta-soft);
+	.error {
+		padding: 11px 16px;
+		border-left: 3px solid var(--color-blood, #ff4d6d);
+		background: rgba(196, 26, 61, 0.3);
+		color: var(--color-bone, #f5f0ff);
+		border-radius: 2px;
+		backdrop-filter: blur(6px);
 	}
 
-	.hud-kicker {
-		font-family: var(--font-display);
-		font-size: 0.66rem;
-		letter-spacing: 0.22em;
-		text-transform: uppercase;
-		color: var(--brand-cyan);
-	}
-
-	.action-stack {
+	/* ── Party list ───────────────────────────────────────────── */
+	.party {
+		list-style: none;
+		margin: 0;
+		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		border-radius: 14px;
+		overflow: hidden;
+		border: 1px solid rgba(123, 29, 255, 0.22);
+		background: linear-gradient(180deg, rgba(20, 12, 38, 0.55), rgba(8, 5, 18, 0.66));
+		backdrop-filter: blur(14px);
 	}
-
-	.action-button {
+	.row {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		padding: 12px 16px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+		transition: background 160ms ease;
+	}
+	.row:last-child {
+		border-bottom: none;
+	}
+	.row:hover {
+		background: rgba(255, 255, 255, 0.03);
+	}
+	.row.mine {
+		background: color-mix(in srgb, var(--seat) 9%, transparent);
+	}
+	.row.open {
+		opacity: 0.5;
+	}
+	.seatdot {
+		flex: 0 0 auto;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--seat);
+		box-shadow: 0 0 10px var(--seat);
+	}
+	.ava {
+		flex: 0 0 auto;
+		width: 46px;
+		height: 46px;
+		border-radius: 12px;
+		overflow: hidden;
+		display: grid;
+		place-items: center;
+		background: rgba(0, 0, 0, 0.4);
+		box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--seat) 60%, transparent);
+	}
+	.ava img {
 		width: 100%;
-		padding: 11px 12px;
-		border-radius: 2px;
-		border: 1px solid var(--color-aether);
-		background: var(--color-crypt);
-		color: #fff;
+		height: 100%;
+		/* Character icon — show it whole (vs. cropping the wide player mat). */
+		object-fit: contain;
+		padding: 10%;
+	}
+	.ava.empty {
+		color: var(--seat);
 		font-family: var(--font-display);
-		font-size: 0.75rem;
+		font-size: 1.3rem;
+	}
+	.info {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.nm {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		font-family: var(--font-display);
+		font-size: 1.02rem;
+		letter-spacing: 0.04em;
+		color: var(--color-bone, #f5f0ff);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.tag {
+		font-size: 0.56rem;
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		cursor: pointer;
-		transition: border-color 150ms ease, background 150ms ease;
+		padding: 2px 7px;
+		border-radius: 999px;
+	}
+	.tag.you {
+		color: var(--brand-cyan, #24d4ff);
+		border: 1px solid rgba(36, 212, 255, 0.4);
+	}
+	.tag.bot {
+		color: var(--brand-amber, #ffba3d);
+		border: 1px solid rgba(255, 186, 61, 0.4);
+	}
+	.ch {
+		font-size: 0.8rem;
+		color: var(--color-parchment, #d8cfee);
+	}
+	.ch.none,
+	.nm.none {
+		color: var(--color-whisper, #6a5d8a);
 	}
 
-	.action-button:hover:not(:disabled) {
-		border-color: var(--brand-magenta);
-		background: rgba(255, 43, 199, 0.08);
-	}
-
-	/* Abyss draw: magenta-tinted */
-	.action-button.abyss {
-		background: rgba(54, 8, 30, 0.9);
-		border-color: var(--brand-magenta);
-		color: var(--brand-magenta-soft);
-	}
-
-	.action-button.abyss:hover:not(:disabled) {
-		background: rgba(255, 43, 199, 0.12);
-	}
-
-	.action-hint {
-		color: var(--color-fog);
-		font-size: 0.74rem;
-		line-height: 1.45;
-	}
-
-	/* Single cyan rule divider — no gradient */
-	.action-divider {
-		height: 1px;
-		margin: 2px 0;
-		background: var(--brand-cyan);
-		opacity: 0.22;
-	}
-
-	.tool-buttons,
-	.tool-action-row {
+	.rowacts {
 		display: flex;
-		gap: 8px;
+		gap: 6px;
+		flex: 0 0 auto;
 	}
-
-	.action-button.muted {
-		background: var(--color-shadow);
-		border-color: var(--color-mist);
-		color: var(--color-parchment);
-	}
-
-	.action-button.small {
-		padding: 9px 10px;
-		font-size: 0.7rem;
-	}
-
-	.tool-panel {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		padding: 10px;
-		border-radius: 2px;
-		background: var(--color-void);
-		border: 1px solid var(--brand-violet);
-	}
-
-	.tool-panel-title {
+	.mini {
+		padding: 7px 13px;
+		border-radius: 8px;
+		border: 1px solid var(--color-aether, #3a2670);
+		background: transparent;
+		color: var(--color-parchment, #d8cfee);
 		font-family: var(--font-display);
-		font-size: 1rem;
-		letter-spacing: 0.08em;
+		font-size: 0.64rem;
+		letter-spacing: 0.12em;
 		text-transform: uppercase;
-		color: #fff;
-	}
-
-	.dice-list {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		max-height: 280px;
-		overflow: auto;
-	}
-
-	.dice-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 10px;
-		padding: 8px;
-		border-radius: 2px;
-		background: var(--color-crypt);
-		border: 1px solid var(--color-mist);
-	}
-
-	.dice-meta {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		min-width: 0;
-	}
-
-	.dice-meta img {
-		width: 28px;
-		height: 28px;
-		object-fit: contain;
-		flex: none;
-	}
-
-	.dice-meta strong,
-	.item-card span {
-		display: block;
-		color: #fff;
-		font-size: 0.78rem;
-	}
-
-	.dice-meta span {
-		display: block;
-		color: var(--color-fog);
-		font-size: 0.7rem;
-	}
-
-	.dice-controls {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		color: #fff;
-		font-family: var(--font-display);
-	}
-
-	.mini-btn {
-		width: 24px;
-		height: 24px;
-		border-radius: 2px;
-		border: 1px solid var(--color-aether);
-		background: var(--color-shadow);
-		color: #fff;
 		cursor: pointer;
-		transition: border-color 150ms ease;
+		transition:
+			border-color 150ms ease,
+			color 150ms ease,
+			background 150ms ease;
+	}
+	.mini:hover:not(:disabled) {
+		border-color: var(--brand-magenta, #ff2bc7);
+		color: var(--brand-magenta-soft, #ff5dd1);
+		background: rgba(255, 43, 199, 0.07);
+	}
+	.mini.ghosted {
+		opacity: 0.7;
+	}
+	.mini.danger:hover:not(:disabled) {
+		border-color: var(--color-blood, #ff4d6d);
+		color: var(--color-blood, #ff4d6d);
+		background: rgba(255, 77, 109, 0.08);
+	}
+	.mini:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 
-	.mini-btn:hover {
-		border-color: var(--brand-magenta);
-	}
-
-	.filter-tabs {
+	/* ── Action bar ───────────────────────────────────────────── */
+	.bar {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 4px;
+		gap: 10px;
+		align-items: center;
+		margin-top: 4px;
 	}
-
-	.filter-tab {
-		padding: 6px 10px;
-		border-radius: 2px;
-		border: 1px solid var(--color-mist);
+	/* Lobby game-setting control (host select) + read-only chip (everyone else). */
+	.setting {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.setting-label {
+		font-family: var(--font-display);
+		font-size: 0.66rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--color-fog, #9a93b0);
+	}
+	.setting-chip {
+		padding: 9px 14px;
+		border-radius: 9px;
+		border: 1px solid color-mix(in srgb, var(--brand-violet, #7b1dff) 45%, transparent);
+		background: rgba(123, 29, 255, 0.06);
+		color: var(--color-parchment, #d8d2e8);
+		font-family: var(--font-display);
+		font-size: 0.7rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+	}
+	.ghost {
+		padding: 11px 18px;
+		border-radius: 9px;
+		border: 1px solid var(--brand-violet, #7b1dff);
 		background: transparent;
-		color: var(--color-parchment);
+		color: var(--brand-violet-soft, #9d4dff);
 		font-family: var(--font-display);
 		font-size: 0.72rem;
-		letter-spacing: 0.1em;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		cursor: pointer;
 		transition: all 150ms ease;
 	}
-
-	/* Selected filter tab: solid magenta */
-	.filter-tab.active {
-		background: var(--brand-magenta);
-		border-color: var(--brand-magenta);
-		color: #fff;
+	.ghost:hover:not(:disabled) {
+		color: var(--brand-magenta-soft, #ff5dd1);
+		border-color: var(--brand-magenta, #ff2bc7);
+		background: rgba(255, 43, 199, 0.07);
 	}
-
-	.item-grid {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 8px;
-		max-height: 300px;
-		overflow: auto;
+	.ghost:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
-
-	.item-card {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		padding: 8px;
-		border-radius: 2px;
-		border: 1px solid var(--color-mist);
-		background: var(--color-crypt);
-		cursor: pointer;
-		text-align: left;
-		transition: border-color 150ms ease;
-	}
-
-	.item-card:hover {
-		border-color: var(--brand-magenta);
-	}
-
-	.item-card img {
-		width: 100%;
-		aspect-ratio: 1;
-		object-fit: contain;
-		border-radius: 2px;
-		background: rgba(255, 255, 255, 0.04);
-	}
-
-	kbd {
-		padding: 1px 6px;
-		border-radius: 2px;
-		background: rgba(255, 255, 255, 0.08);
-		border: 1px solid var(--color-mist);
-		font-family: var(--font-mono);
+	.botdiff {
+		padding: 11px 14px;
+		border-radius: 9px;
+		border: 1px solid var(--brand-violet, #7b1dff);
+		background: transparent;
+		color: var(--brand-violet-soft, #9d4dff);
+		font-family: var(--font-display);
 		font-size: 0.72rem;
-		color: #fff;
-	}
-
-	.navigator-list {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		margin-top: 12px;
-	}
-
-	/* Navigator rows: flat solid backgrounds, saturated borders */
-	.navigator-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 10px;
-		padding: 7px 10px;
-		border-radius: 2px;
-		background: rgba(80, 12, 24, 0.7);
-		border-left: 3px solid var(--color-blood);
-	}
-
-	.navigator-row.chosen {
-		background: rgba(14, 80, 52, 0.7);
-		border-left-color: var(--brand-teal);
-	}
-
-	.navigator-main {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		min-width: 0;
-	}
-
-	.navigator-main strong {
-		font-size: 0.86rem;
-		color: #fff;
-		font-family: var(--font-display);
-		letter-spacing: 0.06em;
-	}
-
-	.navigator-main span,
-	.navigator-vp {
-		font-size: 0.72rem;
-		color: var(--color-fog);
-	}
-
-	.navigator-vp {
-		font-family: var(--font-display);
-		letter-spacing: 0.1em;
-		white-space: nowrap;
-		font-variant-numeric: tabular-nums;
-	}
-
-	.navigator-button,
-	.navigator-option,
-	.navigator-cancel,
-	.class-toggle,
-	.class-row {
-		cursor: pointer;
-	}
-
-	.navigator-button {
-		width: 100%;
-		margin-top: 10px;
-		padding: 10px 12px;
-		border-radius: 2px;
-		border: 1px solid var(--brand-magenta);
-		background: rgba(255, 43, 199, 0.08);
-		color: var(--brand-magenta-soft);
-		font-family: var(--font-display);
-		font-size: 0.82rem;
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		transition: background 150ms ease;
+		cursor: pointer;
+		transition: all 150ms ease;
 	}
-
-	.navigator-button:hover:not(:disabled) {
-		background: rgba(255, 43, 199, 0.16);
+	.botdiff:hover:not(:disabled) {
+		color: var(--brand-magenta-soft, #ff5dd1);
+		border-color: var(--brand-magenta, #ff2bc7);
+		background: rgba(255, 43, 199, 0.07);
 	}
-
-	.navigator-selector {
-		margin-top: 10px;
-		padding: 10px;
-		border-radius: 2px;
-		background: var(--color-void);
-		border: 1px solid var(--brand-violet);
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
+	.botdiff:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
-
-	.navigator-selector-title {
+	.botdiff option {
+		background: #1a0b2e;
+		color: var(--brand-violet-soft, #9d4dff);
+	}
+	.primary {
+		padding: 11px 20px;
+		border-radius: 9px;
+		border: 1px solid var(--brand-cyan, #24d4ff);
+		background: rgba(36, 212, 255, 0.1);
+		color: var(--brand-cyan-soft, #6be3ff);
 		font-family: var(--font-display);
-		font-size: 0.88rem;
-		letter-spacing: 0.1em;
+		font-size: 0.72rem;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		color: var(--color-fog);
+		cursor: pointer;
+		transition: all 150ms ease;
+	}
+	.primary:hover:not(:disabled) {
+		background: rgba(36, 212, 255, 0.18);
+	}
+	.start {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
+		padding: 12px 24px;
+		border: none;
+		border-radius: 10px;
+		background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff, #5a2bff));
+		background-size: 180% 180%;
+		color: #fff;
+		font-family: var(--font-display);
+		font-size: 0.92rem;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		cursor: pointer;
+		box-shadow: 0 12px 32px -14px rgba(255, 43, 199, 0.7);
+		transition:
+			transform 160ms ease,
+			background-position 500ms ease,
+			box-shadow 160ms ease;
+	}
+	.start svg {
+		width: 19px;
+		height: 19px;
+		transition: transform 160ms ease;
+	}
+	.start:hover:not(:disabled) {
+		transform: translateY(-2px);
+		background-position: 100% 0;
+	}
+	.start:hover:not(:disabled) svg {
+		transform: translateX(4px);
+	}
+	.start:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
-	.navigator-option-group {
+	/* ── Invite reveal ────────────────────────────────────────── */
+	.invite {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: 8px;
+		padding: 14px 16px;
+		border-radius: 12px;
+		border: 1px solid var(--color-mist, #2e1d52);
+		background: rgba(8, 5, 18, 0.7);
+		backdrop-filter: blur(10px);
 	}
-
-	.navigator-option-gap {
-		height: 10px;
+	.ieyebrow {
+		font-family: var(--font-display);
+		font-size: 0.6rem;
+		letter-spacing: 0.24em;
+		text-transform: uppercase;
+		color: var(--brand-cyan, #24d4ff);
 	}
-
-	.navigator-option,
-	.navigator-cancel {
-		width: 100%;
-		padding: 8px 10px;
-		border-radius: 2px;
-		border: 1px solid var(--color-mist);
-		background: var(--color-crypt);
-		color: #fff;
-		text-align: left;
+	.irow {
+		display: flex;
+		gap: 10px;
+	}
+	.irow input {
+		flex: 1;
+		min-width: 0;
+		padding: 10px 12px;
+		border-radius: 8px;
+		border: 1px solid var(--color-aether, #3a2670);
+		background: rgba(5, 3, 16, 0.7);
+		color: var(--color-parchment, #d8cfee);
+		font-family: var(--font-mono);
 		font-size: 0.84rem;
-		transition: border-color 150ms ease, background 150ms ease;
+	}
+	.irow input:focus {
+		outline: none;
+		border-color: var(--brand-magenta, #ff2bc7);
 	}
 
-	.navigator-option.priority {
-		color: var(--color-blood);
-		border-color: rgba(255, 77, 109, 0.4);
+	/* ── Reveal ───────────────────────────────────────────────── */
+	.reveal {
+		opacity: 0;
+		transform: translateY(14px);
+		animation: reveal-up 560ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+		animation-delay: var(--d, 0s);
+	}
+	@keyframes reveal-up {
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
-	.navigator-option.active {
-		border-color: var(--brand-magenta);
-		background: rgba(255, 43, 199, 0.1);
-		color: var(--brand-magenta-soft);
-	}
-
-	.navigator-cancel {
-		margin-top: 4px;
+	/* ── Closed room ──────────────────────────────────────────── */
+	.closed {
+		position: relative;
+		width: 100%;
+		min-height: 100%;
+		max-width: 560px;
+		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
 		text-align: center;
-		color: var(--color-parchment);
-		background: transparent;
-		border-color: var(--color-mist);
+		gap: 14px;
+		padding: 120px 24px 64px;
 	}
-
-	.class-sidebar-header {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.class-sidebar-title {
+	.closed-title {
+		margin: 4px 0 0;
 		font-family: var(--font-display);
-		font-size: 1.1rem;
-		letter-spacing: 0.1em;
+		font-size: clamp(2rem, 5vw, 3rem);
+		line-height: 0.95;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		color: #fff;
+		filter: drop-shadow(0 6px 22px rgba(123, 29, 255, 0.45));
 	}
-
-	.class-sidebar-title.human {
-		color: var(--brand-cyan);
+	.closed-sub {
+		margin: 0;
+		max-width: 42ch;
+		color: var(--color-parchment, #d8cfee);
+		font-family: var(--font-body);
+		font-size: 0.95rem;
+		line-height: 1.5;
 	}
-
-	.class-sidebar-title.special {
-		color: var(--brand-amber);
-	}
-
-	.class-toggle {
-		padding: 7px 10px;
-		border-radius: 2px;
-		border: 1px solid var(--brand-amber);
-		background: transparent;
-		color: var(--brand-amber);
-		font-family: var(--font-display);
-		font-size: 0.72rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		transition: background 150ms ease;
-	}
-
-	.class-toggle:hover {
-		background: rgba(255, 186, 61, 0.1);
-	}
-
-	.class-list {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		margin-top: 12px;
-		max-height: 420px;
-		overflow: auto;
-	}
-
-	.class-row {
-		display: flex;
+	.closed-btn {
+		margin-top: 10px;
+		display: inline-flex;
 		align-items: center;
 		gap: 8px;
-		padding: 7px 8px;
-		border-radius: 2px;
-		border: 1px solid var(--color-mist);
-		background: var(--color-crypt);
-		color: #fff;
-		text-align: left;
-		font-size: 0.8rem;
-		transition: border-color 150ms ease;
-	}
-
-	.class-row:hover {
-		border-color: var(--brand-violet);
-	}
-
-	.class-row.active {
-		border-color: var(--brand-magenta);
+		padding: 12px 22px;
+		border-radius: 10px;
+		border: 1px solid var(--brand-magenta, #ff2bc7);
 		background: rgba(255, 43, 199, 0.08);
-	}
-
-	.class-row img,
-	.class-detail-header img {
-		width: 20px;
-		height: 20px;
-		object-fit: contain;
-		flex: none;
-	}
-
-	.hud-class-detail {
-		right: 276px;
-		bottom: 20px;
-		width: 350px;
-		max-height: min(696px, calc(100vh - 40px));
-		overflow: auto;
-	}
-
-	.class-detail-header {
-		display: flex;
-		align-items: flex-start;
-		gap: 10px;
-	}
-
-	.class-detail-name {
+		color: var(--color-bone, #f5f0ff);
 		font-family: var(--font-display);
-		font-size: 1.4rem;
-		letter-spacing: 0.06em;
-		color: #fff;
-	}
-
-	.class-detail-desc,
-	.class-detail-footer {
-		margin-top: 8px;
-		color: var(--color-fog);
-		font-size: 0.82rem;
-		line-height: 1.45;
-	}
-
-	.class-detail-breakpoints {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		margin-top: 14px;
-	}
-
-	.breakpoint-row {
-		display: grid;
-		grid-template-columns: 56px minmax(0, 1fr);
-		gap: 8px;
-	}
-
-	.breakpoint-count {
-		font-family: var(--font-display);
-		color: var(--brand-magenta);
-		font-size: 1rem;
-	}
-
-	.breakpoint-text {
-		color: var(--color-parchment);
-		font-size: 0.86rem;
-		line-height: 1.45;
-	}
-
-	.hud-error {
-		top: 20px;
-		left: 326px;
-		max-width: 420px;
-		color: var(--color-parchment);
-		border-left: 3px solid var(--color-blood);
-	}
-
-	.hud-draw-tray {
-		left: 50%;
-		bottom: 20px;
-		width: min(900px, calc(100vw - 360px));
-		transform: translateX(-50%);
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-
-	.draw-tray-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-	}
-
-	.draw-tray-title {
-		font-family: var(--font-display);
-		font-size: 1.2rem;
-		letter-spacing: 0.08em;
+		font-size: 0.78rem;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		color: #fff;
+		cursor: pointer;
+		transition:
+			background 150ms ease,
+			transform 150ms ease;
 	}
-
-	.draw-tray-subtitle {
+	.closed-btn:hover {
+		background: rgba(255, 43, 199, 0.16);
+		transform: translateY(-1px);
+	}
+	.closed-btn .arrow {
+		font-size: 0.95rem;
+		line-height: 1;
+	}
+	.closed-hint {
 		margin-top: 4px;
-		font-size: 0.76rem;
-		color: var(--color-fog);
-	}
-
-	.draw-tray-discard {
-		padding: 9px 14px;
-		border-radius: 2px;
-		border: 1px solid var(--color-blood);
-		background: rgba(93, 21, 37, 0.6);
-		color: var(--color-blood);
-		font-family: var(--font-display);
-		font-size: 0.75rem;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		cursor: pointer;
-		transition: background 150ms ease;
-	}
-
-	.draw-tray-discard:hover {
-		background: rgba(255, 77, 109, 0.15);
-	}
-
-	.draw-tray-cards {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-		gap: 12px;
-	}
-
-	.draw-card {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-		padding: 10px;
-		border-radius: 2px;
-		border: 1px solid var(--color-mist);
-		background: var(--color-crypt);
-		cursor: pointer;
-		color: #fff;
-		text-align: left;
-		transition: border-color 150ms ease;
-	}
-
-	.draw-card:hover:not(:disabled) {
-		border-color: var(--brand-magenta);
-	}
-
-	.draw-card img,
-	.draw-card-fallback {
-		width: 100%;
-		aspect-ratio: 1;
-		border-radius: 2px;
-		object-fit: cover;
-		background: rgba(255, 255, 255, 0.04);
-	}
-
-	.draw-card-fallback {
-		display: grid;
-		place-items: center;
-		padding: 12px;
-		font-family: var(--font-display);
-	}
-
-	.draw-card-meta {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-	}
-
-	.draw-card-meta strong {
-		font-size: 0.84rem;
-		font-family: var(--font-display);
-		letter-spacing: 0.06em;
-	}
-
-	.draw-card-meta span {
+		font-family: var(--font-mono);
 		font-size: 0.72rem;
-		color: var(--color-fog);
-		line-height: 1.35;
+		letter-spacing: 0.04em;
+		color: var(--color-fog, #9a8fb8);
 	}
 
-	@media (max-width: 820px) {
-		.seat-grid {
-			grid-template-columns: 1fr;
+	@media (max-width: 540px) {
+		.lobby {
+			padding: 92px 16px 48px;
 		}
-
-		.identity-panel,
-		.room-header {
-			flex-direction: column;
-			align-items: flex-start;
+		.start {
+			margin-left: 0;
 		}
-
-		.hud-right,
-		.hud-left {
-			width: calc(100vw - 40px);
-			right: 20px;
-			left: 20px;
-		}
-
-		.hud-left {
-			top: 20px;
-		}
-
-		.hud-right {
-			top: auto;
-			bottom: 208px;
-		}
-
-		.hud-error {
-			left: 20px;
-			top: 220px;
-			max-width: calc(100vw - 40px);
-		}
-
-		.hud-draw-tray {
-			left: 20px;
-			right: 20px;
-			bottom: 68px;
-			width: auto;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.reveal {
+			animation: none;
+			opacity: 1;
 			transform: none;
 		}
 	}

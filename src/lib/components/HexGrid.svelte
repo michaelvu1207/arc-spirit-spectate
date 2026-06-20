@@ -13,13 +13,44 @@
 		spiritAssets?: Map<string, string>;
 		isLoading?: boolean;
 		class?: string;
+		/** Discard mode: occupied hexes become clickable to discard their spirit. */
+		discardMode?: boolean;
+		onDiscard?: (slotIndex: number) => void;
+		/** Augments attached to each spirit, keyed by slotIndex (rendered as badges). */
+		augmentsBySlot?: Map<number, { runeId: string; name: string; icon: string | null }[]>;
+		/** Augment-placement mode: occupied hexes accept a dragged augment. */
+		augmentDropMode?: boolean;
+		/** When set, ONLY these slots accept an augment (others are inert). Unset = all
+		 *  occupied hexes are droppable (the default). */
+		augmentEligibleSlots?: number[];
+		onDropAugment?: (slotIndex: number) => void;
+		/**
+		 * Back-side art per slotIndex for UNAWAKENED (face-down) spirits. When a slot
+		 * has an entry, its back face is rendered instead of the front game print.
+		 */
+		backImageBySlot?: Map<number, string>;
+		/** Inspect mode: occupied hexes are clickable to open a spirit detail card. */
+		selectable?: boolean;
+		/** Slot whose spirit is currently shown in the detail card (highlighted). */
+		selectedSlot?: number | null;
+		onSelect?: (slotIndex: number) => void;
 	}
 
 	let {
 		spirits = [],
 		spiritAssets = new Map(),
 		isLoading = false,
-		class: className = ''
+		class: className = '',
+		discardMode = false,
+		onDiscard,
+		augmentsBySlot,
+		augmentDropMode = false,
+		augmentEligibleSlots,
+		onDropAugment,
+		backImageBySlot,
+		selectable = false,
+		selectedSlot = null,
+		onSelect
 	}: Props = $props();
 
 	const grid = createSpiritGrid();
@@ -31,9 +62,13 @@
 	// Create a map of slotIndex to spirit for quick lookup
 	const spiritsBySlot = $derived(() => new Map(spirits.map((s) => [s.slotIndex, s])));
 
-	// Get image URL for a spirit
+	// Get image URL for a spirit. Face-down (unawakened) spirits render their back
+	// face — keyed by slotIndex so the same lookup serves the per-hex render and the
+	// merged Hero Party overlay below.
 	function getImageUrl(spirit: Spirit | null | undefined): string | null {
 		if (!spirit) return null;
+		const back = backImageBySlot?.get(spirit.slotIndex);
+		if (back) return back;
 		return spiritAssets.get(spirit.id) ?? null;
 	}
 
@@ -286,6 +321,16 @@
 					imageUrl={usesHeroOverlay ? null : getImageUrl(spirit)}
 					{slotIndex}
 					externalImage={usesHeroOverlay}
+					discardable={discardMode && !!baseSpirit}
+					{onDiscard}
+					augments={augmentsBySlot?.get(slotIndex) ?? []}
+					augmentDroppable={augmentDropMode &&
+						!!baseSpirit &&
+						(augmentEligibleSlots == null || augmentEligibleSlots.includes(slotIndex))}
+					{onDropAugment}
+					selectable={selectable && !!baseSpirit}
+					selected={selectedSlot === slotIndex}
+					{onSelect}
 				/>
 			{/if}
 		{/if}

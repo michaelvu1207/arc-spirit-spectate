@@ -1,0 +1,204 @@
+/**
+ * Applies class-effect triggers to game state (pure; mutates the passed state).
+ *
+ * Reads trait counts from the acting player's awakened spirits, builds a typed
+ * {@link EffectContext}, and runs the encoded {@link EffectAction}s from the
+ * registry through {@link runAction}. The context is the single object every
+ * handler reads/writes, so later phases widen capability by populating more
+ * context fields rather than re-threading function arguments.
+ */
+
+import type { PlayCatalog, PrivatePlayerState, PublicGameState, SeatColor } from '../types';
+import { CLASS_ABILITIES } from './abilities';
+import { CLASS_EFFECTS, selectBreakpoint, type EffectTrigger } from './registry';
+import { buildEffectContext, type EffectCombatInfo, type TradePayload } from './context';
+import { colocatedPlayers } from './colocated';
+import { runAction } from './actions';
+import { runClassHandler } from './handlers';
+import { recordCultivateAwakenProgress } from './awakenHandlers';
+import { augmentContributions } from '../augments';
+import { originRuneForName } from '../locationInteractions';
+
+/** Class trait counts from AWAKENED spirits only (unawakened classes are inactive).
+ *  Placed spirit augments also contribute their class — but only while their host
+ *  spirit is awakened (they follow the spirit); see {@link augmentContributions}. */
+export function awakenedClassCounts(player: PrivatePlayerState): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const spirit of player.spirits) {
+		if (spirit.isFaceDown) continue;
+		for (const [cls, n] of Object.entries(spirit.classes ?? {})) {
+			counts[cls] = (counts[cls] ?? 0) + (typeof n === 'number' ? n : 1);
+		}
+	}
+	for (const { className, awake } of augmentContributions(player)) {
+		if (awake) counts[className] = (counts[className] ?? 0) + 1;
+	}
+	return counts;
+}
+
+/** Unique spirit names per origin (awakened or not — origin is always active). */
+export function uniqueSpiritsByOrigin(player: PrivatePlayerState): Record<string, Set<string>> {
+	const byOrigin: Record<string, Set<string>> = {};
+	for (const spirit of player.spirits) {
+		for (const origin of Object.keys(spirit.origins ?? {})) {
+			(byOrigin[origin] ??= new Set()).add(spirit.name);
+		}
+	}
+	return byOrigin;
+}
+
+/** Optional trigger context — catalog/combat/interaction info threaded by callers. */
+export interface TriggerOptions {
+	catalog?: PlayCatalog;
+	command?: unknown;
+	opponent?: SeatColor;
+	oldStatus?: number;
+	newStatus?: number;
+	combat?: EffectCombatInfo;
+	trade?: TradePayload;
+}
+
+/**
+ * Fire a trigger for a seat, applying every matching class effect through a
+ * fully-built {@link EffectContext}. Optional `opts` thread catalog/combat/
+ * interaction info for the handlers that need them; absent fields default to
+ * undefined / an empty catalog, so existing call sites stay behavior-identical.
+ */
+export function applyTrigger(
+	state: PublicGameState,
+	seat: SeatColor,
+	trigger: EffectTrigger,
+	log: string[],
+	opts: TriggerOptions = {}
+): void {
+	const player = state.players[seat];
+	if (!player) return;
+	const counts = awakenedClassCounts(player);
+	const colocated = colocatedPlayers(state, seat);
+
+	// Every awakened class with at least one ability — declarative or bespoke — for
+	// this trigger. The canonical source is CLASS_ABILITIES; CLASS_EFFECTS is also
+	// unioned in so the test harnesses' synthetic `CLASS_EFFECTS[name] = …`
+	// injections (declarative-only classes not in CLASS_ABILITIES) still fire.
+	// Iterating a stable, deduped key set keeps order deterministic.
+	const candidateClasses = new Set<string>([
+		...Object.keys(CLASS_ABILITIES),
+		...Object.keys(CLASS_EFFECTS)
+	]);
+
+	const makeCtx = (count: number) =>
+		buildEffectContext({
+			state,
+			seat,
+			player,
+			trigger,
+			log,
+			traitCount: count,
+			colocated,
+			catalog: opts.catalog,
+			command: opts.command,
+			opponent: opts.opponent,
+			oldStatus: opts.oldStatus,
+			newStatus: opts.newStatus,
+			combat: opts.combat,
+			trade: opts.trade
+		});
+
+	for (const cls of candidateClasses) {
+		const count = counts[cls] ?? 0;
+		if (count <= 0) continue;
+
+		// Attribute every log line a class produces to its source trait, so the combat /
+		// reward / awakening log says WHAT granted each effect (e.g. "Spirit Animal:
+		// Gained +1 combat damage."). Lines a handler already self-attributes (they start
+		// with the class name) are left untouched to avoid a doubled prefix.
+		const attributeFrom = (start: number) => {
+			for (let i = start; i < log.length; i += 1) {
+				if (!log[i].startsWith(cls)) log[i] = `${cls}: ${log[i]}`;
+			}
+		};
+
+		// 1. Declarative breakpoints first. Read from the live CLASS_EFFECTS view (the
+		// derived projection of CLASS_ABILITIES' `breakpoints` entries) so synthetic
+		// test injections are honored.
+		for (const effect of CLASS_EFFECTS[cls] ?? []) {
+			if (effect.trigger !== trigger) continue;
+			const selected = selectBreakpoint(effect.breakpoints, count);
+			if (!selected) continue;
+			const ctx = makeCtx(count);
+			const before = log.length;
+			for (const action of selected.bp.actions) runAction(ctx, action, selected.multiplier);
+			attributeFrom(before);
+		}
+
+		// 2. Bespoke `run` abilities (if any) for this class + trigger.
+		for (const ability of CLASS_ABILITIES[cls] ?? []) {
+			if (ability.on !== trigger || !ability.run) continue;
+			const before = log.length;
+			runClassHandler(makeCtx(count), cls, trigger);
+			attributeFrom(before);
+		}
+	}
+}
+
+/**
+ * Cultivate: a bare action step with NO inherent effect of its own — the parallel
+ * of Rest. Its entire payoff now flows from `onCultivate` class effects (Cultivator
+ * grants the origin-trio runes + potential; Arc Mage, Captain, … hook in too).
+ *
+ * Repeated Cultivate tokens collapse to a SINGLE call (like Rest fires `onRest`
+ * once), so there is no per-token multiplier. We still record the cultivate moment
+ * for the text-awaken spirits that gate on it, then dispatch the class trigger.
+ */
+export function applyCultivate(
+	state: PublicGameState,
+	seat: SeatColor,
+	log: string[],
+	opts: TriggerOptions = {}
+): void {
+	const player = state.players[seat];
+	if (!player) return;
+
+	// P6 text-awaken progress: Contessa / Cosmic Guardian / Shadowtaker awaken by
+	// cultivating under a specific alignment / global-alignment / lone-spirit
+	// condition. Record the flag now (the cultivate moment) so the awaken gate can
+	// later read it. Uses the GLOBAL alignment tally across all active seats.
+	const allPlayers = (state.activeSeats ?? [])
+		.map((s) => state.players[s])
+		.filter((p): p is NonNullable<typeof p> => !!p);
+	recordCultivateAwakenProgress(player, allPlayers);
+
+	// Intrinsic Cultivate yield (every player, no class required): gain ONE origin rune
+	// for every TWO of your spirits sharing that origin — counting AWAKENED and face-down
+	// spirits alike (origin is always active; only class abilities need awakening). Only
+	// the four core origins with a basic rune (Cyber City / Floral Patch / Lantern Lights /
+	// Moon Tide) yield runes. Rune Traveler's per-turn `doubleRunes` doubles the yield.
+	const originTraits: Record<string, number> = {};
+	for (const spirit of player.spirits) {
+		for (const [origin, n] of Object.entries(spirit.origins ?? {})) {
+			originTraits[origin] = (originTraits[origin] ?? 0) + (typeof n === 'number' ? n : 1);
+		}
+	}
+	const runeMult = player.doubleRunes ? 2 : 1;
+	for (const [origin, traits] of Object.entries(originTraits)) {
+		const rune = originRuneForName(origin);
+		if (!rune) continue;
+		const count = Math.floor(traits / 2) * runeMult;
+		for (let i = 0; i < count; i += 1) {
+			player.runes.push({
+				slotIndex: player.runes.length + 1,
+				hasRune: true,
+				id: rune.runeId,
+				name: rune.name,
+				type: rune.type,
+				originId: rune.originId ?? undefined,
+				classId: rune.classId ?? undefined,
+				special: rune.special
+			});
+		}
+		if (count > 0) log.push(`Cultivated ${count} ${rune.name}${count === 1 ? '' : 's'}.`);
+	}
+
+	// Class-hook dispatch: fire onCultivate class effects for the acting seat.
+	applyTrigger(state, seat, 'onCultivate', log, opts);
+}

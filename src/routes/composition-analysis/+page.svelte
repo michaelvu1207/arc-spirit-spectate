@@ -6,12 +6,14 @@
 		LineElement,
 		PointElement,
 		LinearScale,
+		CategoryScale,
 		Title,
 		Tooltip,
 		Legend,
 		Filler,
 		type ChartConfiguration
 	} from 'chart.js';
+	import { BoxPlotController, BoxAndWiskers } from '@sgratzl/chartjs-chart-boxplot';
 	import type { TagSeries, TagTarget } from './+page.server';
 	import { PLAYER_COLOR_HEX } from '$lib/types';
 	import {
@@ -40,10 +42,13 @@
 		LineElement,
 		PointElement,
 		LinearScale,
+		CategoryScale,
 		Title,
 		Tooltip,
 		Legend,
-		Filler
+		Filler,
+		BoxPlotController,
+		BoxAndWiskers
 	);
 
 	const POINTS = data.pointsPerLine; // one y-value per round 1..POINTS
@@ -195,16 +200,16 @@
 
 	// Per-tag, recomputed actual VP-per-round series filtered through
 	// `selectedGameIds`. Falls back to the precomputed `tagActualByName`
-	// when no filter is active (cheaper).
+	// when no filter is active and normalization is off (cheaper).
 	const effectiveTagActual = $derived(() => {
 		const out: Record<string, Array<{ round: number; avgVp: number }>> = {};
 		for (const tag of Object.keys(tagInstancesByName)) {
-			if (selectedGameIds.size === 0) {
+			if (selectedGameIds.size === 0 && !normalizeRounds) {
 				out[tag] = tagActualByName[tag] ?? [];
 				continue;
 			}
 			const insts = (tagInstancesByName[tag] ?? []).filter((i) =>
-				selectedGameIds.has(i.gameId)
+				selectedGameIds.size === 0 || selectedGameIds.has(i.gameId)
 			);
 			if (insts.length === 0) {
 				out[tag] = [];
@@ -212,7 +217,10 @@
 			}
 			const byRound = new Map<number, { sum: number; n: number }>();
 			for (const inst of insts) {
-				for (const p of inst.points) {
+				const pts = normalizeRounds
+					? resamplePointsToTarget(inst.points, POINTS)
+					: inst.points;
+				for (const p of pts) {
 					const e = byRound.get(p.round) ?? { sum: 0, n: 0 };
 					e.sum += p.vp;
 					e.n += 1;
@@ -647,6 +655,77 @@
 		}
 	});
 
+	// Top-level view toggle — 'chart' = the curves canvas, 'scoreboard' = the
+	// aggregate per-comp table, 'boxplot' = per-comp distribution of VP/round.
+	// Persisted so the user lands where they left.
+	type ViewMode = 'chart' | 'scoreboard' | 'boxplot';
+	const VIEW_MODE_KEY = 'compositionAnalysis.viewMode.v1';
+	function loadInitialViewMode(): ViewMode {
+		if (typeof window === 'undefined') return 'chart';
+		const raw = window.localStorage.getItem(VIEW_MODE_KEY);
+		if (raw === 'scoreboard' || raw === 'boxplot') return raw;
+		return 'chart';
+	}
+	let viewMode = $state<ViewMode>(loadInitialViewMode());
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(VIEW_MODE_KEY, viewMode);
+		} catch {
+			// ignore quota / private mode errors
+		}
+	});
+
+	// Normalize actuals to "% of game" — each game's round range maps to the
+	// 0–100% progress axis (rendered as positions 1..POINTS on the shared
+	// canvas). Lets us compare curve shape across games of different length
+	// and average them against the ideals on a common axis.
+	const NORMALIZE_KEY = 'compositionAnalysis.normalizeRounds.v1';
+	function loadInitialNormalize(): boolean {
+		if (typeof window === 'undefined') return false;
+		return window.localStorage.getItem(NORMALIZE_KEY) === '1';
+	}
+	let normalizeRounds = $state<boolean>(loadInitialNormalize());
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(NORMALIZE_KEY, normalizeRounds ? '1' : '0');
+		} catch {
+			// ignore quota / private mode errors
+		}
+	});
+
+	// Resample a per-round VP series so its rounds span exactly 1..targetRounds,
+	// preserving curve shape via linear interpolation between adjacent stored
+	// points. Single-round inputs collapse to a flat line at that VP.
+	function resamplePointsToTarget(
+		points: Array<{ round: number; vp: number }>,
+		targetRounds: number
+	): Array<{ round: number; vp: number }> {
+		if (points.length === 0 || targetRounds < 2) return points.map((p) => ({ ...p }));
+		const sorted = [...points].sort((a, b) => a.round - b.round);
+		const minR = sorted[0].round;
+		const maxR = sorted[sorted.length - 1].round;
+		if (maxR === minR) {
+			return Array.from({ length: targetRounds }, (_, i) => ({
+				round: i + 1,
+				vp: sorted[0].vp
+			}));
+		}
+		const out: Array<{ round: number; vp: number }> = new Array(targetRounds);
+		let j = 0;
+		for (let k = 1; k <= targetRounds; k++) {
+			const source = ((k - 1) / (targetRounds - 1)) * (maxR - minR) + minR;
+			while (j + 1 < sorted.length - 1 && sorted[j + 1].round < source) j++;
+			const lo = sorted[j];
+			const hi = sorted[j + 1] ?? lo;
+			const span = hi.round - lo.round;
+			const t = span > 0 ? Math.max(0, Math.min(1, (source - lo.round) / span)) : 0;
+			out[k - 1] = { round: k, vp: lo.vp + t * (hi.vp - lo.vp) };
+		}
+		return out;
+	}
+
 	// Gaussian-kernel smoothing in x-space. For each input point i, the
 	// returned y is a weighted mean of every input within ±3σ on x. Sigma
 	// is in the same units as `x` (rounds) so the slider is intuitive: σ=1
@@ -675,6 +754,307 @@
 		}
 		return out;
 	}
+
+	// ---------- Scoreboard view: aggregate per-comp performance ----------
+	// One row per composition tag. Built from the same instance data the chart
+	// uses, but reports length-aware metrics (rounds-to-30, pacing windows,
+	// VP/round, etc.) so different-length games stay comparable without
+	// normalization. Every aggregate cell carries the spread (sample stddev,
+	// Bessel-corrected) so a "12.0 ± 4.2" reading tells you how tightly the
+	// instances cluster around that number — wide spread = noisy comp.
+	const VP_THRESHOLD = 30;
+	const PACE_WINDOWS = [
+		{ key: 'early', label: 'Early (1–10)', start: 0, end: 10 },
+		{ key: 'mid', label: 'Mid (10–20)', start: 10, end: 20 },
+		{ key: 'late', label: 'Late (20+)', start: 20, end: Infinity }
+	] as const;
+	type ScoreboardRow = {
+		tag: string;
+		category: string | null;
+		color: string;
+		n: number;
+		reachCount: number;
+		reachRate: number;
+		medFinalVp: number;
+		sdFinalVp: number | null;
+		meanVpPerRound: number;
+		sdVpPerRound: number | null;
+		meanEarly: number;
+		sdEarly: number | null;
+		meanMid: number;
+		sdMid: number | null;
+		meanLate: number;
+		sdLate: number | null;
+		endShare: number;
+		sparkline: Array<{ round: number; vp: number }>;
+	};
+
+	function median(xs: number[]): number | null {
+		if (xs.length === 0) return null;
+		const sorted = [...xs].sort((a, b) => a - b);
+		const mid = Math.floor(sorted.length / 2);
+		return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+	}
+
+	// Sample standard deviation (Bessel-corrected, n−1). Returns null when n<2
+	// so the UI can render "—" rather than a misleading 0.
+	function stddev(xs: number[]): number | null {
+		if (xs.length < 2) return null;
+		const mean = xs.reduce((s, v) => s + v, 0) / xs.length;
+		const sq = xs.reduce((s, v) => s + (v - mean) ** 2, 0);
+		return Math.sqrt(sq / (xs.length - 1));
+	}
+
+	function mean(xs: number[]): number {
+		if (xs.length === 0) return 0;
+		return xs.reduce((s, v) => s + v, 0) / xs.length;
+	}
+
+	// VP at the latest stored round ≤ target. Snapshots come in at round 1,2,…
+	// so for integer targets this is usually an exact lookup; the bounded walk
+	// also covers gaps without bringing interpolation noise into the windows.
+	function vpAtOrBefore(points: ReadonlyArray<{ round: number; vp: number }>, target: number): number {
+		if (points.length === 0 || target < points[0].round) return 0;
+		let last = 0;
+		for (const p of points) {
+			if (p.round <= target) last = p.vp;
+			else break;
+		}
+		return last;
+	}
+
+	// VP gained inside [start, end] — clamped to whatever the instance actually
+	// reached. Games that ended before `start` contribute 0; games that ended
+	// inside the window contribute only the partial gain. That keeps short
+	// games honestly weighted instead of being excluded.
+	function windowGain(
+		points: ReadonlyArray<{ round: number; vp: number }>,
+		totalRounds: number,
+		start: number,
+		end: number
+	): number {
+		if (totalRounds <= start) return 0;
+		const effectiveEnd = Math.min(end, totalRounds);
+		return Math.max(0, vpAtOrBefore(points, effectiveEnd) - vpAtOrBefore(points, start));
+	}
+
+	const scoreboardRows = $derived((): ScoreboardRow[] => {
+		const eff = effectiveTagActual();
+		const rows: ScoreboardRow[] = [];
+		for (const tag of tagNames) {
+			if (tag === REFERENCE_TAG) continue;
+			const insts = (tagInstancesByName[tag] ?? []).filter(
+				(i) => selectedGameIds.size === 0 || selectedGameIds.has(i.gameId)
+			);
+			if (insts.length === 0) continue;
+
+			const finalVps: number[] = [];
+			const vpPerRoundList: number[] = [];
+			const earlyGains: number[] = [];
+			const midGains: number[] = [];
+			const lateGains: number[] = [];
+			let reachCount = 0;
+			let wins = 0;
+
+			for (const inst of insts) {
+				const pts = inst.points;
+				if (pts.length === 0) continue;
+				const finalVp = pts[pts.length - 1].vp;
+				finalVps.push(finalVp);
+				vpPerRoundList.push(finalVp / Math.max(1, inst.totalRounds));
+
+				const r30 = pts.find((p) => p.vp >= VP_THRESHOLD);
+				if (r30) {
+					reachCount++;
+					if (inst.totalRounds <= r30.round + 1) wins++;
+				}
+
+				earlyGains.push(windowGain(pts, inst.totalRounds, 0, 10));
+				midGains.push(windowGain(pts, inst.totalRounds, 10, 20));
+				lateGains.push(windowGain(pts, inst.totalRounds, 20, Infinity));
+			}
+
+			const n = insts.length;
+			rows.push({
+				tag,
+				category: tagCategoryByName[tag] ?? null,
+				color: colorForTag(tag),
+				n,
+				reachCount,
+				reachRate: reachCount / n,
+				medFinalVp: median(finalVps) ?? 0,
+				sdFinalVp: stddev(finalVps),
+				meanVpPerRound: mean(vpPerRoundList),
+				sdVpPerRound: stddev(vpPerRoundList),
+				meanEarly: mean(earlyGains),
+				sdEarly: stddev(earlyGains),
+				meanMid: mean(midGains),
+				sdMid: stddev(midGains),
+				meanLate: mean(lateGains),
+				sdLate: stddev(lateGains),
+				endShare: wins / n,
+				sparkline: (eff[tag] ?? []).map((p) => ({ round: p.round, vp: p.avgVp }))
+			});
+		}
+		return rows;
+	});
+
+	type ScoreSortKey =
+		| 'tag'
+		| 'n'
+		| 'reachRate'
+		| 'medFinalVp'
+		| 'vpPerRound'
+		| 'meanEarly'
+		| 'meanMid'
+		| 'meanLate'
+		| 'endShare';
+	let scoreSortKey = $state<ScoreSortKey>('reachRate');
+	let scoreSortDir = $state<'asc' | 'desc'>('desc');
+
+	function cycleScoreSort(key: ScoreSortKey) {
+		if (scoreSortKey === key) {
+			scoreSortDir = scoreSortDir === 'desc' ? 'asc' : 'desc';
+		} else {
+			scoreSortKey = key;
+			// tag = alphabetical ascending; everything else "bigger is better" descending.
+			scoreSortDir = key === 'tag' ? 'asc' : 'desc';
+		}
+	}
+
+	const scoreboardRowsSorted = $derived((): ScoreboardRow[] => {
+		const rows = [...scoreboardRows()];
+		const mult = scoreSortDir === 'asc' ? 1 : -1;
+		rows.sort((a, b) => {
+			let av: number | string | null;
+			let bv: number | string | null;
+			switch (scoreSortKey) {
+				case 'tag':
+					av = a.tag;
+					bv = b.tag;
+					break;
+				case 'n':
+					av = a.n;
+					bv = b.n;
+					break;
+				case 'reachRate':
+					av = a.reachRate;
+					bv = b.reachRate;
+					break;
+				case 'medFinalVp':
+					av = a.medFinalVp;
+					bv = b.medFinalVp;
+					break;
+				case 'vpPerRound':
+					av = a.meanVpPerRound;
+					bv = b.meanVpPerRound;
+					break;
+				case 'meanEarly':
+					av = a.meanEarly;
+					bv = b.meanEarly;
+					break;
+				case 'meanMid':
+					av = a.meanMid;
+					bv = b.meanMid;
+					break;
+				case 'meanLate':
+					av = a.meanLate;
+					bv = b.meanLate;
+					break;
+				case 'endShare':
+					av = a.endShare;
+					bv = b.endShare;
+					break;
+			}
+			// Nulls always last regardless of direction.
+			if (av == null && bv == null) return 0;
+			if (av == null) return 1;
+			if (bv == null) return -1;
+			if (typeof av === 'string' && typeof bv === 'string') {
+				return mult * av.localeCompare(bv);
+			}
+			return mult * ((av as number) - (bv as number));
+		});
+		return rows;
+	});
+
+	const scoreboardTotals = $derived(() => {
+		const rows = scoreboardRows();
+		return {
+			comps: rows.length,
+			instances: rows.reduce((s, r) => s + r.n, 0)
+		};
+	});
+
+	// Build a tiny SVG path for an inline sparkline. y is clamped to [0, yMax].
+	function sparklinePath(
+		points: Array<{ round: number; vp: number }>,
+		w: number,
+		h: number,
+		yMax: number
+	): string {
+		if (points.length === 0) return '';
+		let xMin = Infinity;
+		let xMax = -Infinity;
+		for (const p of points) {
+			if (p.round < xMin) xMin = p.round;
+			if (p.round > xMax) xMax = p.round;
+		}
+		const xSpan = xMax - xMin || 1;
+		let out = '';
+		for (let i = 0; i < points.length; i++) {
+			const p = points[i];
+			const x = ((p.round - xMin) / xSpan) * w;
+			const y = h - (Math.max(0, Math.min(yMax, p.vp)) / yMax) * h;
+			out += `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)} `;
+		}
+		return out.trim();
+	}
+
+	function openTagInChart(tag: string) {
+		viewMode = 'chart';
+		enterDetail(tag);
+	}
+
+	// ---------- Box plot view: VP/round distribution per comp ----------
+	// One entry per comp with its raw (final VP ÷ totalRounds) values. Chart.js
+	// + @sgratzl/chartjs-chart-boxplot computes Q1/Q2/Q3/whiskers/outliers from
+	// the raw arrays, so we just hand it the per-comp samples.
+	type BoxplotEntry = {
+		tag: string;
+		color: string;
+		n: number;
+		values: number[];
+	};
+
+	const boxplotEntries = $derived((): BoxplotEntry[] => {
+		const entries: BoxplotEntry[] = [];
+		for (const tag of tagNames) {
+			if (tag === REFERENCE_TAG) continue;
+			const insts = (tagInstancesByName[tag] ?? []).filter(
+				(i) => selectedGameIds.size === 0 || selectedGameIds.has(i.gameId)
+			);
+			if (insts.length === 0) continue;
+			const values: number[] = [];
+			for (const inst of insts) {
+				const pts = inst.points;
+				if (pts.length === 0) continue;
+				const finalVp = pts[pts.length - 1].vp;
+				values.push(finalVp / Math.max(1, inst.totalRounds));
+			}
+			if (values.length === 0) continue;
+			values.sort((a, b) => a - b);
+			entries.push({ tag, color: colorForTag(tag), n: values.length, values });
+		}
+		// Sort by median descending — Chart.js doesn't sort for us.
+		entries.sort((a, b) => {
+			const am = a.values[Math.floor(a.values.length / 2)];
+			const bm = b.values[Math.floor(b.values.length / 2)];
+			return bm - am;
+		});
+		return entries;
+	});
+
 	let categoriesMenuOpen = $state(false);
 	let addPopoverOpen = $state(false);
 
@@ -1269,7 +1649,10 @@
 					(i) => i.gameId === selectedInstance!.gameId && i.playerColor === selectedInstance!.playerColor
 				);
 				if (inst) {
-					actualData = inst.points.map((p) => ({ x: p.round, y: p.vp }));
+					const instPts = normalizeRounds
+						? resamplePointsToTarget(inst.points, POINTS)
+						: inst.points;
+					actualData = instPts.map((p) => ({ x: p.round, y: p.vp }));
 					actualLabel = `${tag} · ${inst.playerColor} · ${inst.gameId.slice(-6)}`;
 				}
 			} else if (actual && actual.length > 0) {
@@ -1707,6 +2090,8 @@
 	onDestroy(() => {
 		chart?.destroy();
 		chart = null;
+		boxChart?.destroy();
+		boxChart = null;
 		canvasEl?.removeEventListener('pointerdown', handlePointerDown);
 		canvasEl?.removeEventListener('pointermove', handlePointerMove);
 		canvasEl?.removeEventListener('pointerup', handlePointerUp);
@@ -1718,6 +2103,115 @@
 			document.removeEventListener('click', handleDocumentClick);
 		}
 		for (const t of saveTimers.values()) clearTimeout(t);
+	});
+
+	// Box plot chart lifecycle. The canvas only exists while viewMode is
+	// 'boxplot', so we create the Chart instance when the canvas mounts and
+	// destroy it when it unmounts. Data updates rebuild the chart instead of
+	// in-place mutating because the boxplot dataset shape is awkward to patch.
+	let boxCanvasEl: HTMLCanvasElement | null = $state(null);
+	let boxChart: Chart | null = null;
+
+	function buildBoxplotConfig(): ChartConfiguration {
+		const entries = boxplotEntries();
+		// Per-element colors via arrays — the boxplot element honors them per
+		// box. Borders use the comp color at full strength; fills are alpha'd.
+		const fillColors = entries.map((e) => withAlpha(e.color, 0.18));
+		const borderColors = entries.map((e) => e.color);
+		return {
+			type: 'boxplot' as 'bar',
+			data: {
+				labels: entries.map((e) => `${e.tag}  (n=${e.n})`),
+				datasets: [
+					{
+						label: 'VP / round',
+						data: entries.map((e) => e.values) as unknown as number[],
+						backgroundColor: fillColors,
+						borderColor: borderColors,
+						borderWidth: 1.5,
+						outlierBackgroundColor: borderColors,
+						outlierBorderColor: borderColors,
+						outlierRadius: 3.5,
+						itemRadius: 2.5,
+						itemBackgroundColor: borderColors,
+						itemBorderColor: borderColors,
+						medianColor: '#ffffff',
+						meanRadius: 0
+					} as unknown as Record<string, unknown>
+				]
+			},
+			options: {
+				indexAxis: 'y',
+				responsive: true,
+				maintainAspectRatio: false,
+				animation: false,
+				plugins: {
+					legend: { display: false },
+					tooltip: {
+						callbacks: {
+							title: (items: Array<{ label: string }>) => items[0]?.label ?? '',
+							label: (item: { raw: unknown }) => {
+								const raw = item.raw as
+									| { min?: number; q1?: number; median?: number; q3?: number; max?: number; mean?: number }
+									| undefined;
+								if (!raw) return '';
+								const f = (n: number | undefined) => (typeof n === 'number' ? n.toFixed(2) : '—');
+								return [
+									`median ${f(raw.median)}`,
+									`Q1 ${f(raw.q1)}  ·  Q3 ${f(raw.q3)}`,
+									`min ${f(raw.min)}  ·  max ${f(raw.max)}`,
+									`mean ${f(raw.mean)}`
+								].join('  ·  ');
+							}
+						}
+					}
+				},
+				scales: {
+					x: {
+						title: { display: true, text: 'VP / round', color: 'rgba(220,220,230,0.7)' },
+						grid: { color: 'rgba(255,255,255,0.06)' },
+						ticks: { color: 'rgba(220,220,230,0.85)' }
+					},
+					y: {
+						grid: { color: 'rgba(255,255,255,0.04)' },
+						ticks: { color: 'rgba(220,220,230,0.85)' }
+					}
+				},
+				onClick: (_event: unknown, elements: Array<{ index: number }>) => {
+					if (!elements.length) return;
+					const idx = elements[0].index;
+					const e = boxplotEntries()[idx];
+					if (e) openTagInChart(e.tag);
+				}
+			}
+		} as unknown as ChartConfiguration;
+	}
+
+	function withAlpha(hex: string, alpha: number): string {
+		// Accept either #rrggbb or rgb(...) — falls back to a translucent overlay.
+		if (/^#([0-9a-f]{6})$/i.test(hex)) {
+			const r = parseInt(hex.slice(1, 3), 16);
+			const g = parseInt(hex.slice(3, 5), 16);
+			const b = parseInt(hex.slice(5, 7), 16);
+			return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+		}
+		return hex;
+	}
+
+	$effect(() => {
+		// Re-creates the chart whenever the canvas appears, or the data changes
+		// while it's visible. Destroying first avoids "canvas already in use".
+		const canvas = boxCanvasEl;
+		// Touch entries so the effect re-runs on data changes.
+		const _entries = boxplotEntries();
+		void _entries;
+		if (!canvas) {
+			boxChart?.destroy();
+			boxChart = null;
+			return;
+		}
+		boxChart?.destroy();
+		boxChart = new Chart(canvas, buildBoxplotConfig());
 	});
 
 	// Switching the active line discards any prior selection — indices are
@@ -1903,7 +2397,41 @@
 	</header>
 	{/if}
 
-	<div class="app-grid" class:app-grid--games-open={gameSidebarOpen}>
+	<nav class="view-tabs" aria-label="Composition analysis view">
+		<button
+			type="button"
+			class="view-tab"
+			class:view-tab--active={viewMode === 'chart'}
+			onclick={() => (viewMode = 'chart')}
+			aria-pressed={viewMode === 'chart'}
+		>
+			<span class="view-tab__label">Curves</span>
+		</button>
+		<button
+			type="button"
+			class="view-tab"
+			class:view-tab--active={viewMode === 'scoreboard'}
+			onclick={() => (viewMode = 'scoreboard')}
+			aria-pressed={viewMode === 'scoreboard'}
+		>
+			<span class="view-tab__label">Scoreboard</span>
+		</button>
+		<button
+			type="button"
+			class="view-tab"
+			class:view-tab--active={viewMode === 'boxplot'}
+			onclick={() => (viewMode = 'boxplot')}
+			aria-pressed={viewMode === 'boxplot'}
+		>
+			<span class="view-tab__label">Box plot</span>
+		</button>
+	</nav>
+
+	<div
+		class="app-grid"
+		class:app-grid--games-open={gameSidebarOpen}
+		class:app-grid--scoreboard={viewMode === 'scoreboard' || viewMode === 'boxplot'}
+	>
 		<aside
 			class="games-pane"
 			class:games-pane--collapsed={!gameSidebarOpen}
@@ -1987,7 +2515,11 @@
 			{/if}
 		</aside>
 
-		<section class="chart-pane" aria-label="Composition VP curves">
+		<section
+			class="chart-pane"
+			class:chart-pane--scoreboard={viewMode === 'scoreboard' || viewMode === 'boxplot'}
+			aria-label="Composition VP curves"
+		>
 			<div class="chart-canvas-wrap">
 				<canvas bind:this={canvasEl}></canvas>
 				{#if marqueeRect}
@@ -2011,6 +2543,18 @@
 				{/if}
 			</div>
 			<div class="chart-controls" data-menu-keep-open>
+				<button
+					type="button"
+					class="normalize-toggle"
+					class:on={normalizeRounds}
+					onclick={() => (normalizeRounds = !normalizeRounds)}
+					aria-pressed={normalizeRounds}
+					title="Stretch each game's curve onto a 0–100% game-progress axis so games of different length can be compared and averaged against ideals."
+				>
+					<span class="normalize-toggle__label">0–100%</span>
+					<span class="normalize-toggle__state">{normalizeRounds ? 'ON' : 'OFF'}</span>
+				</button>
+				<span class="chart-controls__sep" aria-hidden="true"></span>
 				<label for="line-smoothing" class="smoothing-label">SMOOTH</label>
 				<input
 					id="line-smoothing"
@@ -2037,6 +2581,225 @@
 						<span class="chart-hint__focus">Focused on {focusedTag} — use Back to return to every line.</span>
 					{/if}
 				</div>
+
+				{#if viewMode === 'boxplot'}
+					{@const entries = boxplotEntries()}
+					{@const rowH = 38}
+					{@const canvasHeight = Math.max(220, 64 + entries.length * rowH)}
+					<div class="boxplot">
+						<header class="boxplot__head">
+							<div class="boxplot__title">
+								<span class="eyebrow">DISTRIBUTION</span>
+								<h2>VP per round — per comp</h2>
+							</div>
+							<div class="boxplot__legend muted">
+								<span>Box = Q1–Q3</span>
+								<span>Line = median</span>
+								<span>Whiskers = 1.5·IQR</span>
+								<span>Dots = raw values / outliers</span>
+							</div>
+						</header>
+						{#if entries.length === 0}
+							<div class="boxplot__empty muted">
+								No comps match the current game filter.
+							</div>
+						{:else}
+							<div class="boxplot__canvas-wrap" style="height: {canvasHeight}px">
+								<canvas bind:this={boxCanvasEl}></canvas>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				{#if viewMode === 'scoreboard'}
+					{@const rows = scoreboardRowsSorted()}
+					{@const totals = scoreboardTotals()}
+					<div class="scoreboard">
+						<header class="scoreboard__head">
+							<div class="scoreboard__title">
+								<span class="eyebrow">SCOREBOARD</span>
+								<h2>Composition performance</h2>
+							</div>
+							<div class="scoreboard__meta muted">
+								{totals.comps} comp{totals.comps === 1 ? '' : 's'} · {totals.instances} game-instance{totals.instances === 1 ? '' : 's'}
+								{#if selectedGameIds.size > 0}
+									<span class="scoreboard__chip">filtered: {selectedGameIds.size} game{selectedGameIds.size === 1 ? '' : 's'}</span>
+								{/if}
+							</div>
+						</header>
+						{#if rows.length === 0}
+							<div class="scoreboard__empty muted">
+								No game-instances match the current game filter. Clear the games filter to see all comps.
+							</div>
+						{:else}
+							<div class="scoreboard__scroll">
+								<table class="scoreboard__table">
+									<thead>
+										<tr>
+											<th
+												class="sb-th sb-th--tag"
+												aria-sort={scoreSortKey === 'tag' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('tag')}>
+													Comp{scoreSortKey === 'tag' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Game-instances of this comp included after the games filter"
+												aria-sort={scoreSortKey === 'n' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('n')}>
+													N{scoreSortKey === 'n' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Win rate — percentage of game-instances that ever reached 30 VP (game-ending threshold)"
+												aria-sort={scoreSortKey === 'reachRate' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('reachRate')}>
+													Win rate{scoreSortKey === 'reachRate' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Median final VP across all instances, including ones that fell short of 30 (± sample stddev)"
+												aria-sort={scoreSortKey === 'medFinalVp' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('medFinalVp')}>
+													Final VP{scoreSortKey === 'medFinalVp' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Mean of (final VP ÷ total rounds played) across instances (± sample stddev) — length-independent pace"
+												aria-sort={scoreSortKey === 'vpPerRound' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('vpPerRound')}>
+													VP/round{scoreSortKey === 'vpPerRound' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Mean VP gained in rounds 1–10 (± sample stddev) — early-game pace"
+												aria-sort={scoreSortKey === 'meanEarly' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('meanEarly')}>
+													Early 1–10{scoreSortKey === 'meanEarly' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Mean VP gained in rounds 10–20 (± sample stddev) — mid-game pace"
+												aria-sort={scoreSortKey === 'meanMid' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('meanMid')}>
+													Mid 10–20{scoreSortKey === 'meanMid' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Mean VP gained from round 20 to game end (± sample stddev) — late-game pace"
+												aria-sort={scoreSortKey === 'meanLate' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('meanLate')}>
+													Late 20+{scoreSortKey === 'meanLate' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th
+												class="sb-th sb-th--num"
+												title="Share of instances where the game ended on or right after this comp crossed 30 — proxy for winning"
+												aria-sort={scoreSortKey === 'endShare' ? (scoreSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+											>
+												<button type="button" onclick={() => cycleScoreSort('endShare')}>
+													End-share %{scoreSortKey === 'endShare' ? (scoreSortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+												</button>
+											</th>
+											<th class="sb-th sb-th--spark">Shape</th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each rows as row (row.tag)}
+											{@const yMax = Math.max(VP_THRESHOLD, ...row.sparkline.map((p) => p.vp), 1)}
+											{@const sparkW = 96}
+											{@const sparkH = 28}
+											{@const thresholdY = sparkH - (VP_THRESHOLD / yMax) * sparkH}
+											<tr class="sb-row">
+												<td class="sb-td sb-td--tag">
+													<button
+														type="button"
+														class="sb-tag"
+														onclick={() => openTagInChart(row.tag)}
+														title="Open {row.tag} in the curves view"
+													>
+														<span class="sb-tag__swatch" style="background: {row.color}"></span>
+														<span class="sb-tag__name">{row.tag}</span>
+														{#if row.category}
+															<span class="sb-tag__cat">{row.category}</span>
+														{/if}
+													</button>
+												</td>
+												<td class="sb-td sb-td--num tabular-nums">{row.n}</td>
+												<td class="sb-td sb-td--num tabular-nums">
+													{Math.round(row.reachRate * 100)}%
+													<span class="sb-sub">{row.reachCount}/{row.n}</span>
+												</td>
+												<td class="sb-td sb-td--num tabular-nums">
+													{row.medFinalVp.toFixed(1)}{#if row.sdFinalVp != null}<span class="sb-sd">±{row.sdFinalVp.toFixed(1)}</span>{/if}
+												</td>
+												<td class="sb-td sb-td--num tabular-nums">
+													{row.meanVpPerRound.toFixed(2)}{#if row.sdVpPerRound != null}<span class="sb-sd">±{row.sdVpPerRound.toFixed(2)}</span>{/if}
+												</td>
+												<td class="sb-td sb-td--num tabular-nums">
+													{row.meanEarly.toFixed(1)}{#if row.sdEarly != null}<span class="sb-sd">±{row.sdEarly.toFixed(1)}</span>{/if}
+												</td>
+												<td class="sb-td sb-td--num tabular-nums">
+													{row.meanMid.toFixed(1)}{#if row.sdMid != null}<span class="sb-sd">±{row.sdMid.toFixed(1)}</span>{/if}
+												</td>
+												<td class="sb-td sb-td--num tabular-nums">
+													{row.meanLate.toFixed(1)}{#if row.sdLate != null}<span class="sb-sd">±{row.sdLate.toFixed(1)}</span>{/if}
+												</td>
+												<td class="sb-td sb-td--num tabular-nums">{Math.round(row.endShare * 100)}%</td>
+												<td class="sb-td sb-td--spark">
+													{#if row.sparkline.length >= 2}
+														<svg
+															class="sb-spark"
+															viewBox="0 0 {sparkW} {sparkH}"
+															width={sparkW}
+															height={sparkH}
+															aria-hidden="true"
+														>
+															<line
+																x1="0"
+																y1={thresholdY}
+																x2={sparkW}
+																y2={thresholdY}
+																stroke="rgba(255,186,61,0.45)"
+																stroke-dasharray="2,2"
+																stroke-width="1"
+															/>
+															<path
+																d={sparklinePath(row.sparkline, sparkW, sparkH, yMax)}
+																stroke={row.color}
+																stroke-width="1.75"
+																fill="none"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															/>
+														</svg>
+													{:else}
+														<span class="sb-dash">—</span>
+													{/if}
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							</div>
+						{/if}
+					</div>
+				{/if}
 		</section>
 
 		<aside class="side-pane">
@@ -2715,6 +3478,307 @@
 	.app-grid.app-grid--games-open {
 		grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(360px, 440px);
 	}
+	.app-grid.app-grid--scoreboard {
+		grid-template-columns: 36px minmax(0, 1fr);
+	}
+	.app-grid.app-grid--scoreboard.app-grid--games-open {
+		grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+	}
+	.app-grid.app-grid--scoreboard .side-pane {
+		display: none;
+	}
+
+	/* ============ View tabs (Curves / Scoreboard) ============ */
+	.view-tabs {
+		display: flex;
+		gap: 4px;
+		padding: 0 0 10px 0;
+		flex-shrink: 0;
+	}
+	.view-tab {
+		appearance: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 18px;
+		background: transparent;
+		border: 1px solid var(--color-mist);
+		border-bottom: 2px solid transparent;
+		color: var(--color-fog);
+		font-family: var(--font-display);
+		font-size: 0.78rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		cursor: pointer;
+		transition:
+			color 120ms ease,
+			border-color 120ms ease,
+			background 120ms ease;
+	}
+	.view-tab:hover {
+		color: var(--color-bone);
+		border-color: var(--color-bone);
+	}
+	.view-tab--active {
+		color: var(--color-bone);
+		border-color: var(--brand-magenta);
+		border-bottom-color: var(--brand-magenta);
+		background: color-mix(in srgb, var(--brand-magenta) 12%, transparent);
+	}
+	.view-tab__label {
+		line-height: 1;
+	}
+
+	/* ============ Scoreboard table ============ */
+	.chart-pane--scoreboard .chart-canvas-wrap,
+	.chart-pane--scoreboard .chart-controls,
+	.chart-pane--scoreboard .chart-hint {
+		display: none;
+	}
+	.chart-pane--scoreboard {
+		padding: 0;
+	}
+	.scoreboard {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		height: 100%;
+		gap: 12px;
+	}
+	.scoreboard__head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 8px;
+		padding: 4px 4px 0;
+		flex-shrink: 0;
+	}
+	.scoreboard__title h2 {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: 1.05rem;
+		letter-spacing: 0.06em;
+		color: var(--color-bone);
+		text-transform: uppercase;
+	}
+	.scoreboard__title .eyebrow {
+		display: block;
+		font-family: var(--font-display);
+		font-size: 0.62rem;
+		letter-spacing: 0.24em;
+		color: var(--brand-cyan);
+		text-transform: uppercase;
+		margin-bottom: 2px;
+	}
+	.scoreboard__meta {
+		font-family: var(--font-mono, ui-monospace, monospace);
+		font-size: 0.76rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.scoreboard__chip {
+		display: inline-block;
+		padding: 2px 8px;
+		border: 1px solid var(--color-mist);
+		font-size: 0.7rem;
+		color: var(--color-bone);
+	}
+	.scoreboard__empty {
+		padding: 24px 4px;
+		font-style: italic;
+	}
+	.scoreboard__scroll {
+		overflow: auto;
+		min-height: 0;
+		flex: 1;
+		border: 1px solid var(--color-mist);
+		background: var(--color-shadow);
+	}
+	.scoreboard__table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.85rem;
+	}
+	.scoreboard__table thead {
+		position: sticky;
+		top: 0;
+		background: var(--color-tomb);
+		z-index: 1;
+	}
+	.sb-th {
+		text-align: left;
+		padding: 0;
+		border-bottom: 1px solid var(--color-mist);
+		font-family: var(--font-display);
+		font-size: 0.68rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--color-fog);
+	}
+	.sb-th button {
+		width: 100%;
+		text-align: inherit;
+		background: transparent;
+		border: 0;
+		color: inherit;
+		font: inherit;
+		letter-spacing: inherit;
+		padding: 10px 12px;
+		cursor: pointer;
+	}
+	.sb-th button:hover {
+		color: var(--color-bone);
+	}
+	.sb-th--num {
+		text-align: right;
+	}
+	.sb-th--num button {
+		text-align: right;
+	}
+	.sb-th--spark {
+		text-align: center;
+		padding: 10px 12px;
+	}
+	.sb-row {
+		border-bottom: 1px solid color-mix(in srgb, var(--color-mist) 50%, transparent);
+		transition: background 120ms ease;
+	}
+	.sb-row:hover {
+		background: color-mix(in srgb, var(--color-mist) 18%, transparent);
+	}
+	.sb-td {
+		padding: 8px 12px;
+		color: var(--color-bone);
+		vertical-align: middle;
+	}
+	.sb-td--num {
+		text-align: right;
+		font-family: var(--font-mono, ui-monospace, monospace);
+	}
+	.sb-td--tag {
+		min-width: 200px;
+	}
+	.sb-td--spark {
+		text-align: center;
+		width: 1%;
+		white-space: nowrap;
+	}
+	.sb-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		background: transparent;
+		border: 0;
+		padding: 2px 0;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.sb-tag:hover .sb-tag__name {
+		color: var(--brand-magenta);
+		text-decoration: underline;
+	}
+	.sb-tag__swatch {
+		width: 12px;
+		height: 12px;
+		border-radius: 2px;
+		flex-shrink: 0;
+	}
+	.sb-tag__name {
+		font-weight: 600;
+		color: var(--color-bone);
+	}
+	.sb-tag__cat {
+		font-family: var(--font-mono, ui-monospace, monospace);
+		font-size: 0.7rem;
+		padding: 1px 6px;
+		border: 1px solid var(--color-mist);
+		color: var(--color-fog);
+		text-transform: lowercase;
+		letter-spacing: 0.04em;
+	}
+	.sb-sub {
+		display: inline-block;
+		margin-left: 6px;
+		color: var(--color-fog);
+		font-size: 0.72rem;
+	}
+	.sb-sd {
+		display: inline-block;
+		margin-left: 4px;
+		color: var(--color-fog);
+		font-size: 0.7rem;
+		opacity: 0.85;
+	}
+	.sb-dash {
+		color: var(--color-fog);
+		opacity: 0.6;
+	}
+	.sb-spark {
+		display: block;
+	}
+
+	/* ============ Box plot ============ */
+	.boxplot {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		height: 100%;
+		gap: 12px;
+	}
+	.boxplot__head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 8px;
+		padding: 4px 4px 0;
+		flex-shrink: 0;
+	}
+	.boxplot__title h2 {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: 1.05rem;
+		letter-spacing: 0.06em;
+		color: var(--color-bone);
+		text-transform: uppercase;
+	}
+	.boxplot__title .eyebrow {
+		display: block;
+		font-family: var(--font-display);
+		font-size: 0.62rem;
+		letter-spacing: 0.24em;
+		color: var(--brand-cyan);
+		text-transform: uppercase;
+		margin-bottom: 2px;
+	}
+	.boxplot__legend {
+		display: inline-flex;
+		flex-wrap: wrap;
+		gap: 12px;
+		font-family: var(--font-mono, ui-monospace, monospace);
+		font-size: 0.72rem;
+	}
+	.boxplot__empty {
+		padding: 24px 4px;
+		font-style: italic;
+	}
+	.boxplot__canvas-wrap {
+		position: relative;
+		overflow: auto;
+		min-height: 0;
+		flex: 1;
+		border: 1px solid var(--color-mist);
+		background: var(--color-shadow);
+		padding: 12px;
+	}
+	.boxplot__canvas-wrap canvas {
+		display: block;
+		width: 100% !important;
+	}
 
 	/* ============ Games-include left popout sidebar ============ */
 	.games-pane {
@@ -3131,6 +4195,49 @@
 		color: var(--color-bone);
 		min-width: 2.4em;
 		text-align: right;
+	}
+
+	.normalize-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 9px;
+		background: transparent;
+		border: 1px solid var(--color-mist);
+		color: var(--color-fog);
+		font-family: var(--font-display);
+		font-size: 0.65rem;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		cursor: pointer;
+		transition:
+			color 120ms ease,
+			border-color 120ms ease,
+			background 120ms ease;
+	}
+	.normalize-toggle:hover {
+		color: var(--color-bone);
+		border-color: var(--color-bone);
+	}
+	.normalize-toggle.on {
+		color: var(--color-bone);
+		border-color: var(--brand-magenta);
+		background: color-mix(in srgb, var(--brand-magenta) 14%, transparent);
+	}
+	.normalize-toggle__state {
+		font-family: var(--font-mono, ui-monospace, monospace);
+		font-size: 0.62rem;
+		letter-spacing: 0.12em;
+		color: var(--color-fog);
+	}
+	.normalize-toggle.on .normalize-toggle__state {
+		color: var(--brand-magenta);
+	}
+	.chart-controls__sep {
+		width: 1px;
+		height: 18px;
+		background: var(--color-mist);
+		opacity: 0.6;
 	}
 
 	.lines-header__actions {

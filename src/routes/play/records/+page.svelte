@@ -1,0 +1,25 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import MenuShell from '$lib/components/play2d/MenuShell.svelte';
+	import RecordsScreen from '$lib/components/play2d/screens/RecordsScreen.svelte';
+	import { loadAssets } from '$lib/stores/assetStore.svelte';
+
+	onMount(() => {
+		// Match the play menu's immersive full-screen (hides global chrome, locks scroll).
+		document.documentElement.classList.add('immersive-play');
+		document.body.classList.add('immersive-play');
+		void loadAssets();
+		return () => {
+			document.documentElement.classList.remove('immersive-play');
+			document.body.classList.remove('immersive-play');
+		};
+	});
+</script>
+
+<svelte:head>
+	<title>Game Records | Arc Spirits</title>
+</svelte:head>
+
+<MenuShell>
+	<RecordsScreen />
+</MenuShell>

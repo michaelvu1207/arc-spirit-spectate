@@ -1,0 +1,185 @@
+<script lang="ts">
+	import type { GamePhase } from '$lib/play/types';
+	import { GAME_PHASES } from '$lib/play/types';
+	import NavTimer from './NavTimer.svelte';
+
+	interface Props {
+		phase: GamePhase;
+		round: number;
+		revealedDestinations: boolean;
+		/** Epoch ms the navigation countdown expires (null outside navigation). */
+		navigationDeadline?: number | null;
+		/** Fired once when the navigation countdown hits zero. */
+		onNavExpire?: () => void;
+	}
+
+	let { phase, round, revealedDestinations, navigationDeadline = null, onNavExpire }: Props = $props();
+
+	const showTimer = $derived(phase === 'navigation' && !revealedDestinations && navigationDeadline != null);
+
+	// The nav bar shows the post-location resolution (benefits → awakening → cleanup) as
+	// ONE collapsed node — the granular steps live in the in-stage AwakeningSheet stepper.
+	type DisplayStep = { key: string; label: string; phases: GamePhase[] };
+	const DISPLAY_STEPS: DisplayStep[] = [
+		{ key: 'navigation', label: 'Navigation', phases: ['navigation'] },
+		{ key: 'encounter', label: 'Encounter', phases: ['encounter'] },
+		{ key: 'location', label: 'Location', phases: ['location'] },
+		{ key: 'cleanup', label: 'Cleanup', phases: ['benefits', 'awakening', 'cleanup'] }
+	];
+
+	const currentIndex = $derived(GAME_PHASES.indexOf(phase));
+	// A display step is "done" once the current phase is past its last engine phase.
+	const lastIndexOf = (s: DisplayStep) => Math.max(...s.phases.map((p) => GAME_PHASES.indexOf(p)));
+</script>
+
+<div class="phase-bar" data-testid="phase-bar" data-phase={phase} data-round={round}>
+	<div class="round">
+		<span class="round-eyebrow">Round</span>
+		<span class="round-num" data-testid="round-num">{round}</span>
+	</div>
+	<span class="divider"></span>
+	<div class="middle">
+		<ol class="steps">
+			{#each DISPLAY_STEPS as step (step.key)}
+				<li
+					class:active={step.phases.includes(phase)}
+					class:done={currentIndex > lastIndexOf(step)}
+				>
+					<span class="node"></span>
+					<span class="step-label">{step.label}</span>
+				</li>
+			{/each}
+		</ol>
+		{#if showTimer}
+			<NavTimer deadline={navigationDeadline} onExpire={onNavExpire} />
+		{/if}
+	</div>
+</div>
+
+<style>
+	/* A light glass strip fused to the top edge, outlined by a single white
+	   hairline — the same ethereal treatment as the mobile RoundBanner and the
+	   leaderboard/menu chrome. No violet border, no chunky fills. */
+	.phase-bar {
+		display: flex;
+		align-items: center;
+		gap: 1.25rem;
+		padding: 0.5rem 1.4rem 0.6rem;
+		background: linear-gradient(180deg, rgba(10, 7, 20, 0.64), rgba(8, 5, 16, 0.44));
+		border: 1px solid rgba(255, 255, 255, 0.16);
+		border-top: 0;
+		border-radius: 0 0 14px 14px;
+		backdrop-filter: blur(10px);
+		-webkit-backdrop-filter: blur(10px);
+	}
+	.round {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		line-height: 1;
+		flex-shrink: 0;
+	}
+	.round-eyebrow {
+		font-family: var(--font-display);
+		font-size: 0.85rem;
+		letter-spacing: 0.3em;
+		text-transform: uppercase;
+		color: rgba(255, 255, 255, 0.5);
+	}
+	.round-num {
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		line-height: 0.9;
+		color: #fff;
+		font-variant-numeric: tabular-nums;
+	}
+	/* Thin vertical hairline between segments — dividers, not boxes. */
+	.divider {
+		width: 1px;
+		align-self: stretch;
+		margin: 0.15rem 0;
+		flex-shrink: 0;
+		background: rgba(255, 255, 255, 0.18);
+	}
+	.middle {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		flex: 1;
+		min-width: 0;
+		justify-content: center;
+	}
+	.steps {
+		display: flex;
+		align-items: center;
+		gap: 0.85rem;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		min-width: 0;
+		flex-wrap: wrap;
+	}
+	.steps li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-family: var(--font-display);
+		font-size: 1rem;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		color: rgba(255, 255, 255, 0.38);
+		transition:
+			color 200ms ease,
+			opacity 200ms ease;
+	}
+	/* Thin hairline connector trailing each step (except the last). */
+	.steps li:not(:last-child)::after {
+		content: '';
+		width: 12px;
+		height: 1px;
+		background: rgba(255, 255, 255, 0.16);
+	}
+	/* Completed phases read slightly brighter than the pending ones. */
+	.steps li.done {
+		color: rgba(255, 255, 255, 0.6);
+	}
+	/* Small diamond node — hollow hairline by default. */
+	.node {
+		width: 7px;
+		height: 7px;
+		transform: rotate(45deg);
+		border: 1px solid rgba(255, 255, 255, 0.4);
+		background: transparent;
+		transition:
+			background 200ms ease,
+			border-color 200ms ease,
+			box-shadow 200ms ease;
+	}
+	/* Active phase: bright white, filled glowing node — ethereal, not a chip. */
+	.steps li.active {
+		color: #fff;
+	}
+	.steps li.active .node {
+		background: #fff;
+		border-color: transparent;
+		box-shadow: 0 0 10px rgba(255, 255, 255, 0.75);
+	}
+	/* ── Mobile (≤600px): trim the backdrop blur and lean on a more opaque base
+	   so the bar stays legible without the GPU cost of a wide blur. ── */
+	@media (max-width: 600px) {
+		.phase-bar {
+			background: linear-gradient(180deg, rgba(10, 7, 20, 0.86), rgba(8, 5, 16, 0.74));
+			backdrop-filter: blur(8px);
+			-webkit-backdrop-filter: blur(8px);
+		}
+	}
+
+	/* Reduced-motion / coarse-pointer: drop the backdrop-filter outright. */
+	@media (prefers-reduced-motion: reduce) {
+		.phase-bar {
+			backdrop-filter: none;
+			-webkit-backdrop-filter: none;
+			background: linear-gradient(180deg, rgba(10, 7, 20, 0.95), rgba(8, 5, 16, 0.9));
+		}
+	}
+</style>

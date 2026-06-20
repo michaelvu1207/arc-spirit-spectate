@@ -1,0 +1,428 @@
+{
+  "note": "Win rate = reached 30 VP first, vs a field of the standard Medium bot, on the real specialized-location model (Rest@Floral, Cultivate@Lantern, Summon@Tidal; one location per round). The PvP Hunter needs multiplayer targets \u2014 it can't win solo and scales with the table. Generated offline by botStatsData.test.ts; re-run after balance changes.",
+  "baseline": "medium",
+  "maxRounds": 300,
+  "gamesPerCell": 120,
+  "counts": [
+    2,
+    3,
+    4,
+    6
+  ],
+  "ladder": {
+    "hp": [
+      1,
+      2,
+      4,
+      5,
+      7,
+      10,
+      12,
+      14
+    ],
+    "damage": [
+      2,
+      3,
+      4,
+      4,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "strategies": [
+    {
+      "key": "pvphunter",
+      "label": "PvP Hunter",
+      "group": "Aggressive / PvP",
+      "blurb": "Corrupt\u2192Fallen\u2192camp Rest\u2192+3 VP/round PvP.",
+      "byCount": {
+        "2": {
+          "winRate": 0.15,
+          "avgWinRound": 28.22,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.4,
+          "avgWinRound": 23.54,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.6,
+          "avgWinRound": 24.15,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.8583,
+          "avgWinRound": 21.18,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "cursed",
+      "label": "Cursed (no PvP)",
+      "group": "Aggressive / PvP",
+      "blurb": "Stack Cursed, descend for rewards \u2014 no PvP.",
+      "byCount": {
+        "2": {
+          "winRate": 0.125,
+          "avgWinRound": 65.07,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.0833,
+          "avgWinRound": 48.4,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.0833,
+          "avgWinRound": 48.6,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.125,
+          "avgWinRound": 43.8,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "hard",
+      "label": "Hard",
+      "group": "Economy safe-scaler",
+      "blurb": "Safe-scaler + fight-urgency.",
+      "byCount": {
+        "2": {
+          "winRate": 0.2583,
+          "avgWinRound": 51.9,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.3083,
+          "avgWinRound": 48.84,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.175,
+          "avgWinRound": 46.29,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.15,
+          "avgWinRound": 44.83,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "rushpatient",
+      "label": "Rush-patient",
+      "group": "Economy safe-scaler",
+      "blurb": "Rush potential, patient fights.",
+      "byCount": {
+        "2": {
+          "winRate": 0.2,
+          "avgWinRound": 52.5,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.2,
+          "avgWinRound": 50.12,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.1833,
+          "avgWinRound": 51.5,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.1417,
+          "avgWinRound": 42.35,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "culrush",
+      "label": "Cultivator rush",
+      "group": "Economy safe-scaler",
+      "blurb": "Stack 4 Cultivators (fast potential).",
+      "byCount": {
+        "2": {
+          "winRate": 0.3833,
+          "avgWinRound": 53.3,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.25,
+          "avgWinRound": 49.1,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.2,
+          "avgWinRound": 48.38,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.2,
+          "avgWinRound": 42.0,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "cullean",
+      "label": "Cultivator-lean",
+      "group": "Economy safe-scaler",
+      "blurb": "Only 2 Cultivators, more damage slots.",
+      "byCount": {
+        "2": {
+          "winRate": 0.3833,
+          "avgWinRound": 53.37,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.25,
+          "avgWinRound": 49.3,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.1917,
+          "avgWinRound": 46.7,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.2,
+          "avgWinRound": 41.71,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "cultivator",
+      "label": "Capacity-first",
+      "group": "Economy safe-scaler",
+      "blurb": "Rush potential to target.",
+      "byCount": {
+        "2": {
+          "winRate": 0.2,
+          "avgWinRound": 52.5,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.2,
+          "avgWinRound": 50.12,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.1833,
+          "avgWinRound": 51.5,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.1417,
+          "avgWinRound": 42.35,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "sim6",
+      "label": "Anti-stun \u00b7 pot 6",
+      "group": "Corruption / anti-stun",
+      "blurb": "Sharpshooter, low potential.",
+      "byCount": {
+        "2": {
+          "winRate": 0.1167,
+          "avgWinRound": 59.07,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.1167,
+          "avgWinRound": 50.57,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.1333,
+          "avgWinRound": 50.44,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.0833,
+          "avgWinRound": 47.3,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "corruption",
+      "label": "Corrupt-punch",
+      "group": "Corruption / anti-stun",
+      "blurb": "Cursed + Sharpshooter, pot 6.",
+      "byCount": {
+        "2": {
+          "winRate": 0.125,
+          "avgWinRound": 65.07,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.0833,
+          "avgWinRound": 48.4,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.0833,
+          "avgWinRound": 48.6,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.125,
+          "avgWinRound": 43.8,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "pot5",
+      "label": "Potential 5",
+      "group": "Potential target",
+      "blurb": "Caps barrier at 5.",
+      "byCount": {
+        "2": {
+          "winRate": 0.0583,
+          "avgWinRound": 43.14,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.1167,
+          "avgWinRound": 46.14,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.0833,
+          "avgWinRound": 46.5,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.1083,
+          "avgWinRound": 43.69,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "pot7",
+      "label": "Potential 7",
+      "group": "Potential target",
+      "blurb": "Caps at 7 = the boss damage.",
+      "byCount": {
+        "2": {
+          "winRate": 0.2583,
+          "avgWinRound": 51.9,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.3083,
+          "avgWinRound": 48.84,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.175,
+          "avgWinRound": 46.29,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.15,
+          "avgWinRound": 44.83,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "pot10",
+      "label": "Potential 10",
+      "group": "Potential target",
+      "blurb": "Old default \u2014 over-built.",
+      "byCount": {
+        "2": {
+          "winRate": 0.3833,
+          "avgWinRound": 53.3,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.2583,
+          "avgWinRound": 48.52,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.2,
+          "avgWinRound": 48.38,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.2,
+          "avgWinRound": 42.0,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "medium",
+      "label": "Medium",
+      "group": "Reference",
+      "blurb": "The baseline field itself (\u2248 fair share).",
+      "byCount": {
+        "2": {
+          "winRate": 0.1833,
+          "avgWinRound": 56.18,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.2417,
+          "avgWinRound": 49.45,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.15,
+          "avgWinRound": 46.06,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.1667,
+          "avgWinRound": 47.65,
+          "games": 120
+        }
+      }
+    },
+    {
+      "key": "fighter",
+      "label": "No potential",
+      "group": "Reference",
+      "blurb": "Dice only \u2014 proves potential matters.",
+      "byCount": {
+        "2": {
+          "winRate": 0.0,
+          "avgWinRound": null,
+          "games": 120
+        },
+        "3": {
+          "winRate": 0.0,
+          "avgWinRound": null,
+          "games": 120
+        },
+        "4": {
+          "winRate": 0.0,
+          "avgWinRound": null,
+          "games": 120
+        },
+        "6": {
+          "winRate": 0.0,
+          "avgWinRound": null,
+          "games": 120
+        }
+      }
+    }
+  ]
+}

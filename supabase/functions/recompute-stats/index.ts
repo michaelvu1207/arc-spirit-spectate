@@ -218,7 +218,7 @@ serve(async (req) => {
   const minTurns = typeof body.minTurns === "number" ? Math.floor(body.minTurns) : 10;
   const minVictoryPoints = typeof body.minVictoryPoints === "number"
     ? Math.floor(body.minVictoryPoints)
-    : 10;
+    : 0;
   const statsVersion = typeof body.statsVersion === "number" ? Math.floor(body.statsVersion) : 1;
   const ratingVersion = typeof body.ratingVersion === "number" ? Math.floor(body.ratingVersion) : 1;
 

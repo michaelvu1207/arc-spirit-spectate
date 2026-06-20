@@ -47,6 +47,14 @@ export function createSseSession(controller: SseController, onDeactivate: () => 
 		sendSnapshot(payload: unknown) {
 			return send('snapshot', payload);
 		},
+		/**
+		 * Heartbeat. Keeps idle proxies/CDNs from dropping a quiet stream and lets
+		 * the client's watchdog observe liveness (a bare `:comment` would do the
+		 * former but never reaches client JS).
+		 */
+		ping() {
+			return send('ping', Date.now());
+		},
 		deactivate,
 		close
 	};

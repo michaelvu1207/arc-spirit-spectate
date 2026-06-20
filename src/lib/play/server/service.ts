@@ -1,16 +1,39 @@
 import { error as kitError } from '@sveltejs/kit';
-import { createLobbyState, applyGameCommand, buildHistorySnapshotRows, buildSessionProjection } from '../runtime';
+import {
+	createLobbyState,
+	applyGameCommand,
+	applyDeadlineAdvance,
+	buildHistorySnapshotRows,
+	buildSessionProjection
+} from '../runtime';
+import { enterBenefits, enterAwakening } from '../phases';
+import { WILDCARD_RUNE_IDS } from '../awakenConditions';
+import { AWAKEN_PROGRESS_KEYS } from '../effects/awakenHandlers';
+import { nextId } from '../rng';
 import type {
 	CommandResult,
 	GameActor,
 	GameCommand,
 	GameSessionStatus,
 	MemberRole,
+	NormalizedAwaken,
+	PlayCatalog,
+	PlayCatalogSpirit,
+	PrivatePlayerState,
 	PublicGameState,
+	RoomSummary,
 	SeatColor,
 	SpectatorProjection
 } from '../types';
-import { SEAT_COLORS } from '../types';
+import type { RuneSlotSnapshot } from '$lib/types';
+import { SEAT_COLORS, phaseDurationMs } from '../types';
+import {
+	roomCloseReason,
+	isRoomOpen,
+	humanLastSeen,
+	type RoomCloseReason,
+	type RoomLiveness
+} from '../roomLifecycle';
 import { loadPlayCatalog } from './catalog';
 import { getSupabaseAdmin } from '$lib/server/supabaseAdmin';
 
@@ -192,13 +215,16 @@ async function syncMemberMirrors(sessionId: string, state: PublicGameState) {
 		const role: MemberRole =
 			member.role === 'host' ? 'host' : occupiedSeat ? 'player' : 'spectator';
 
+		// NOTE: do NOT touch last_seen_at here. It must reflect only THIS member's own
+		// activity (their SSE poll in loadRoomView / their own command), so that a stale
+		// last_seen_at is a reliable "this member has disconnected" signal. Bumping it
+		// for every member on every command (the old behavior) made it useless.
 		const { error } = await getPlayAdmin()
 			.from(PLAY_TABLES.MEMBERS)
 			.update({
 				seat_color: occupiedSeat,
 				selected_guardian: selectedGuardian,
-				role,
-				last_seen_at: new Date().toISOString()
+				role
 			})
 			.eq('id', member.id);
 
@@ -266,7 +292,7 @@ async function writeHistorySnapshots(state: PublicGameState, timestamp: string) 
 async function persistSessionUpdate(params: {
 	session: PlaySessionRow;
 	nextState: PublicGameState;
-	actorMemberId: string;
+	actorMemberId: string | null;
 	command: GameCommand;
 }) {
 	const now = new Date().toISOString();
@@ -298,7 +324,9 @@ async function persistSessionUpdate(params: {
 		throw kitError(500, `Failed to persist session: ${error.message}`);
 	}
 	if (!data) {
-		throw kitError(409, 'This room changed before your action could be applied.');
+		// Compare-and-set miss: another write landed between our load and update.
+		// Signal the caller to reload fresh state and re-apply the command.
+		return null;
 	}
 
 	const eventInsert = await getPlayAdmin().from(PLAY_TABLES.EVENTS).insert({
@@ -315,6 +343,249 @@ async function persistSessionUpdate(params: {
 	await syncMemberMirrors(session.id, nextState);
 
 	return data as PlaySessionRow;
+}
+
+/** Synthetic command recorded in the events log when the server force-advances a phase. */
+const ENFORCE_DEADLINE_COMMAND = { type: 'enforceDeadline' } as unknown as GameCommand;
+
+/**
+ * Server boundary: stamp the wall-clock deadline for the CURRENT phase if it isn't
+ * already set. The pure reducer nulls phaseDeadline on every phase entry, so this
+ * re-stamps the freshly-entered (final) phase after a command resolves; an in-phase
+ * action (deadline still set) is left untouched. Uses the SERVER clock only — a
+ * client's echoed value is never trusted for enforcement. Mirrors navigationDeadline
+ * so the existing navigation countdown UI keeps working.
+ */
+function stampPhaseDeadline(state: PublicGameState): void {
+	if (state.status !== 'active') {
+		state.phaseDeadline = null;
+		return;
+	}
+	if (state.phase === 'navigation' && !state.revealedDestinations) {
+		// Navigation uses the host-configured timer. `null` = no limit: no time-based
+		// deadline at all — the round advances only once every seat locks (the all-locked
+		// grace in applyNavLockDeadline sets a short deadline at that point).
+		const dur = state.navigationDurationMs;
+		if (dur == null) {
+			state.phaseDeadline = null;
+			state.navigationDeadline = null;
+			state.navigationFullDeadline = null;
+			return;
+		}
+		if (state.phaseDeadline == null) state.phaseDeadline = Date.now() + dur;
+		state.navigationDeadline ??= state.phaseDeadline;
+		state.navigationFullDeadline ??= state.navigationDeadline;
+		return;
+	}
+	if (state.phaseDeadline == null) {
+		state.phaseDeadline = Date.now() + phaseDurationMs(state.phase);
+	}
+}
+
+/** When every active seat is locked, collapse the navigation deadline to a short final
+ *  grace so the round doesn't idle — while still leaving a window to back out. A seat
+ *  unlocking (or someone still picking) restores the original full deadline. Server-clock
+ *  only; navigationFullDeadline (stamped above) remembers the un-shortened deadline. */
+const NAV_GRACE_MS = 5000;
+function applyNavLockDeadline(state: PublicGameState): void {
+	if (state.status !== 'active' || state.phase !== 'navigation' || state.revealedDestinations) return;
+	const seats = state.activeSeats;
+	const allLocked = seats.length > 0 && seats.every((s) => state.navigation[s]?.locked === true);
+	// `full` is null under a "no limit" timer (no time deadline while picking).
+	const full = state.navigationFullDeadline;
+	if (allLocked) {
+		// Everyone's in — collapse to a short final grace so the round advances (still a
+		// back-out window). Never EXTEND past the original deadline when one exists; under
+		// "no limit" the grace IS the only deadline, so the round can't idle forever.
+		const grace = Date.now() + NAV_GRACE_MS;
+		const target = full == null ? grace : Math.min(full, grace);
+		state.navigationDeadline = target;
+		state.phaseDeadline = target;
+	} else {
+		// Someone is still choosing — restore the full deadline (null under "no limit",
+		// which clears the countdown and any pending advance entirely).
+		state.navigationDeadline = full;
+		state.phaseDeadline = full;
+	}
+}
+
+/**
+ * If the room's current phase has run past its server-clock deadline, advance it ONCE
+ * past any silent/disconnected seat and persist under the existing revision CAS.
+ * Single-winner: every connected client's ~1s SSE poll calls this; concurrent callers
+ * all compute the same advance, exactly one wins the CAS (eq revision), the rest no-op.
+ * Advances at most one phase per call (re-stamping a future deadline), so a long-idle
+ * room steps forward one phase per poll rather than racing a whole round in one request.
+ * Returns the freshest session row (advanced / the CAS winner's / unchanged).
+ */
+async function maybeEnforceDeadline(session: PlaySessionRow): Promise<PlaySessionRow> {
+	const state = asState(session);
+	if (state.status !== 'active') return session;
+	if (state.phaseDeadline == null || Date.now() <= state.phaseDeadline) return session;
+
+	const catalog = await loadPlayCatalog();
+	applyDeadlineAdvance(state, catalog); // advances exactly one phase + bumps revision
+	stampPhaseDeadline(state); // stamp the newly-entered phase with the server clock
+
+	const persisted = await persistSessionUpdate({
+		session,
+		nextState: state,
+		actorMemberId: null,
+		command: ENFORCE_DEADLINE_COMMAND
+	});
+	if (persisted) return persisted;
+	// CAS miss: another poller advanced it first — return their fresh state.
+	return (await getSessionByRoomCode(session.room_code)) ?? session;
+}
+
+/**
+ * Opportunistic, host-INDEPENDENT deadline enforcement. Called from every server
+ * touchpoint that already loads room state — the SSE poll's loadRoomView (~1s per
+ * connected client) and the top of runRoomCommand — plus the page-load path, which
+ * gives the lazy-on-reconnect floor for a room that dropped to zero pollers. Cheap
+ * no-op when the deadline hasn't passed (one SELECT, no write).
+ */
+export async function enforceRoomDeadlines(roomCode: string): Promise<void> {
+	const session = await getSessionByRoomCode(normalizeRoomCode(roomCode));
+	if (session) await maybeEnforceDeadline(session);
+}
+
+// ── Room lifecycle (host-independent close of abandoned/expired rooms) ────────
+
+/** Build the pure {@link RoomLiveness} input from a session row + its member rows. */
+function roomLivenessFrom(
+	session: Pick<PlaySessionRow, 'status' | 'created_at' | 'started_at'>,
+	members: { display_name: string | null; last_seen_at: string }[]
+): RoomLiveness {
+	return {
+		status: session.status,
+		createdAtMs: Date.parse(session.created_at),
+		startedAtMs: session.started_at ? Date.parse(session.started_at) : null,
+		humanLastSeenMs: humanLastSeen(
+			members.map((m) => ({ displayName: m.display_name, lastSeenAtMs: Date.parse(m.last_seen_at) }))
+		)
+	};
+}
+
+/**
+ * Transition a room to the terminal `closed` state: mirrors the row `status`, stamps
+ * `ended_at`, syncs `public_state.status` (so a stranded client's projection reads
+ * `closed` and bounces, and a late command can't reopen it), and bumps `revision`
+ * under the existing compare-and-set so connected SSE pollers get pushed the change.
+ * Returns the updated row, or `null` on a CAS miss (another writer won).
+ */
+async function closeRoomSession(
+	session: PlaySessionRow,
+	reason: RoomCloseReason
+): Promise<PlaySessionRow | null> {
+	const oldRevision = session.revision;
+	// Clone before mutating: asState() may alias the row's parsed public_state, and a
+	// CAS miss would otherwise leave a half-mutated object behind for the next reader.
+	const state = structuredClone(asState(session));
+	state.status = 'closed';
+	state.revision = oldRevision + 1;
+	const now = new Date().toISOString();
+
+	const { data, error } = await getPlayAdmin()
+		.from(PLAY_TABLES.SESSIONS)
+		.update({
+			status: 'closed',
+			revision: state.revision,
+			ended_at: session.ended_at ?? now,
+			public_state: state
+		})
+		.eq('id', session.id)
+		.eq('revision', oldRevision)
+		.select('*')
+		.maybeSingle();
+
+	if (error) {
+		throw kitError(500, `Failed to close room: ${error.message}`);
+	}
+	if (!data) {
+		// CAS miss — another request closed/advanced this row first.
+		return null;
+	}
+
+	// Best-effort audit row; never fail the close on a logging hiccup.
+	await getPlayAdmin()
+		.from(PLAY_TABLES.EVENTS)
+		.insert({
+			session_id: session.id,
+			revision: state.revision,
+			actor_member_id: null,
+			command_type: 'closeRoom',
+			command_payload: { reason }
+		})
+		.then(undefined, () => {});
+
+	return data as PlaySessionRow;
+}
+
+/**
+ * Close THIS session if it is a lobby that has aged out (≥30 min, never started) or a
+ * lobby/active room that has been abandoned (no human seen within the presence
+ * window). Host-independent and opportunistic — the per-room analogue of
+ * {@link maybeEnforceDeadline}; no-op for finished/closed sessions. Returns the
+ * freshest row (closed / the CAS winner's row / unchanged). Pass `members` to reuse
+ * rows already loaded by the caller.
+ */
+async function maybeCloseRoom(
+	session: PlaySessionRow,
+	members?: { display_name: string | null; last_seen_at: string }[]
+): Promise<PlaySessionRow> {
+	if (session.status !== 'lobby' && session.status !== 'active') return session;
+	const memberRows = members ?? (await getMembersForSession(session.id));
+	const reason = roomCloseReason(roomLivenessFrom(session, memberRows), Date.now());
+	if (!reason) return session;
+
+	const closed = await closeRoomSession(session, reason);
+	if (closed) return closed;
+	// CAS miss: another request closed it first — return their fresh row.
+	return (await getSessionByRoomCode(session.room_code)) ?? session;
+}
+
+/**
+ * Sweep every open room (lobby + active) and close the abandoned/expired ones.
+ * Opportunistic + host-independent — called from the server-browser list path so
+ * stale rooms are reaped whenever anyone views the browser (no cron needed). Bounded:
+ * two batched queries (rooms + their members) regardless of room count, then one CAS
+ * update per room that needs closing.
+ */
+export async function closeAbandonedRooms(): Promise<void> {
+	const admin = getPlayAdmin();
+	const { data, error } = await admin
+		.from(PLAY_TABLES.SESSIONS)
+		.select('*')
+		.in('status', ['lobby', 'active']);
+	if (error) {
+		throw kitError(500, `Failed to sweep rooms: ${error.message}`);
+	}
+	const rooms = (data as PlaySessionRow[] | null) ?? [];
+	if (rooms.length === 0) return;
+
+	const ids = rooms.map((room) => room.id);
+	const { data: memberData, error: memberError } = await admin
+		.from(PLAY_TABLES.MEMBERS)
+		.select('session_id, display_name, last_seen_at')
+		.in('session_id', ids);
+	if (memberError) {
+		throw kitError(500, `Failed to sweep room members: ${memberError.message}`);
+	}
+
+	type LiteMember = { session_id: string; display_name: string | null; last_seen_at: string };
+	const bySession = new Map<string, LiteMember[]>();
+	for (const row of (memberData as LiteMember[] | null) ?? []) {
+		const list = bySession.get(row.session_id);
+		if (list) list.push(row);
+		else bySession.set(row.session_id, [row]);
+	}
+
+	const now = Date.now();
+	for (const room of rooms) {
+		const reason = roomCloseReason(roomLivenessFrom(room, bySession.get(room.id) ?? []), now);
+		if (reason) await closeRoomSession(room, reason); // CAS miss ⇒ already handled; ignore
+	}
 }
 
 export async function createRoom(displayName: string): Promise<{ roomCode: string; memberId: string }> {
@@ -377,10 +648,284 @@ export async function createRoom(displayName: string): Promise<{ roomCode: strin
 	throw kitError(500, 'Failed to generate a unique room code.');
 }
 
+// ── Debug spawn (dev-only) ────────────────────────────────────────────────────
+// Seed a solo, already-started game parked in the Awakening phase (folded into
+// Cleanup) with a face-down spirit of the requested class plus everything needed
+// to awaken it — so the ability UX can be tested without playing a whole game.
+
+/** Pick the best catalog spirit carrying `className` to test: prefer a rune-cost
+ *  awaken (exercises the cost UX), then a free flip, then a text condition. */
+function pickDebugSpirit(catalog: PlayCatalog, className: string): PlayCatalogSpirit | null {
+	const candidates = catalog.spirits.filter((s) => (s.classes?.[className] ?? 0) > 0);
+	if (candidates.length === 0) return null;
+	const rank = (s: PlayCatalogSpirit) =>
+		s.awaken?.kind === 'rune_cost' ? 0 : s.awaken == null ? 1 : 2;
+	return [...candidates].sort((a, b) => rank(a) - rank(b))[0] ?? null;
+}
+
+/** Push rune slots that satisfy a spirit's awaken cost into the player's rune mat,
+ *  so the seeded face-down spirit is immediately awakenable. */
+function grantAwakenRunes(player: PrivatePlayerState, awaken: NormalizedAwaken | undefined): void {
+	if (awaken?.kind !== 'rune_cost') return;
+	let slot = (player.runes.at(-1)?.slotIndex ?? 0) + 1;
+	for (const req of awaken.runes) {
+		for (let n = 0; n < req.count; n += 1) {
+			const wildcardKind = req.wildcard
+				? req.runeId === WILDCARD_RUNE_IDS.anyRune
+					? 'rune'
+					: 'relic'
+				: req.kind;
+			const isRune = req.wildcard ? wildcardKind === 'rune' : req.kind === 'rune';
+			const isAugment = req.wildcard ? false : req.kind === 'augment';
+			player.runes.push({
+				slotIndex: slot++,
+				hasRune: true,
+				// Named requirements match on id; wildcards match on derived kind only.
+				id: req.wildcard ? undefined : req.runeId,
+				name: req.name,
+				originId: isRune ? 'debug-origin' : undefined,
+				classId: isAugment ? 'debug-class' : undefined
+			} satisfies RuneSlotSnapshot);
+		}
+	}
+}
+
+/** Place a face-up spirit carrying `className` (a prerequisite target, e.g. the
+ *  Purifier's Cursed Spirit). No-op when the catalog has none. */
+function seedFaceUpSpiritWithClass(
+	catalog: PlayCatalog,
+	player: PrivatePlayerState,
+	className: string,
+	slotIndex: number
+): void {
+	const spirit = catalog.spirits.find((s) => (s.classes?.[className] ?? 0) > 0);
+	if (!spirit) return;
+	player.spirits.push({
+		slotIndex,
+		id: spirit.id,
+		name: spirit.name,
+		cost: spirit.cost,
+		classes: spirit.classes,
+		origins: spirit.origins,
+		isFaceDown: false
+	});
+}
+
+/**
+ * Make a face-down `text`-awaken test spirit genuinely awakenable via its REAL
+ * condition (so the debug game exercises the actual awaken path, not a shortcut):
+ *   - progress-flag conditions (cultivate/rest/combat events) → set the flag so the
+ *     handler's `check` passes and `pay` consumes it on awaken;
+ *   - "Discard N of any attack dice" (Space Invader) → grant enough attack dice;
+ *   - "Discard N Arcane Abyss Spirits" → seed N spare cost 7–9 spirits to discard;
+ *   - relic-discard Faeries / Blood Hound → satisfied by the two starting Fairy Relics.
+ * No-op for `rune_cost` (handled by grantAwakenRunes) and free flips.
+ */
+function satisfyAwakenCondition(
+	state: PublicGameState,
+	player: PrivatePlayerState,
+	catalog: PlayCatalog,
+	testSpirit: PlayCatalogSpirit,
+	nextSlot: () => number | null
+): void {
+	const awaken = testSpirit.awaken;
+	if (awaken?.kind !== 'text') return;
+
+	// Progress-flag conditions: simulate the triggering event happened this round. The
+	// awaken still resolves through the real handler (check reads the flag, pay clears it).
+	player.awakenProgress ??= {};
+	for (const key of Object.values(AWAKEN_PROGRESS_KEYS)) player.awakenProgress[key] = true;
+
+	const text = awaken.text.toLowerCase();
+
+	// "Discard N of any attack dice" (Space Invader).
+	if (text.includes('attack dice')) {
+		for (let i = 0; i < 4; i += 1) {
+			player.attackDice.push({ instanceId: nextId(state.rng, 'die'), tier: 'basic' });
+		}
+	}
+
+	// "Discard N Arcane Abyss Spirits" — seed spare cost 7–9 spirits to spend.
+	const abyss = text.match(/discard (\d+) arcane abyss spirit/);
+	if (abyss) {
+		const need = Number(abyss[1]);
+		const have = () =>
+			player.spirits.filter((s) => s.cost >= 7 && s.cost <= 9 && s.id !== testSpirit.id).length;
+		const fillers = catalog.spirits.filter(
+			(s) => s.cost >= 7 && s.cost <= 9 && s.id !== testSpirit.id
+		);
+		let fi = 0;
+		while (have() < need && fi < fillers.length) {
+			let slot = nextSlot();
+			if (slot === null) {
+				// Free a starting (cheap, non-test) spirit to make room.
+				const victim = player.spirits.find((s) => s.cost < 7);
+				if (!victim) break;
+				slot = victim.slotIndex;
+				player.spirits = player.spirits.filter((s) => s.slotIndex !== slot);
+			}
+			const f = fillers[fi++];
+			player.spirits.push({
+				slotIndex: slot,
+				id: f.id,
+				name: f.name,
+				cost: f.cost,
+				classes: f.classes,
+				origins: f.origins,
+				isFaceDown: false
+			});
+		}
+	}
+}
+
+export async function createDebugRoom(
+	displayName: string,
+	className: string,
+	spiritId?: string
+): Promise<{ roomCode: string; memberId: string }> {
+	const catalog = await loadPlayCatalog();
+	const normalizedName = normalizeDisplayName(displayName || 'Debug Player');
+	const guardianName = catalog.guardians[0]?.name;
+	if (!guardianName) throw kitError(500, 'No guardians available to seed a debug game.');
+
+	// Target a specific spirit when given (so EVERY spirit is testable, not just one per
+	// class); otherwise pick the best representative spirit for the class.
+	const testSpirit = spiritId
+		? (catalog.spirits.find((s) => s.id === spiritId) ?? null)
+		: pickDebugSpirit(catalog, className);
+	if (!testSpirit) {
+		throw kitError(
+			400,
+			spiritId
+				? `No spirit with id "${spiritId}" in the catalog.`
+				: `No spirit in the catalog carries the "${className}" class.`
+		);
+	}
+
+	// 1. Insert a fresh lobby session + a host member.
+	let roomCode = createRoomCode();
+	let sessionId: string | null = null;
+	for (let attempt = 0; attempt < 10 && sessionId === null; attempt += 1) {
+		const lobby = createLobbyState({
+			roomCode,
+			guardianNames: catalog.guardians.map((g) => g.name)
+		});
+		const { data, error } = await getPlayAdmin()
+			.from(PLAY_TABLES.SESSIONS)
+			.insert({
+				room_code: roomCode,
+				status: lobby.status,
+				revision: lobby.revision,
+				scenario: lobby.scenario,
+				public_state: lobby
+			})
+			.select('*')
+			.maybeSingle();
+		if (error) {
+			if (error.code === '23505') {
+				roomCode = createRoomCode();
+				continue;
+			}
+			throw kitError(500, `Failed to create debug room: ${error.message}`);
+		}
+		if (data) sessionId = (data as PlaySessionRow).id;
+	}
+	if (sessionId === null) throw kitError(500, 'Failed to generate a unique debug room code.');
+
+	const memberInsert = await getPlayAdmin()
+		.from(PLAY_TABLES.MEMBERS)
+		.insert({ session_id: sessionId, display_name: normalizedName, role: 'host', private_state: {} })
+		.select('*')
+		.single();
+	if (memberInsert.error) {
+		throw kitError(500, `Failed to create debug host: ${memberInsert.error.message}`);
+	}
+	const memberId = (memberInsert.data as SessionMemberRow).id;
+
+	// 2. Drive the lobby → active transition through the real reducer.
+	let state = createLobbyState({ roomCode, guardianNames: catalog.guardians.map((g) => g.name) });
+	const host: GameActor = { memberId, displayName: normalizedName, role: 'host', seatColor: null };
+	const seat: SeatColor = SEAT_COLORS[0];
+	for (const command of [
+		{ type: 'claimSeat', seatColor: seat },
+		{ type: 'selectGuardian', guardianName },
+		// Omit the seed so startGame derives it from the (random) roomCode — otherwise
+		// concurrent debug spawns share a fixed seed and mint identical game IDs, which
+		// collide on the unique game_id constraint.
+		{ type: 'startGame' }
+	] as GameCommand[]) {
+		const result = applyGameCommand(state, host, command, catalog);
+		if (!result.ok) throw kitError(500, `Debug seed failed at ${command.type}: ${result.error.message}`);
+		state = result.state;
+	}
+
+	// 3. Inject the test scenario: a face-down spirit of the class under test +
+	//    the runes to awaken it + a Cursed Spirit prerequisite for any class.
+	const player = state.players[seat];
+	if (!player) throw kitError(500, 'Debug seed produced no player.');
+	const usedSlots = new Set(player.spirits.map((s) => s.slotIndex));
+	const nextSlot = (): number | null => {
+		for (let i = 1; i <= 7; i += 1) if (!usedSlots.has(i)) { usedSlots.add(i); return i; }
+		return null;
+	};
+	// Always seed the test spirit FACE-DOWN so the awaken is tested through its real
+	// condition: rune costs are granted, and text conditions are genuinely satisfied
+	// (flags/dice/abyss spirits) by satisfyAwakenCondition — never a face-up shortcut.
+	player.spirits.push({
+		slotIndex: nextSlot() ?? 5,
+		id: testSpirit.id,
+		name: testSpirit.name,
+		cost: testSpirit.cost,
+		classes: testSpirit.classes,
+		origins: testSpirit.origins,
+		isFaceDown: true
+	});
+	grantAwakenRunes(player, testSpirit.awaken);
+	satisfyAwakenCondition(state, player, catalog, testSpirit, nextSlot);
+	// Purifier needs a summoned Cursed Spirit as its ability target; add one if a slot
+	// is free and the test spirit isn't itself a Cursed Spirit.
+	if ((testSpirit.classes?.['Cursed Spirit'] ?? 0) === 0) {
+		const csSlot = nextSlot();
+		if (csSlot !== null) seedFaceUpSpiritWithClass(catalog, player, 'Cursed Spirit', csSlot);
+	}
+	player.spirits.sort((a, b) => a.slotIndex - b.slotIndex);
+
+	// 4. Land directly on the Awakening step (run Benefits first so the awakeningPhase
+	//    grants fire + any reward is computed, then advance to where the awaken offers
+	//    live — what the debug flow is here to test) and persist.
+	enterBenefits(state, catalog);
+	enterAwakening(state, catalog);
+	state.revision += 1;
+	state.phaseDeadline = Date.now() + phaseDurationMs(state.phase);
+
+	const now = new Date().toISOString();
+	const { error: updateError } = await getPlayAdmin()
+		.from(PLAY_TABLES.SESSIONS)
+		.update({
+			status: state.status,
+			revision: state.revision,
+			game_id: state.gameId,
+			scenario: state.scenario,
+			public_state: state,
+			started_at: now
+		})
+		.eq('id', sessionId);
+	if (updateError) throw kitError(500, `Failed to persist debug room: ${updateError.message}`);
+
+	await syncMemberMirrors(sessionId, state);
+	return { roomCode, memberId };
+}
+
 export async function joinRoom(roomCode: string, displayName: string): Promise<{ memberId: string }> {
-	const session = await getSessionByRoomCode(normalizeRoomCode(roomCode));
+	let session = await getSessionByRoomCode(normalizeRoomCode(roomCode));
 	if (!session) {
 		throw kitError(404, 'Room not found.');
+	}
+	// Close the room first if it's already due (expired/abandoned), so a stale row
+	// can't accept a joiner a beat before it would have been reaped.
+	session = await maybeCloseRoom(session);
+	if (session.status === 'closed' || session.status === 'finished') {
+		throw kitError(410, 'This room is no longer open to join.');
 	}
 
 	const insert = await getPlayAdmin()
@@ -397,26 +942,147 @@ export async function joinRoom(roomCode: string, displayName: string): Promise<{
 	if (insert.error) {
 		throw kitError(500, `Failed to join room: ${insert.error.message}`);
 	}
+	const memberId = (insert.data as SessionMemberRow).id;
 
-	return { memberId: (insert.data as SessionMemberRow).id };
+	// TOCTOU guard: another request may have closed the room between the status check
+	// and this insert. If it went terminal, roll back the orphaned membership so a
+	// closed room never carries a live member (the "open only while present" invariant).
+	const fresh = await getSessionByRoomCode(session.room_code);
+	if (fresh && (fresh.status === 'closed' || fresh.status === 'finished')) {
+		await getPlayAdmin().from(PLAY_TABLES.MEMBERS).delete().eq('id', memberId);
+		throw kitError(410, 'This room is no longer open to join.');
+	}
+
+	return { memberId };
+}
+
+function scenarioDisplayName(scenario: PublicGameState['scenario']): string | null {
+	if (scenario == null) return null;
+	if (typeof scenario === 'string') return scenario;
+	return scenario.name ?? scenario.id ?? scenario.requested ?? null;
+}
+
+/**
+ * List every joinable/spectatable room for the server browser: `lobby` and `active`
+ * sessions (never `finished`/`closed`), newest first. Returns public summaries only
+ * — no per-seat private state.
+ *
+ * Room lifecycle is enforced here, host-independently:
+ *  1. {@link closeAbandonedRooms} first reaps any aged-out lobby (≥30 min, never
+ *     started) or abandoned room — a lobby with no human present, or an active game
+ *     everyone has left — so they leave the list for good.
+ *  2. As defense-in-depth against a sweep that just missed (CAS race / sub-second
+ *     boundary), a room is additionally hidden at read time unless it's still
+ *     {@link isRoomOpen}.
+ *
+ * Host names AND presence are resolved from one batched members query.
+ */
+export async function listOpenRooms(): Promise<RoomSummary[]> {
+	// Opportunistic, host-independent cleanup before listing.
+	await closeAbandonedRooms();
+
+	const admin = getPlayAdmin();
+	const { data, error } = await admin
+		.from(PLAY_TABLES.SESSIONS)
+		.select('id, room_code, status, public_state, scenario, created_at, started_at')
+		.in('status', ['lobby', 'active'])
+		.order('created_at', { ascending: false })
+		.limit(60);
+
+	if (error) {
+		throw kitError(500, `Failed to list rooms: ${error.message}`);
+	}
+
+	type ListRow = Pick<
+		PlaySessionRow,
+		'id' | 'room_code' | 'status' | 'public_state' | 'scenario' | 'created_at' | 'started_at'
+	>;
+	const rows = (data as ListRow[] | null) ?? [];
+	if (rows.length === 0) return [];
+
+	// One batched query resolves both the host name and lobby presence (avoids N+1).
+	const sessionIds = rows.map((r) => r.id);
+	const { data: memberRows, error: memberError } = await admin
+		.from(PLAY_TABLES.MEMBERS)
+		.select('session_id, display_name, role, last_seen_at')
+		.in('session_id', sessionIds);
+
+	if (memberError) {
+		throw kitError(500, `Failed to load room members: ${memberError.message}`);
+	}
+
+	type LiteMember = {
+		session_id: string;
+		display_name: string | null;
+		role: MemberRole;
+		last_seen_at: string;
+	};
+	const hostBySession = new Map<string, string>();
+	const membersBySession = new Map<string, LiteMember[]>();
+	for (const row of (memberRows as LiteMember[] | null) ?? []) {
+		const list = membersBySession.get(row.session_id);
+		if (list) list.push(row);
+		else membersBySession.set(row.session_id, [row]);
+		if (row.role === 'host' && !hostBySession.has(row.session_id) && row.display_name) {
+			hostBySession.set(row.session_id, row.display_name);
+		}
+	}
+
+	const now = Date.now();
+	return rows
+		.filter((row) =>
+			// Hide any room the sweep would have closed (lobby aged-out/abandoned, or an
+			// abandoned active game) even if a CAS race left it un-swept this tick.
+			isRoomOpen(roomLivenessFrom(row, membersBySession.get(row.id) ?? []), now)
+		)
+		.map((row) => {
+			const state = parseJsonValue<PublicGameState | null>(row.public_state, null);
+			const seats = state ? Object.values(state.seats) : [];
+			const occupiedSeats = seats.filter((seat) => seat.memberId != null).length;
+			return {
+				roomCode: row.room_code,
+				status: row.status,
+				hostName: hostBySession.get(row.id) ?? 'Anonymous',
+				occupiedSeats,
+				totalSeats: seats.length,
+				round: state?.round ?? 0,
+				scenarioName: scenarioDisplayName(state?.scenario ?? row.scenario),
+				createdAt: row.created_at,
+				startedAt: row.started_at
+			} satisfies RoomSummary;
+		});
 }
 
 export async function loadRoomView(
 	roomCode: string,
 	memberId: string | null | undefined
 ): Promise<RoomView> {
-	const session = await getSessionByRoomCode(roomCode);
+	let session = await getSessionByRoomCode(roomCode);
 	if (!session) {
 		throw kitError(404, 'Room not found.');
 	}
 
-	const state = asState(session);
+	// Opportunistic, host-independent enforcement: every connected client's ~1s SSE
+	// poll (and the page-load path) advances a phase that has run past its deadline,
+	// so a silent/disconnected seat can't stall the game. Cheap no-op when not due.
+	session = await maybeEnforceDeadline(session);
+
 	const rawMember = memberId ? await getMemberById(memberId) : null;
 	const member = rawMember && rawMember.session_id === session.id ? rawMember : null;
+	// Stamp THIS member's liveness BEFORE the room-close check, so an actively
+	// polling member always counts as present — an `abandoned` close can never fire
+	// out from under someone who is here. (An `expired` lobby still closes regardless.)
 	if (member) {
 		await updateLastSeen(member.id);
 	}
 
+	// Opportunistic, host-independent close: reap this room if it's a lobby that aged
+	// out (≥30 min, never started) or a lobby/active game that was abandoned (no human
+	// present). No-op for finished/closed sessions. On close the revision bumps, so the
+	// SSE poll pushes the `closed` snapshot and the client bounces out of the room.
+	session = await maybeCloseRoom(session);
+
+	const state = asState(session);
 	const projection = buildSessionProjection(state, viewerForMember(state, member));
 	return {
 		projection,
@@ -429,6 +1095,20 @@ export async function loadRoomView(
 	};
 }
 
+/**
+ * Load the full, un-projected {@link PublicGameState} for a room. Unlike
+ * {@link loadRoomView} (which returns an owner-gated spectator projection), this
+ * returns the raw authoritative state — needed server-side by tools like the bot
+ * driver that must trial-apply commands against the real reducer. Server-only.
+ */
+export async function loadRawRoomState(roomCode: string): Promise<PublicGameState> {
+	const session = await getSessionByRoomCode(roomCode);
+	if (!session) {
+		throw kitError(404, 'Room not found.');
+	}
+	return asState(session);
+}
+
 export async function runRoomCommand(params: {
 	roomCode: string;
 	memberId: string;
@@ -436,49 +1116,100 @@ export async function runRoomCommand(params: {
 	command: GameCommand;
 }): Promise<RoomView> {
 	const roomCode = normalizeRoomCode(params.roomCode);
-	const session = await getSessionByRoomCode(roomCode);
-	if (!session) {
-		throw kitError(404, 'Room not found.');
-	}
-
 	const member = await getMemberById(params.memberId);
-	if (!member || member.session_id !== session.id) {
+	if (!member) {
 		throw kitError(401, 'Session member not found for this room.');
 	}
 
-	const state = asState(session);
-	if (params.expectedRevision != null && params.expectedRevision !== state.revision) {
-		throw kitError(409, 'The room changed before your action could be applied.');
-	}
-
-	const actor = actorForMember(state, member);
 	const catalog = await loadPlayCatalog();
-	const commandResult: CommandResult = applyGameCommand(state, actor, params.command, catalog);
-	if (!commandResult.ok) {
-		throw kitError(400, commandResult.error.message);
+
+	// If the current phase already timed out, advance it BEFORE applying this command
+	// (a late action then resolves against the correct, advanced phase). Host-independent.
+	//
+	// EXCEPT forceAdvancePhase: that command ALREADY advances exactly one phase on its own,
+	// so pre-enforcing here would advance a SECOND time in the same request — enforcement
+	// reveals navigation→location, then the command pushes location→cleanup, silently
+	// skipping the location interaction. (This is the same double-advance the client-side
+	// nav timeout used to cause.) A host's single "Force phase" click must map to a single
+	// advance, so skip the leading enforcement for it and let the command do the one hop.
+	if (params.command.type !== 'forceAdvancePhase') {
+		await enforceRoomDeadlines(roomCode);
 	}
 
-	await persistSessionUpdate({
-		session,
-		nextState: commandResult.state,
-		actorMemberId: member.id,
-		command: params.command
-	});
+	const MAX_ATTEMPTS = 6;
 
-	if (params.command.type === 'commitRound') {
-		await writeHistorySnapshots(state, new Date().toISOString());
-	}
-
-	const memberAfterUpdate = await getMemberById(member.id);
-	const projection = buildSessionProjection(commandResult.state, viewerForMember(commandResult.state, memberAfterUpdate));
-
-	return {
-		projection,
-		member: {
-			id: member.id,
-			role: projection.viewer.role,
-			seatColor: projection.viewer.seatColor,
-			displayName: projection.viewer.displayName
+	// Optimistic-concurrency retry loop. Each attempt loads the freshest state,
+	// applies the command against it, then persists with a DB compare-and-set. A
+	// CAS miss means another player wrote concurrently — reload and re-apply. We
+	// intentionally do NOT gate on the client-supplied expectedRevision: play is
+	// simultaneous and clients trail the server by up to one ~1s SSE poll.
+	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+		const session = await getSessionByRoomCode(roomCode);
+		if (!session) {
+			throw kitError(404, 'Room not found.');
 		}
-	};
+		if (member.session_id !== session.id) {
+			throw kitError(401, 'Session member not found for this room.');
+		}
+		// A closed lobby is terminal — never let a late command (e.g. a stranded
+		// host's "Start Game") revive it back to active/lobby.
+		if (session.status === 'closed') {
+			throw kitError(410, 'This lobby has closed.');
+		}
+
+		const state = asState(session);
+		const actor = actorForMember(state, member);
+		const commandResult: CommandResult = applyGameCommand(state, actor, params.command, catalog);
+		if (!commandResult.ok) {
+			throw kitError(400, commandResult.error.message);
+		}
+
+		// Stamp the deadline for the phase this command lands in (the pure reducer can't
+		// read the clock; it nulls phaseDeadline on every phase entry). A command can
+		// cross multiple phase entries (e.g. commitCleanup → next round's navigation), so
+		// we stamp the FINAL phase here after the whole command resolves.
+		const next = commandResult.state;
+		stampPhaseDeadline(next);
+		// Early-finish grace: collapse the deadline to ~5s once everyone has locked
+		// (restored if a seat backs out). Drives the navigation reveal via enforcement.
+		applyNavLockDeadline(next);
+
+		const persisted = await persistSessionUpdate({
+			session,
+			nextState: commandResult.state,
+			actorMemberId: member.id,
+			command: params.command
+		});
+
+		if (!persisted) {
+			continue; // CAS conflict — reload fresh state and retry.
+		}
+
+		if (params.command.type === 'commitRound') {
+			await writeHistorySnapshots(state, new Date().toISOString());
+		}
+
+		// The acting member just made a request → they're alive. This (plus the SSE
+		// poll in loadRoomView) is the only writer of last_seen_at, keeping it a
+		// trustworthy per-player liveness signal.
+		await updateLastSeen(member.id);
+
+		const memberAfterUpdate = await getMemberById(member.id);
+		const projection = buildSessionProjection(
+			commandResult.state,
+			viewerForMember(commandResult.state, memberAfterUpdate)
+		);
+
+		return {
+			projection,
+			member: {
+				id: member.id,
+				role: projection.viewer.role,
+				seatColor: projection.viewer.seatColor,
+				displayName: projection.viewer.displayName
+			}
+		};
+	}
+
+	throw kitError(409, 'This room is being updated by other players — please retry.');
 }

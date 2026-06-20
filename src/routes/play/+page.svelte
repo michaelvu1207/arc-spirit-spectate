@@ -1,270 +1,412 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { createPlayRoom, joinPlayRoom } from '$lib/stores/playStore.svelte';
+	import { onMount } from 'svelte';
+	import { playMenuSfx } from '$lib/stores/menuAudio.svelte';
+	import MenuShell from '$lib/components/play2d/MenuShell.svelte';
+	import InstallPrompt from '$lib/components/InstallPrompt.svelte';
 
-	interface Props {
-		data: {
-			lastRoomCode: string | null;
+	const hover = () => playMenuSfx('ui-hover', { volume: 0.45 });
+
+	onMount(() => {
+		// Immersive full-screen: hide global chrome + lock scroll while on the menu.
+		document.documentElement.classList.add('immersive-play');
+		document.body.classList.add('immersive-play');
+		return () => {
+			document.documentElement.classList.remove('immersive-play');
+			document.body.classList.remove('immersive-play');
 		};
-	}
-
-	let { data }: Props = $props();
-
-	let createName = $state('');
-	let joinName = $state('');
-	let joinCode = $state('');
-	let pending = $state<'create' | 'join' | null>(null);
-	let error = $state<string | null>(null);
-
-	$effect(() => {
-		if (!joinCode && data.lastRoomCode) {
-			joinCode = data.lastRoomCode;
-		}
 	});
-
-	async function handleCreate() {
-		pending = 'create';
-		error = null;
-		try {
-			const view = await createPlayRoom(createName);
-			await goto(`/play/${encodeURIComponent(view.projection.roomCode)}`);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to create room.';
-		} finally {
-			pending = null;
-		}
-	}
-
-	async function handleJoin() {
-		pending = 'join';
-		error = null;
-		try {
-			const view = await joinPlayRoom(joinCode, joinName);
-			await goto(`/play/${encodeURIComponent(view.projection.roomCode)}`);
-		} catch (err) {
-			error = err instanceof Error ? err.message : 'Failed to join room.';
-		} finally {
-			pending = null;
-		}
-	}
 </script>
 
 <svelte:head>
-	<title>Play Arc Spirits | Arc Spirits Spectate</title>
+	<title>Play Arc Spirits | Fight for the Arcane Abyss</title>
 </svelte:head>
 
-<div class="play-home">
-	<section class="hero">
-		<div class="eyebrow">Play Surface</div>
-		<h1>Run Arc Spirits in the browser.</h1>
-		<p>
-			Create a live room, claim seats, choose guardians, and move into a real multiplayer game loop
-			without leaving the Spectate app.
-		</p>
-	</section>
+<InstallPrompt />
 
-	{#if error}
-		<div class="error-banner">{error}</div>
-	{/if}
+<MenuShell>
+	<div class="home">
+		<div class="logo reveal" style="--d: 0.04s">
+			<span class="kicker"><span class="kn">01</span><span class="kl"></span> Live Play</span>
+			<span class="l l1 brand-flame-text">Arc</span>
+			<span class="l l2 brand-flame-text">Spirits</span>
+			<span class="tag">Fight for the Arcane Abyss</span>
+		</div>
 
-	<div class="panels">
-		<section class="panel">
-			<h2>Create Room</h2>
-			<label>
-				<span>Display name</span>
-				<input bind:value={createName} maxlength="40" placeholder="Host Player" />
-			</label>
-			<button type="button" class="btn-primary" onclick={handleCreate} disabled={pending !== null}>
-				{pending === 'create' ? 'Creating…' : 'Create room'}
-			</button>
-		</section>
-
-		<section class="panel">
-			<h2>Join Room</h2>
-			<label>
-				<span>Room code</span>
-				<input bind:value={joinCode} maxlength="12" placeholder="ROOM42" style="text-transform: uppercase;" />
-			</label>
-			<label>
-				<span>Display name</span>
-				<input bind:value={joinName} maxlength="40" placeholder="Guest Player" />
-			</label>
-			<button type="button" class="btn-primary" onclick={handleJoin} disabled={pending !== null}>
-				{pending === 'join' ? 'Joining…' : 'Join room'}
-			</button>
-			{#if data.lastRoomCode}
-				<a class="last-room" href={`/play/${encodeURIComponent(data.lastRoomCode)}`}>
-					Resume recent room {data.lastRoomCode}
+		<div class="menu-col reveal" style="--d: 0.12s">
+			<nav class="menu" aria-label="Main menu">
+				<a
+					data-testid="play-open"
+					class="row primary"
+					href="/play/browse"
+					onpointerenter={hover}
+					onclick={() => playMenuSfx('ui-click')}
+				>
+					<span class="gem"></span>
+					<span class="lbl">Play</span>
+					<span class="go">→</span>
 				</a>
-			{/if}
-		</section>
+
+				<a
+					class="row link"
+					href="/play/champions"
+					onpointerenter={hover}
+					onclick={() => playMenuSfx('ui-click')}
+				>
+					<span class="gem"></span><span class="lbl">Hall of Champions</span><span class="go">→</span>
+				</a>
+				<a
+					class="row link"
+					href="/play/records"
+					onpointerenter={hover}
+					onclick={() => playMenuSfx('ui-click')}
+				>
+					<span class="gem"></span><span class="lbl">Game Records</span><span class="go">→</span>
+				</a>
+				<a
+					class="row link"
+					href="/play/builder"
+					onpointerenter={hover}
+					onclick={() => playMenuSfx('ui-click')}
+				>
+					<span class="gem"></span><span class="lbl">Builder</span><span class="go">→</span>
+				</a>
+				<a
+					class="row link"
+					href="/stats"
+					onpointerenter={hover}
+					onclick={() => playMenuSfx('ui-click')}
+				>
+					<span class="gem"></span><span class="lbl">Stats</span><span class="go">→</span>
+				</a>
+			</nav>
+		</div>
 	</div>
-</div>
+</MenuShell>
 
 <style>
-	.play-home {
-		max-width: 1120px;
-		margin: 0 auto;
-		padding: 42px 24px 80px;
-	}
-
-	/* ── Hero ─────────────────────────────────────────────── */
-	.hero {
-		padding: 40px 36px 36px;
-		background: var(--color-tomb);
-		border: 1px solid var(--brand-violet);
-		border-radius: 4px;
+	.home {
 		position: relative;
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: clamp(16px, 3vh, 34px);
+		padding: clamp(58px, 9vh, 96px) 8vw clamp(28px, 5vh, 56px);
+		/* Never scroll — the layout adapts to fit portrait AND landscape. */
+		overflow: hidden;
 	}
 
-	/* Single magenta underline accent on the hero bottom edge */
-	.hero::after {
+	/* ── Logo lockup (stacked so it never clips) ──────────────── */
+	.logo {
+		display: flex;
+		flex-direction: column;
+	}
+	.kicker {
+		display: inline-flex;
+		align-items: center;
+		gap: 10px;
+		font-family: var(--font-display);
+		font-size: 0.66rem;
+		letter-spacing: 0.34em;
+		text-transform: uppercase;
+		color: var(--color-fog, #9a8fb8);
+		margin-bottom: clamp(6px, 1.4vh, 12px);
+	}
+	.kicker .kn {
+		font-family: var(--font-mono);
+		color: var(--brand-cyan, #24d4ff);
+	}
+	.kicker .kl {
+		width: 26px;
+		height: 1px;
+		background: currentColor;
+		opacity: 0.5;
+	}
+	.l {
+		font-family: var(--font-display);
+		/* vmin so the wordmark shrinks with the SHORT side — keeps landscape tidy. */
+		font-size: clamp(2.6rem, 8vmin, 6.5rem);
+		line-height: 0.82;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		filter: drop-shadow(0 6px 30px rgba(123, 29, 255, 0.5));
+	}
+	.l2 {
+		margin-left: 0.06em;
+	}
+	.tag {
+		margin-top: clamp(8px, 1.6vh, 16px);
+		font-family: var(--font-display);
+		font-size: clamp(0.7rem, 1.7vmin, 1.1rem);
+		letter-spacing: 0.34em;
+		text-transform: uppercase;
+		color: var(--color-parchment, #d8cfee);
+	}
+
+	/* ── Menu column ──────────────────────────────────────────── */
+	.menu-col {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		max-width: 460px;
+		min-width: 0;
+	}
+	.menu {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+
+	.row {
+		position: relative;
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		width: 100%;
+		padding: 14px 8px;
+		background: none;
+		border: none;
+		text-align: left;
+		text-decoration: none;
+		cursor: pointer;
+		color: var(--color-parchment, #d8cfee);
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		user-select: none;
+		transition:
+			transform 200ms cubic-bezier(0.2, 0.7, 0.2, 1),
+			color 200ms ease;
+	}
+	.row::after {
 		content: '';
 		position: absolute;
-		left: 36px;
-		bottom: 0;
-		width: 72px;
-		height: 3px;
-		background: var(--brand-magenta);
+		left: 8px;
+		right: 8px;
+		bottom: 6px;
+		height: 1px;
+		background: var(--gradient-spectrum, linear-gradient(90deg, #ff2bc7, #7b1dff, #24d4ff));
+		transform: scaleX(0);
+		transform-origin: left;
+		opacity: 0.7;
+		transition: transform 240ms ease;
 	}
-
-	.eyebrow {
-		font-family: var(--font-display);
-		font-size: 0.72rem;
-		letter-spacing: 0.28em;
-		text-transform: uppercase;
-		color: var(--brand-cyan);
-		margin-bottom: 10px;
+	@media (hover: hover) and (pointer: fine) {
+		.row:hover {
+			color: #fff;
+			transform: translateX(8px);
+			outline: none;
+		}
+		.row:hover::after {
+			transform: scaleX(1);
+		}
+		.row:hover .gem {
+			background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff));
+			border-color: transparent;
+			box-shadow: 0 0 12px rgba(255, 43, 199, 0.7);
+		}
+		.row:hover .go {
+			opacity: 1;
+			transform: translateX(0);
+		}
+		.row.link:hover .lbl {
+			color: #fff;
+		}
 	}
-
-	.hero h1 {
-		margin: 0;
-		font-family: var(--font-display);
-		font-size: clamp(2.8rem, 5vw, 5rem);
-		line-height: 0.92;
+	.row:focus-visible {
 		color: #fff;
-		letter-spacing: 0.02em;
-	}
-
-	.hero p {
-		max-width: 54rem;
-		margin: 20px 0 0;
-		font-size: 1rem;
-		line-height: 1.7;
-		color: var(--color-fog);
-	}
-
-	/* ── Error ────────────────────────────────────────────── */
-	.error-banner {
-		margin-top: 20px;
-		padding: 14px 16px;
-		background: rgba(110, 18, 35, 0.52);
-		border-left: 3px solid var(--color-blood);
-		color: var(--color-parchment);
-	}
-
-	/* ── Panels ───────────────────────────────────────────── */
-	.panels {
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 20px;
-		margin-top: 24px;
-	}
-
-	.panel {
-		display: flex;
-		flex-direction: column;
-		gap: 18px;
-		padding: 28px;
-		background: var(--color-tomb);
-		border: 1px solid var(--color-mist);
-		border-radius: 4px;
-	}
-
-	.panel h2 {
-		margin: 0;
-		font-family: var(--font-display);
-		font-size: 2rem;
-		letter-spacing: 0.04em;
-		color: #fff;
-		padding-bottom: 12px;
-		border-bottom: 1px solid var(--brand-magenta);
-	}
-
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	label span {
-		font-size: 0.72rem;
-		letter-spacing: 0.2em;
-		text-transform: uppercase;
-		color: var(--brand-cyan);
-		font-family: var(--font-display);
-	}
-
-	input {
-		padding: 13px 14px;
-		border-radius: 0;
-		border: 1px solid var(--color-aether);
-		background: var(--color-shadow);
-		color: #fff;
-		font-size: 1rem;
-		font-family: var(--font-body);
-		transition: border-color 150ms ease;
-	}
-
-	input:focus {
+		transform: translateX(8px);
 		outline: none;
-		border-color: var(--brand-magenta);
+	}
+	.row:focus-visible::after {
+		transform: scaleX(1);
 	}
 
-	input::placeholder {
-		color: var(--color-whisper);
+	.gem {
+		flex: 0 0 auto;
+		width: 11px;
+		height: 11px;
+		transform: rotate(45deg);
+		border: 1px solid var(--color-aether, #3a2670);
+		background: transparent;
+		transition:
+			background 200ms ease,
+			border-color 200ms ease,
+			box-shadow 200ms ease;
+	}
+	.row:focus-visible .gem {
+		background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff));
+		border-color: transparent;
+		box-shadow: 0 0 12px rgba(255, 43, 199, 0.7);
 	}
 
-	/* Solid magenta block button — no gradients */
-	.btn-primary {
-		align-self: flex-start;
-		padding: 14px 28px;
-		border-radius: 0;
-		border: none;
-		background: var(--brand-magenta);
-		color: #fff;
+	.lbl {
+		flex: 1;
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		line-height: 1;
+	}
+
+	.go {
+		flex: 0 0 auto;
 		font-family: var(--font-display);
 		font-size: 1.1rem;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		cursor: pointer;
-		transition: background 150ms ease;
+		color: var(--brand-magenta-soft, #ff5dd1);
+		opacity: 0;
+		transform: translateX(-6px);
+		transition:
+			opacity 200ms ease,
+			transform 200ms ease;
+	}
+	.row:focus-visible .go {
+		opacity: 1;
+		transform: translateX(0);
 	}
 
-	.btn-primary:hover {
-		background: var(--brand-magenta-soft);
+	.row.primary .lbl {
+		font-size: 1.95rem;
+	}
+	.row.primary .gem {
+		background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff));
+		border-color: transparent;
+		box-shadow: 0 0 14px rgba(255, 43, 199, 0.65);
+		animation: gem-pulse 2.8s ease-in-out infinite;
+	}
+	.row.primary .go {
+		opacity: 0.85;
+		transform: none;
+		color: var(--brand-magenta, #ff2bc7);
+	}
+	.row.link .lbl {
+		font-size: 1.05rem;
+		color: var(--color-fog, #9a8fb8);
+		letter-spacing: 0.16em;
+	}
+	.row:disabled {
+		opacity: 0.6;
+		cursor: progress;
 	}
 
-	.btn-primary:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.last-room {
-		color: var(--brand-cyan);
-		text-decoration: none;
-		font-family: var(--font-display);
-		font-size: 1rem;
-		letter-spacing: 0.1em;
-	}
-
-	.last-room:hover {
-		color: var(--brand-magenta-soft);
-	}
-
-	@media (max-width: 800px) {
-		.panels {
-			grid-template-columns: 1fr;
+	@keyframes gem-pulse {
+		0%,
+		100% {
+			box-shadow: 0 0 10px rgba(255, 43, 199, 0.5);
 		}
+		50% {
+			box-shadow:
+				0 0 20px rgba(255, 43, 199, 0.85),
+				0 0 36px rgba(123, 29, 255, 0.4);
+		}
+	}
+
+	/* ── Staggered load ───────────────────────────────────────── */
+	.reveal {
+		opacity: 0;
+		transform: translateY(16px);
+		animation: reveal-up 620ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+		animation-delay: var(--d, 0s);
+	}
+	@keyframes reveal-up {
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	/* ── Landscape (short height): logo left, menu right so nothing scrolls ── */
+	@media (orientation: landscape) and (max-height: 640px) {
+		.home {
+			flex-direction: row;
+			align-items: center;
+			justify-content: space-between;
+			gap: 5vw;
+			padding: clamp(46px, 13vh, 64px) 6vw clamp(18px, 8vh, 40px);
+		}
+		.logo {
+			flex: 0 1 auto;
+			min-width: 0;
+		}
+		.l {
+			font-size: clamp(2rem, 12vh, 4.6rem);
+		}
+		.tag {
+			margin-top: clamp(4px, 1.2vh, 12px);
+			font-size: clamp(0.6rem, 2.4vh, 0.95rem);
+		}
+		.kicker {
+			margin-bottom: clamp(4px, 1.2vh, 12px);
+		}
+		.menu-col {
+			flex: 0 0 auto;
+			max-width: 46vw;
+		}
+		.row {
+			padding: clamp(5px, 1.5vh, 14px) 8px;
+		}
+		.row::after {
+			bottom: 3px;
+		}
+		.lbl {
+			font-size: clamp(1rem, 4.6vh, 1.5rem);
+		}
+		.row.primary .lbl {
+			font-size: clamp(1.2rem, 5.8vh, 1.95rem);
+		}
+		.row.link .lbl {
+			font-size: clamp(0.8rem, 3.4vh, 1.05rem);
+		}
+	}
+
+	/* ── Portrait phones ──────────────────────────────────────── */
+	@media (max-width: 620px) and (orientation: portrait) {
+		.home {
+			padding: clamp(56px, 10vh, 84px) 7vw clamp(28px, 6vh, 48px);
+		}
+	}
+	@media (max-width: 480px) and (orientation: portrait) {
+		.home {
+			gap: clamp(14px, 2.4vh, 20px);
+		}
+		.menu-col {
+			max-width: 100%;
+		}
+		.lbl {
+			font-size: 1.25rem;
+		}
+		.row.primary .lbl {
+			font-size: 1.55rem;
+		}
+		.row.link .lbl {
+			font-size: 0.92rem;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.reveal {
+			animation: none;
+			opacity: 1;
+			transform: none;
+		}
+		.row.primary .gem {
+			animation: none;
+		}
+	}
+
+	/* Immersive full-screen: hide global chrome + lock scroll while on the menu. */
+	:global(html.immersive-play),
+	:global(body.immersive-play) {
+		height: 100%;
+		overflow: hidden;
+	}
+	:global(body.immersive-play .topbar) {
+		display: none !important;
+	}
+	:global(body.immersive-play .app),
+	:global(body.immersive-play .app > .flex-1) {
+		height: 100vh;
+		height: 100dvh;
+		overflow: hidden;
 	}
 </style>

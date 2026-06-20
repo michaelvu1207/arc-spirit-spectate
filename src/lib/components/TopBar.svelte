@@ -13,7 +13,8 @@
 	{@const isPlayers = pathname.startsWith('/players')}
 	{@const isClasses = pathname.startsWith('/classes')}
 	{@const isPlay = pathname.startsWith('/play')}
-	{@const isGames = !isLeaderboard && !isPlayers && !isStats && !isStatsAnalysis && !isCompositionAnalysis && !isAdmin && !isClasses && !isPlay}
+	{@const isBotStats = pathname.startsWith('/bot-stats')}
+	{@const isGames = !isLeaderboard && !isPlayers && !isStats && !isStatsAnalysis && !isCompositionAnalysis && !isAdmin && !isClasses && !isPlay && !isBotStats}
 
 	{#if !isImmersivePlay}
 	<header class="screen-only topbar">
@@ -59,6 +60,9 @@
 					</a>
 					<a href="/composition-analysis" class="nav-link" class:active={isCompositionAnalysis} aria-current={isCompositionAnalysis ? 'page' : undefined}>
 						<span class="nav-dot"></span>Composition Analysis
+					</a>
+					<a href="/bot-stats" class="nav-link" class:active={isBotStats} aria-current={isBotStats ? 'page' : undefined}>
+						<span class="nav-dot"></span>Bot Stats
 					</a>
 					{#if $page.data.isAdmin}
 						<a href="/stats" class="nav-link" class:active={isStats} aria-current={isStats ? 'page' : undefined}>

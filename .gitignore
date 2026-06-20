@@ -25,8 +25,13 @@ vite.config.ts.timestamp-*
 # Local agent / tooling state — never push
 .claude/
 .omc/
+.agents/
 .playwright-cli/
 supabase/.temp/
+
+# Test artifacts
+test-results/
+playwright-report/
 
 # Local scratch (QA dumps, ad-hoc snapshots)
 /classes-*.yaml
