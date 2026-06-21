@@ -1,6 +1,9 @@
 import { browser } from '$app/environment';
+import type { RealtimeChannel } from '@supabase/supabase-js';
+import { supabase } from '$lib/supabase';
 import type { RoomView } from '$lib/play/server/service';
 import { isStaleRoomUpdate } from '$lib/play/roomView';
+import { reconcile } from '$lib/play/reconcile';
 import { apiUrl, isCrossOrigin } from '$lib/play/apiBase';
 import type { GameCommand, RoomSummary, SeatColor, SpectatorProjection } from '$lib/play/types';
 
@@ -11,16 +14,31 @@ let error = $state<string | null>(null);
 let isConnected = $state(false);
 let isReconnecting = $state(false);
 
-let eventSource: EventSource | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectAttempts = 0;
+// Live transport: a Supabase Realtime broadcast channel (push) backed by a slow
+// safety/enforcement poll. The DB trigger broadcasts a tiny `{revision}` signal on
+// `room:<code>` the instant a command commits; we then fetch our own owner-gated
+// projection from `/view`. Replaces the old per-second SSE poll + 30s function cap.
+let channel: RealtimeChannel | null = null;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+let refreshDebounce: ReturnType<typeof setTimeout> | null = null;
+let refreshing = false;
+let refreshQueued = false;
+let lastOkAt = 0;
 let lifecycleBound = false;
 
-// Force a reconnect if no snapshot or heartbeat arrives within this window — a
-// backgrounded mobile socket frequently dies without ever firing `error`.
-const WATCHDOG_MS = 20_000;
-const MAX_BACKOFF_MS = 15_000;
+// Safety/enforcement poll cadence. Realtime broadcasts cover the responsive path
+// (≈150ms after any commit); this slower pull is the fallback that converges state
+// if a broadcast is ever dropped AND the heartbeat that keeps server-side deadline
+// enforcement / room-close running now that the 1s SSE poll is gone.
+const POLL_MS = 3_000;
+// Only surface the "Connection lost / Reconnecting" banner once our state is THIS
+// stale. A normal blip (a dropped poll, a backgrounded tab, a websocket rejoin)
+// recovers well within this window — so the banner never flaps on a healthy line.
+const STALE_MS = 12_000;
+const WATCHDOG_TICK_MS = 3_000;
+// Coalesce a burst of broadcasts (e.g. several rapid commits) into one fetch.
+const REFRESH_DEBOUNCE_MS = 80;
 
 function setRoomView(view: RoomView) {
 	// Ignore stale updates FOR THE SAME ROOM. Play is simultaneous: a player's own
@@ -34,9 +52,28 @@ function setRoomView(view: RoomView) {
 		member = view.member;
 		return;
 	}
-	room = view.projection;
+	// Same room → reconcile the fresh projection INTO the existing reactive object
+	// so only the leaves that actually changed invalidate (a phase tick no longer
+	// re-renders the trait tracker, board, every player panel, …). A different room
+	// (or first load) has no shared identity to preserve, so swap wholesale.
+	if (room && room.roomCode === view.projection.roomCode) {
+		reconcile(room, view.projection);
+	} else {
+		room = view.projection;
+	}
 	member = view.member;
 	error = null;
+}
+
+/**
+ * Optimistically mutate the local room IN PLACE for instant tap feedback, before
+ * the server round-trip lands. Safe because the authoritative `/view` that follows
+ * every command is `reconcile`d over this guess — any divergence self-corrects on
+ * the next revision. Use only for trivially-predictable, owner-local changes
+ * (toggling ready, locking a destination); never to fake rule resolution.
+ */
+export function applyOptimistic(mutate: (room: SpectatorProjection) => void) {
+	if (room) mutate(room);
 }
 
 async function postJson<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -53,7 +90,10 @@ async function postJson<T>(path: string, body: Record<string, unknown>): Promise
 	const payload = (await response.json().catch(() => null)) as T | { message?: string } | null;
 	if (!response.ok) {
 		const message =
-			payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string'
+			payload &&
+			typeof payload === 'object' &&
+			'message' in payload &&
+			typeof payload.message === 'string'
 				? payload.message
 				: `Request failed with status ${response.status}`;
 		throw new Error(message);
@@ -63,109 +103,131 @@ async function postJson<T>(path: string, body: Record<string, unknown>): Promise
 }
 
 function clearTimers() {
-	if (reconnectTimer) {
-		clearTimeout(reconnectTimer);
-		reconnectTimer = null;
+	if (pollTimer) {
+		clearInterval(pollTimer);
+		pollTimer = null;
 	}
 	if (watchdogTimer) {
-		clearTimeout(watchdogTimer);
+		clearInterval(watchdogTimer);
 		watchdogTimer = null;
 	}
-}
-
-function closeSource() {
-	if (eventSource) {
-		eventSource.close();
-		eventSource = null;
+	if (refreshDebounce) {
+		clearTimeout(refreshDebounce);
+		refreshDebounce = null;
 	}
 }
 
-/** (Re)arm the silent-death watchdog; any snapshot/heartbeat resets it. */
-function armWatchdog() {
-	if (!browser) return;
-	if (watchdogTimer) clearTimeout(watchdogTimer);
-	watchdogTimer = setTimeout(() => scheduleReconnect(), WATCHDOG_MS);
+/** The `/view` URL, carrying the member id explicitly when cross-origin (the
+ *  Capacitor shell has no same-origin session cookie). */
+function viewUrl(roomCode: string): string {
+	const query = isCrossOrigin && member?.id ? `?member=${encodeURIComponent(member.id)}` : '';
+	return apiUrl(`/api/play/sessions/${encodeURIComponent(roomCode)}/view${query}`);
 }
 
-/** Schedule a reconnect with bounded exponential backoff + jitter. */
-function scheduleReconnect() {
-	if (!browser || !room?.roomCode) return;
-	isConnected = false;
-	isReconnecting = true;
-	closeSource();
-	if (reconnectTimer) return; // already pending
-	const base = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** reconnectAttempts);
-	const delay = base / 2 + Math.random() * (base / 2); // 50–100% of base (jitter)
-	reconnectAttempts += 1;
-	reconnectTimer = setTimeout(() => {
-		reconnectTimer = null;
-		openSource();
-	}, delay);
+/** Fetch our own owner-gated projection and apply it. Concurrency-coalesced: a
+ *  refresh requested while one is in flight runs exactly once more afterwards, so a
+ *  burst of broadcasts never stacks up overlapping fetches. A failure is swallowed —
+ *  the watchdog (not a single dropped request) decides when to show the banner. */
+async function refresh(): Promise<void> {
+	if (!browser || !room?.roomCode || room.status === 'closed') return;
+	if (refreshing) {
+		refreshQueued = true;
+		return;
+	}
+	refreshing = true;
+	const code = room.roomCode;
+	try {
+		const res = await fetch(viewUrl(code), {
+			headers: { Accept: 'application/json' },
+			credentials: isCrossOrigin ? 'include' : 'same-origin'
+		});
+		if (!res.ok) throw new Error(`Failed to refresh room view (status ${res.status})`);
+		const view = (await res.json()) as RoomView;
+		setRoomView(view);
+		lastOkAt = Date.now();
+		isConnected = true;
+		isReconnecting = false;
+	} catch {
+		// Transient — let the staleness watchdog decide whether to flag a disconnect.
+	} finally {
+		refreshing = false;
+		if (refreshQueued) {
+			refreshQueued = false;
+			void refresh();
+		}
+	}
 }
 
-/** Reconnect immediately (network/visibility signal) without backoff. */
-function forceReconnect() {
-	if (!browser || !room?.roomCode) return;
-	reconnectAttempts = 0;
-	clearTimers();
-	isReconnecting = true;
-	openSource();
+/** Debounce a broadcast-driven refresh so several rapid commits coalesce. */
+function scheduleRefresh() {
+	if (refreshDebounce) return;
+	refreshDebounce = setTimeout(() => {
+		refreshDebounce = null;
+		void refresh();
+	}, REFRESH_DEBOUNCE_MS);
+}
+
+function closeChannel() {
+	if (channel) {
+		supabase.removeChannel(channel);
+		channel = null;
+	}
+}
+
+/** (Re)subscribe to the room's realtime broadcast topic. Each `sync` message
+ *  (emitted by the DB trigger on every revision bump) triggers a debounced refetch.
+ *  supabase-js owns the socket's own reconnect/backoff; the poll + watchdog are the
+ *  safety net, so transport status changes here don't directly flip the banner. */
+function openChannel() {
+	if (!browser || !room?.roomCode || room.status === 'closed') return;
+	closeChannel();
+	const code = room.roomCode;
+	const ch = supabase.channel(`room:${code}`, {
+		config: { broadcast: { self: false }, private: false }
+	});
+	ch.on('broadcast', { event: 'sync' }, () => scheduleRefresh());
+	ch.subscribe((status) => {
+		// On a fresh subscribe, pull once to catch anything that changed between the
+		// server-rendered hydrate and the socket coming up.
+		if (status === 'SUBSCRIBED') void refresh();
+	});
+	channel = ch;
+}
+
+/** Periodically check whether our state has gone stale (no successful refresh
+ *  within STALE_MS). Only then do we show the banner AND proactively try to
+ *  recover — re-subscribe the channel (the socket may have died silently on mobile)
+ *  and force a refetch. A healthy line never trips this. */
+function startWatchdog() {
+	if (watchdogTimer) clearInterval(watchdogTimer);
+	watchdogTimer = setInterval(() => {
+		if (Date.now() - lastOkAt <= STALE_MS) return;
+		isConnected = false;
+		isReconnecting = true;
+		openChannel();
+		void refresh();
+	}, WATCHDOG_TICK_MS);
 }
 
 function bindLifecycle() {
 	if (!browser || lifecycleBound) return;
 	lifecycleBound = true;
 	// Network came back, or the user returned to a backgrounded tab/app — the
-	// existing socket is almost certainly dead, so reconnect (and refetch state).
-	window.addEventListener('online', forceReconnect);
-	document.addEventListener('visibilitychange', () => {
-		if (document.visibilityState === 'visible') forceReconnect();
-	});
-}
-
-function openSource() {
-	// Never (re)open a stream for a room that's already closed/cancelled — a
-	// visibility/online reconnect trigger during the post-close redirect window
-	// must not resurrect the connection to a dead room.
-	if (!browser || !room?.roomCode || room.status === 'closed') return;
-	closeSource();
-	// Reconnecting the stream IS the full-state refetch: the events endpoint
-	// replays the current snapshot immediately on connect.
-	const query = isCrossOrigin && member?.id ? `?member=${encodeURIComponent(member.id)}` : '';
-	const url = apiUrl(`/api/play/sessions/${encodeURIComponent(room.roomCode)}/events${query}`);
-	const es = new EventSource(url, { withCredentials: isCrossOrigin });
-	eventSource = es;
-	armWatchdog();
-
-	const markLive = () => {
-		isConnected = true;
-		isReconnecting = false;
-		reconnectAttempts = 0;
-		armWatchdog();
+	// websocket is likely dead, so re-subscribe and refetch immediately.
+	const wake = () => {
+		if (!room?.roomCode || room.status === 'closed') return;
+		openChannel();
+		void refresh();
 	};
-
-	es.addEventListener('open', markLive);
-	es.addEventListener('ping', armWatchdog); // server heartbeat — proves liveness
-	es.addEventListener('snapshot', (event) => {
-		armWatchdog();
-		try {
-			const next = JSON.parse((event as MessageEvent<string>).data) as RoomView;
-			if ((next as { error?: boolean }).error) return;
-			setRoomView(next);
-			markLive();
-		} catch (err) {
-			console.error('Failed to parse room snapshot event:', err);
-		}
-	});
-	es.addEventListener('error', () => {
-		// On mobile the socket usually dies for good; take over with backoff.
-		scheduleReconnect();
+	window.addEventListener('online', wake);
+	document.addEventListener('visibilitychange', () => {
+		if (document.visibilityState === 'visible') wake();
 	});
 }
 
 function disconnect() {
 	clearTimers();
-	closeSource();
+	closeChannel();
 	isConnected = false;
 	isReconnecting = false;
 }
@@ -173,10 +235,16 @@ function disconnect() {
 function connect() {
 	if (!browser || !room?.roomCode) return;
 	bindLifecycle();
-	reconnectAttempts = 0;
-	isReconnecting = false;
 	clearTimers();
-	openSource();
+	// We just hydrated authoritative server state, so we ARE connected — start the
+	// clock fresh so the watchdog doesn't false-trip before the first poll lands.
+	isReconnecting = false;
+	isConnected = true;
+	lastOkAt = Date.now();
+	openChannel();
+	void refresh();
+	pollTimer = setInterval(() => void refresh(), POLL_MS);
+	startWatchdog();
 }
 
 export function hydratePlayRoom(view: RoomView) {

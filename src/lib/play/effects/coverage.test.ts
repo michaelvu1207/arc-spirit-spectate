@@ -29,7 +29,7 @@ import { checkAwakenCondition, payAwakenCondition } from './awaken';
 import { CLASS_EFFECTS, MANUAL_CLASSES } from './registry';
 import { HANDLER_CLASSES } from './handlers';
 import { AWAKEN_HANDLERS, MANUAL_AWAKEN } from './awakenHandlers';
-import { normalizeAwaken, WILDCARD_RUNE_IDS, type AwakenRuneInfo } from '../awakenConditions';
+import { normalizeAwaken, WILDCARD_MAT_IDS, type AwakenRuneInfo } from '../awakenConditions';
 import { createRng } from '../rng';
 import type {
 	NormalizedAwaken,
@@ -40,7 +40,7 @@ import type {
 	PublicGameState,
 	SeatColor
 } from '../types';
-import type { RuneSlotSnapshot } from '$lib/types';
+import type { MatSlotSnapshot } from '$lib/types';
 import { CATALOG_CLASSES, CATALOG_SPIRITS } from './__fixtures__/catalog-coverage';
 
 // ── Helpers (mirror awaken.test.ts conventions) ───────────────────────────────
@@ -58,13 +58,13 @@ function makePlayer(overrides: Partial<PrivatePlayerState> = {}): PrivatePlayerS
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],
-		runes: [],
+		mats: [],
 		handDraws: [],
 		pendingDraw: null,
 		pendingDrawQueue: [],
 		spawnedDice: [],
 		spawnedItems: [],
-		spiritRuneAttachments: [],
+		spiritAugmentAttachments: [],
 		pendingDestination: null,
 		attackDice: [],
 		initiative: 0,
@@ -114,7 +114,7 @@ function faceDownSpirit(id: string, name: string): PlaySpirit {
 }
 
 /**
- * A held rune slot keyed by catalog rune id (matchRuneCost prefers id matching).
+ * A held rune slot keyed by catalog rune id (matchMatCost prefers id matching).
  *
  * Kind matters for WILDCARD costs: "Any Rune" only accepts origin runes and
  * "Any Relic" only accepts relics. When a fixture pays a wildcard cost it
@@ -122,15 +122,15 @@ function faceDownSpirit(id: string, name: string): PlaySpirit {
  * so the held item classifies as the kind that wildcard accepts (origin runes
  * carry `originId`; everything else is relic-kind, which "Any Relic" accepts).
  */
-function heldRune(slotIndex: number, runeId: string): RuneSlotSnapshot {
-	const originId = runeId === WILDCARD_RUNE_IDS.anyRune ? 'fixture-origin' : undefined;
+function heldRune(slotIndex: number, runeId: string): MatSlotSnapshot {
+	const originId = runeId === WILDCARD_MAT_IDS.anyRune ? 'fixture-origin' : undefined;
 	return { slotIndex, hasRune: true, id: runeId, name: runeId, type: 'rune', originId };
 }
 
 /** A catalog whose single spirit carries the given normalized awaken condition. */
 function catalogWith(spiritId: string, name: string, awaken: NormalizedAwaken | undefined): PlayCatalog {
 	const entry: PlayCatalogSpirit = { id: spiritId, name, cost: 2, classes: {}, origins: {}, awaken };
-	return { guardians: [], spirits: [entry], runes: [], classes: [], dice: [], monsters: [] };
+	return { guardians: [], spirits: [entry], mats: [], classes: [], dice: [], monsters: [] };
 }
 
 function ctxFor(player: PrivatePlayerState, catalog: PlayCatalog) {
@@ -173,7 +173,7 @@ const TEXT_SPIRITS = ALL_SPIRITS.filter((s) => s.awaken_condition?.type === 'tex
 const FREE_SPIRITS = ALL_SPIRITS.filter((s) => s.awaken_condition === null);
 
 /** Empty rune-info map → normalizeAwaken falls back to id-as-name + 'relic' kind.
- *  matchRuneCost matches held runes by their catalog `id` first, so this is enough
+ *  matchMatCost matches held runes by their catalog `id` first, so this is enough
  *  to drive the rune_cost gate without a full rune catalog. */
 const EMPTY_RUNE_INFO: ReadonlyMap<string, AwakenRuneInfo> = new Map();
 
@@ -282,7 +282,7 @@ describe('Phase 7 — every rune_cost spirit awakens with exactly its runes', ()
 			expect(awaken?.kind).toBe('rune_cost');
 
 			const runes = requiredRuneIds.map((rid, i) => heldRune(i + 1, rid));
-			const player = makePlayer({ spirits: [faceDownSpirit(s.id, s.name)], runes });
+			const player = makePlayer({ spirits: [faceDownSpirit(s.id, s.name)], mats: runes });
 			const catalog = catalogWith(s.id, s.name, awaken);
 
 			// check → ok
@@ -295,7 +295,7 @@ describe('Phase 7 — every rune_cost spirit awakens with exactly its runes', ()
 			expect(payment.ok).toBe(true);
 			expect(payment.discarded.length).toBe(requiredRuneIds.length);
 			// Every rune slot is now spent (hasRune:false).
-			expect(player.runes.every((r) => !r.hasRune)).toBe(true);
+			expect(player.mats.every((r) => !r.hasRune)).toBe(true);
 		});
 
 		it(`${s.name}: holding one fewer rune → ok:false (insufficient_runes)`, () => {
@@ -304,7 +304,7 @@ describe('Phase 7 — every rune_cost spirit awakens with exactly its runes', ()
 			// remaining requirements so the ONLY failure is the missing copy/count.
 			const oneFewer = requiredRuneIds.slice(0, requiredRuneIds.length - 1);
 			const runes = oneFewer.map((rid, i) => heldRune(i + 1, rid));
-			const player = makePlayer({ spirits: [faceDownSpirit(s.id, s.name)], runes });
+			const player = makePlayer({ spirits: [faceDownSpirit(s.id, s.name)], mats: runes });
 			const catalog = catalogWith(s.id, s.name, awaken);
 
 			const check = checkAwakenCondition(ctxFor(player, catalog), { spirit: player.spirits[0] });

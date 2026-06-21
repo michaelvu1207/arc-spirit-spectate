@@ -1,10 +1,60 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { playMenuSfx } from '$lib/stores/menuAudio.svelte';
+	import { fetchOpenRooms, joinPlayRoom, createPlayRoom } from '$lib/stores/playStore.svelte';
+	import { auth } from '$lib/auth/auth.svelte';
 	import MenuShell from '$lib/components/play2d/MenuShell.svelte';
 	import InstallPrompt from '$lib/components/InstallPrompt.svelte';
 
 	const hover = () => playMenuSfx('ui-hover', { volume: 0.45 });
+
+	// Shared with the server browser's "Playing as" field so a returning player
+	// keeps their name; Quick Play stays one-tap by falling back to a default.
+	const NAME_KEY = 'arc-player-name';
+
+	let busy = $state(false);
+	let quickError = $state<string | null>(null);
+
+	/**
+	 * One-tap matchmaking: drop the player into the fullest open lobby that still has
+	 * a free seat (the game closest to starting that they can actually play in), or
+	 * spin up a fresh room if there's none. Tie-break the "fullest" on oldest-first so
+	 * a lobby that's been waiting longest fills up first.
+	 */
+	async function quickPlay() {
+		if (busy) return;
+		busy = true;
+		quickError = null;
+		playMenuSfx('game-start', { volume: 0.8 });
+		try {
+			// Anonymous-first: a first-time guest becomes a real (owned) guest account here.
+			const typed = (browser ? localStorage.getItem(NAME_KEY) : null) ?? '';
+			const player = await auth.resolvePlayIdentity(typed);
+			const rooms = await fetchOpenRooms();
+			const target = rooms
+				.filter((r) => r.status === 'lobby' && r.occupiedSeats < r.totalSeats)
+				.sort(
+					(a, b) =>
+						b.occupiedSeats - a.occupiedSeats || Date.parse(a.createdAt) - Date.parse(b.createdAt)
+				)[0];
+
+			let roomCode: string;
+			if (target) {
+				await joinPlayRoom(target.roomCode, player);
+				roomCode = target.roomCode;
+			} else {
+				const view = await createPlayRoom(player);
+				roomCode = view.projection.roomCode;
+			}
+
+			await goto(`/play/${encodeURIComponent(roomCode)}`);
+		} catch (e) {
+			quickError = e instanceof Error ? e.message : 'Quick Play failed — try again.';
+			busy = false;
+		}
+	}
 
 	onMount(() => {
 		// Immersive full-screen: hide global chrome + lock scroll while on the menu.
@@ -34,15 +84,28 @@
 
 		<div class="menu-col reveal" style="--d: 0.12s">
 			<nav class="menu" aria-label="Main menu">
+				<button
+					data-testid="quick-play"
+					class="row primary"
+					type="button"
+					onclick={quickPlay}
+					onpointerenter={hover}
+					disabled={busy}
+				>
+					<span class="gem"></span>
+					<span class="lbl">{busy ? 'Finding a game…' : 'Quick Play'}</span>
+					<span class="go" aria-hidden="true">→</span>
+				</button>
+
 				<a
 					data-testid="play-open"
-					class="row primary"
+					class="row link"
 					href="/play/browse"
 					onpointerenter={hover}
 					onclick={() => playMenuSfx('ui-click')}
 				>
 					<span class="gem"></span>
-					<span class="lbl">Play</span>
+					<span class="lbl">Browse Servers</span>
 					<span class="go">→</span>
 				</a>
 
@@ -70,15 +133,11 @@
 				>
 					<span class="gem"></span><span class="lbl">Builder</span><span class="go">→</span>
 				</a>
-				<a
-					class="row link"
-					href="/stats"
-					onpointerenter={hover}
-					onclick={() => playMenuSfx('ui-click')}
-				>
-					<span class="gem"></span><span class="lbl">Stats</span><span class="go">→</span>
-				</a>
 			</nav>
+
+			{#if quickError}
+				<p class="quick-error" role="alert">{quickError}</p>
+			{/if}
 		</div>
 	</div>
 </MenuShell>
@@ -287,6 +346,18 @@
 	.row:disabled {
 		opacity: 0.6;
 		cursor: progress;
+	}
+
+	.quick-error {
+		margin: 10px 8px 0;
+		padding: 9px 14px;
+		border-left: 3px solid var(--color-blood, #c41a3d);
+		background: rgba(196, 26, 61, 0.18);
+		color: var(--color-bone, #e9e2f5);
+		border-radius: 2px;
+		font-family: var(--font-body);
+		font-size: 0.84rem;
+		max-width: 460px;
 	}
 
 	@keyframes gem-pulse {

@@ -13,8 +13,8 @@ export interface Spirit {
 	origins: Record<string, number>; // e.g., {"Astral Zone": 1}
 }
 
-// Rune slot entry on a player mat (4 slots)
-export interface RuneSlotSnapshot {
+// Mat slot entry on a player mat (4 slots). Holds a held rune or relic.
+export interface MatSlotSnapshot {
 	slotIndex: number;
 	hasRune: boolean;
 	guid?: string;
@@ -27,8 +27,8 @@ export interface RuneSlotSnapshot {
 	special?: boolean;
 }
 
-// Rune attached directly on a spirit card (from game sync)
-export interface SpiritRuneAttachmentSnapshot {
+// Augment attached directly on a spirit card (from game sync)
+export interface SpiritAugmentAttachment {
 	runeId: string;
 	spiritId: string;
 	spiritSlotIndex: number;
@@ -111,9 +111,9 @@ export interface PlayerSnapshot {
 	statusLevel: number;
 	statusToken: string | null;
 	spirits: Spirit[];
-	runes: RuneSlotSnapshot[];
+	mats: MatSlotSnapshot[];
 	handDraws: HandDrawSnapshot[];
-	spiritRuneAttachments: SpiritRuneAttachmentSnapshot[];
+	spiritAugmentAttachments: SpiritAugmentAttachment[];
 	dice: PlayerDiceEntry[];
 }
 
@@ -133,12 +133,12 @@ export interface GameSnapshot {
 	status_level: number;
 	status_token: string | null;
 	spirits: Spirit[]; // JSONB parsed
-	runes: RuneSlotSnapshot[]; // JSONB parsed
+	mats: MatSlotSnapshot[]; // JSONB parsed
 	hand_draws: HandDrawSnapshot[]; // JSONB parsed
 	bags: BagsData; // JSONB parsed
 	tts_username: string | null;
 	navigation_destination: string | null;
-	spirit_rune_attachments: SpiritRuneAttachmentSnapshot[]; // JSONB parsed
+	spirit_augment_attachments: SpiritAugmentAttachment[]; // JSONB parsed
 	dice: PlayerDiceEntry[]; // JSONB parsed
 	created_at: string;
 	updated_at: string;
@@ -160,12 +160,12 @@ export interface GameSnapshotRow {
 	status_level: number;
 	status_token: string | null;
 	spirits: string | Spirit[]; // JSONB may come as string or parsed
-	runes: string | RuneSlotSnapshot[];
+	mats: string | MatSlotSnapshot[];
 	hand_draws: string | HandDrawSnapshot[];
 	bags: string | BagsData; // JSONB may come as string or parsed
 	tts_username: string | null;
 	navigation_destination: string | null;
-	spirit_rune_attachments: string | SpiritRuneAttachmentSnapshot[]; // JSONB may come as string or parsed
+	spirit_augment_attachments: string | SpiritAugmentAttachment[]; // JSONB may come as string or parsed
 	dice: string | PlayerDiceEntry[]; // JSONB may come as string or parsed
 	created_at: string;
 	updated_at: string;
@@ -173,7 +173,7 @@ export interface GameSnapshotRow {
 
 // A spirit's awakening requirement, as stored in hex_spirits.awaken_condition (jsonb).
 // `rune_cost` lists rune UUIDs; a UUID repeated N times means "N of that rune"
-// (with two wildcard UUIDs — see WILDCARD_RUNE_IDS — accepting any matching item).
+// (with two wildcard UUIDs — see WILDCARD_MAT_IDS — accepting any matching item).
 // `text` is a free-form, not-yet-encodable requirement.
 export type AwakenCondition =
 	| { type: 'rune_cost'; rune_ids: string[] }
@@ -203,12 +203,11 @@ export interface GuardianAsset {
 	chibi_image_path: string | null;
 }
 
-// Rune asset from Supabase (arc-spirits-rev2.runes)
-export interface RuneAsset {
+// Mat (rune/relic) asset from Supabase (arc_spirits_assets.mat_items)
+export interface MatAsset {
 	id: string;
 	name: string;
 	origin_id: string | null;
-	class_id: string | null;
 	icon_path: string | null;
 }
 
@@ -236,7 +235,7 @@ export interface CustomDiceSideAsset {
 	template_y: number | null;
 }
 
-// Monster asset from Supabase (arc-spirits-rev2.monsters)
+// Monster asset from Supabase (arc_spirits_assets.monsters)
 export interface MonsterAsset {
 	id: string;
 	name: string;
@@ -402,7 +401,7 @@ export interface PlayerFeedback {
 
 // ======== Derived Views (game verification + stats) ========
 
-// One row per game from arc-spirits-game-history.game_summaries
+// One row per game from arc_spirits_game.game_summaries
 export interface GameSummaryRow {
 	game_id: string;
 	verified: boolean;
@@ -417,7 +416,7 @@ export interface GameSummaryRow {
 	winner_vp: number;
 }
 
-// One row per (game_id, player_color) from arc-spirits-game-history.game_results_verified / _all
+// One row per (game_id, player_color) from arc_spirits_game.game_results_verified / _all
 export interface GameResultRow {
 	game_id: string;
 	verified: boolean;

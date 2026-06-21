@@ -5,28 +5,29 @@ import type {
 import type {
 	ClassTrait,
 	HexSpiritAsset,
-	RuneAsset
+	MatAsset
 } from '$lib/types';
 import { buildPlayCatalog } from './catalog';
-import { WILDCARD_RUNE_IDS } from '../awakenConditions';
+import { WILDCARD_MAT_IDS } from '../awakenConditions';
 import type { NormalizedAwaken } from '../types';
 
-// ── Real DB sample ids (confirmed against arc-spirits-rev2) ───────────────────
-const ANY_RELIC = WILDCARD_RUNE_IDS.anyRelic; // 19d72567-… ("Any Relic")
-const ANY_RUNE = WILDCARD_RUNE_IDS.anyRune; // 7ca279f0-… ("Any Rune")
+// ── Real DB sample ids (confirmed against arc_spirits_assets) ───────────────────
+const ANY_RELIC = WILDCARD_MAT_IDS.anyRelic; // 19d72567-… ("Any Relic")
+const ANY_RUNE = WILDCARD_MAT_IDS.anyRune; // 7ca279f0-… ("Any Rune")
 const TEAPOT = 'a6111d01-2c55-4b1f-854a-32887d92b8e1'; // relic (no class_id/origin_id)
 const FLOWER = '690a7e3b-5737-4494-bb8a-b58bee13f473'; // relic
-const SWORDSMAN = 'efa4b29a-06f0-43af-bd11-d60c180e793e'; // augment (class_id set)
+const SWORDSMAN = 'efa4b29a-06f0-43af-bd11-d60c180e793e'; // relic (no origin_id ⇒ relic; augment rows removed)
 const FOREST = '34b2a963-f8c6-4fc0-8272-ddc50b0036a8'; // rune (origin_id set)
 
-// Runes mirroring the real `runes` table FK columns (drives kind resolution).
-const RUNES: RuneAsset[] = [
-	{ id: ANY_RELIC, name: 'Any Relic', origin_id: null, class_id: null, icon_path: null },
-	{ id: ANY_RUNE, name: 'Any Rune', origin_id: 'd459ae53-…', class_id: null, icon_path: null },
-	{ id: TEAPOT, name: 'Teapot', origin_id: null, class_id: null, icon_path: null },
-	{ id: FLOWER, name: 'Flower', origin_id: null, class_id: null, icon_path: null },
-	{ id: SWORDSMAN, name: 'Swordsman', origin_id: null, class_id: 'dd17c072-…', icon_path: null },
-	{ id: FOREST, name: 'Forest', origin_id: 'ad555f03-…', class_id: null, icon_path: null }
+// Mats mirroring the real `mat_items` table FK columns (drives kind resolution:
+// origin_id ⇒ 'rune', else 'relic').
+const RUNES: MatAsset[] = [
+	{ id: ANY_RELIC, name: 'Any Relic', origin_id: null, icon_path: null },
+	{ id: ANY_RUNE, name: 'Any Rune', origin_id: 'd459ae53-…', icon_path: null },
+	{ id: TEAPOT, name: 'Teapot', origin_id: null, icon_path: null },
+	{ id: FLOWER, name: 'Flower', origin_id: null, icon_path: null },
+	{ id: SWORDSMAN, name: 'Swordsman', origin_id: null, icon_path: null },
+	{ id: FOREST, name: 'Forest', origin_id: 'ad555f03-…', icon_path: null }
 ];
 
 function spirit(overrides: Partial<HexSpiritAsset> & Pick<HexSpiritAsset, 'id' | 'name'>): HexSpiritAsset {
@@ -106,7 +107,7 @@ const SPIRITS: HexSpiritAsset[] = [
 function emptyAssets(): AssetsData {
 	return {
 		spirits: [],
-		runes: [],
+		mats: [],
 		customDice: [],
 		monsters: [],
 		statusIcons: [],
@@ -123,7 +124,7 @@ function buildCatalog() {
 	return buildPlayCatalog({
 		...emptyAssets(),
 		spirits: SPIRITS,
-		runes: RUNES,
+		mats: RUNES,
 		classes: [FIGHTER_CLASS, ELEMENTALIST_CLASS]
 	});
 }
@@ -138,7 +139,7 @@ describe('buildPlayCatalog — normalized awaken', () => {
 		const awaken = awakenOf('Comet Caller');
 		expect(awaken).toEqual({
 			kind: 'rune_cost',
-			runes: [
+			mats: [
 				{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 2, wildcard: true }
 			]
 		});
@@ -148,7 +149,7 @@ describe('buildPlayCatalog — normalized awaken', () => {
 		const awaken = awakenOf('Water Dragon');
 		expect(awaken).toEqual({
 			kind: 'rune_cost',
-			runes: [
+			mats: [
 				{ runeId: TEAPOT, name: 'Teapot', kind: 'relic', count: 2, wildcard: false },
 				{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 1, wildcard: true }
 			]
@@ -189,11 +190,13 @@ describe('buildPlayCatalog — classes', () => {
 	});
 });
 
-describe('buildPlayCatalog — rune kind resolution', () => {
-	test('resolves augment (class_id), rune (origin_id), and relic (neither)', () => {
+describe('buildPlayCatalog — mat kind resolution', () => {
+	test('resolves rune (origin_id) and relic (no origin_id)', () => {
 		const catalog = buildCatalog();
-		const byId = new Map(catalog.runes.map((r) => [r.id, r]));
-		expect(byId.get(SWORDSMAN)?.kind).toBe('augment');
+		const byId = new Map(catalog.mats.map((r) => [r.id, r]));
+		// Augment catalog rows were removed; a mat with no origin_id is a relic
+		// (the old class_id-driven 'augment' kind no longer exists at the catalog layer).
+		expect(byId.get(SWORDSMAN)?.kind).toBe('relic');
 		expect(byId.get(FOREST)?.kind).toBe('rune');
 		expect(byId.get(TEAPOT)?.kind).toBe('relic');
 	});

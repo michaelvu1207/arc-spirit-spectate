@@ -164,7 +164,7 @@ function optionsForBranch(player: PrivatePlayerState, spec: DiscardAtLocationSpe
 	// rune / relic candidates, keyed by their held-slot identity.
 	const wantRelic = spec.what === 'relic';
 	const out: AwakenDiscardOption[] = [];
-	for (const slot of player.runes) {
+	for (const slot of player.mats) {
 		if (!slot?.hasRune) continue;
 		const isRelic = slot.type === 'relic';
 		if (wantRelic !== isRelic) continue;
@@ -253,7 +253,7 @@ function validRefs(player: PrivatePlayerState, spec: DiscardAtLocationSpec, refs
 function discardRefs(player: PrivatePlayerState, refs: AwakenDiscardRef[], log: string[]): boolean {
 	for (const ref of refs) {
 		if (ref.kind === 'rune') {
-			const slot = player.runes.find((r) => r.slotIndex === ref.slotIndex && r.hasRune);
+			const slot = player.mats.find((r) => r.slotIndex === ref.slotIndex && r.hasRune);
 			if (!slot) return false;
 			slot.hasRune = false;
 			log.push(`Discarded ${slot.name ?? (slot.type === 'relic' ? 'relic' : 'rune')}.`);

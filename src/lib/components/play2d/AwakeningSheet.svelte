@@ -123,7 +123,7 @@
 	const relicChoices = $derived(
 		relicOptions().map((r) => ({
 			name: r.name,
-			icon: storageUrl(assets.runeAssets.get(r.runeId)?.icon_path ?? null)
+			icon: storageUrl(assets.matAssets.get(r.runeId)?.icon_path ?? null)
 		}))
 	);
 	function grantLabel(g: AwakenGrant): string {
@@ -167,7 +167,7 @@
 	});
 	function optionIcon(option: AwakenDiscardOption): string | null {
 		if (!option.runeId) return null;
-		return storageUrl(assets.runeAssets.get(option.runeId)?.icon_path ?? null);
+		return storageUrl(assets.matAssets.get(option.runeId)?.icon_path ?? null);
 	}
 	function clickOffer(offer: Extract<AbilityInteraction, { kind: 'awaken' }>) {
 		// Open the picker whenever the cost lists selectable items — even when the count
@@ -200,7 +200,7 @@
 	}
 
 	// ── Rune overflow (carry-limit trim) ──────────────────────────────────────
-	const heldRunes = $derived((myPlayer?.runes ?? []).filter((r) => r.hasRune));
+	const heldRunes = $derived((myPlayer?.mats ?? []).filter((r) => r.hasRune));
 	const runeOverLimit = $derived(heldRunes.length > RUNE_CARRY_LIMIT);
 
 	const myReady = $derived(myPlayer?.phaseReady ?? false);

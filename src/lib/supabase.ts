@@ -39,9 +39,9 @@ import type {
 	PlayerDiceEntry,
 	PlayerFavoriteSpiritsRow,
 	PlayerStatsRow,
-	RuneAsset,
-	RuneSlotSnapshot,
-	SpiritRuneAttachmentSnapshot,
+	MatAsset,
+	MatSlotSnapshot,
+	SpiritAugmentAttachment,
 	Spirit,
 	TraitOccurrenceRow,
 	TraitStatsRow
@@ -49,8 +49,8 @@ import type {
 import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/public';
 
 // Schema names
-export const SCHEMA = 'arc-spirits-game-history'; // Game state data
-export const ASSETS_SCHEMA = 'arc-spirits-rev2'; // Static assets (spirits, guardians, etc.)
+export const SCHEMA = 'arc_spirits_game'; // Game state data
+export const ASSETS_SCHEMA = 'arc_spirits_assets'; // Static assets (spirits, guardians, etc.)
 
 // Export the Supabase URL for use in other modules
 export const SUPABASE_URL = PUBLIC_SUPABASE_URL;
@@ -84,7 +84,7 @@ export const TABLES = {
 	TRAIT_STATS_VERIFIED: 'trait_stats_exact_verified',
 	TRAIT_OCCURRENCES_VERIFIED: 'trait_occurrences_verified',
 	HEX_SPIRITS: 'hex_spirits',
-	RUNES: 'runes',
+	MAT_ITEMS: 'mat_items',
 	MONSTERS: 'monsters_v2',
 	GUARDIANS: 'guardians',
 	CLASSES: 'classes',
@@ -100,7 +100,7 @@ export const TABLES = {
 	EDITIONS: 'editions'
 } as const;
 
-// Create the Supabase client for game state (arc-spirits-game-history schema)
+// Create the Supabase client for game state (arc_spirits_game schema)
 export const supabase = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
 	db: {
 		schema: SCHEMA
@@ -111,35 +111,40 @@ export const supabase = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_K
 		}
 	},
 	auth: {
-		persistSession: false // No auth needed for spectator app
+		// Data/realtime only — never the user session. A distinct storageKey keeps this
+		// GoTrue instance from clobbering the @supabase/ssr auth client's session cookie
+		// (which otherwise triggers "Multiple GoTrueClient instances" + sign-out bugs).
+		persistSession: false,
+		autoRefreshToken: false,
+		storageKey: 'arc-data-anon'
 	}
 });
 
-// Create a separate client for static assets (arc-spirits-rev2 schema)
+// Create a separate client for static assets (arc_spirits_assets schema)
 export const supabaseAssets = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
 	db: {
 		schema: ASSETS_SCHEMA
 	},
 	auth: {
-		persistSession: false
+		persistSession: false,
+		autoRefreshToken: false,
+		storageKey: 'arc-assets-anon'
 	}
 });
 
 // Store active channels for cleanup
 const activeChannels = new Map<string, RealtimeChannel>();
 
-function parseJsonValue<T>(value: string | T | null): T | null {
-	if (value == null) return null;
+/**
+ * Parse a JSONB column that arrives either already-decoded or as a raw string.
+ * A genuinely absent value (`null`) is normalized to `empty` — the caller's
+ * legitimate "no rows yet" default. A malformed JSON string is NOT masked: it
+ * signals corrupt data, so we throw rather than silently substitute a default.
+ */
+function parseJsonColumn<T>(value: string | T | null, empty: T): T {
+	if (value == null) return empty;
 	if (typeof value !== 'string') return value;
-	try {
-		return JSON.parse(value) as T;
-	} catch {
-		return null;
-	}
-}
-
-function parseJsonWithFallback<T>(value: string | T | null, fallback: T): T {
-	return parseJsonValue<T>(value) ?? fallback;
+	return JSON.parse(value) as T;
 }
 
 // Payload type for realtime postgres changes
@@ -229,7 +234,7 @@ export function unwrapGameSnapshotRow(row: GameSnapshotRow): GameSnapshot {
 		game_id: row.game_id,
 		navigation_count: row.navigation_count,
 		game_timestamp: row.game_timestamp,
-		scenario: parseJsonWithFallback<GameSnapshot['scenario']>(row.scenario, null),
+		scenario: parseJsonColumn<GameSnapshot['scenario']>(row.scenario, null),
 		player_color: row.player_color,
 		selected_character: row.selected_character,
 		blood: row.blood,
@@ -238,17 +243,17 @@ export function unwrapGameSnapshotRow(row: GameSnapshotRow): GameSnapshot {
 		max_tokens: row.max_tokens ?? 4,
 		status_level: row.status_level,
 		status_token: row.status_token,
-		spirits: parseJsonWithFallback<Spirit[]>(row.spirits, []),
-		runes: parseJsonWithFallback<RuneSlotSnapshot[]>(row.runes, []),
-		hand_draws: parseJsonWithFallback<HandDrawSnapshot[]>(row.hand_draws, []),
-		bags: parseJsonWithFallback<BagsData>(row.bags, {}),
+		spirits: parseJsonColumn<Spirit[]>(row.spirits, []),
+		mats: parseJsonColumn<MatSlotSnapshot[]>(row.mats, []),
+		hand_draws: parseJsonColumn<HandDrawSnapshot[]>(row.hand_draws, []),
+		bags: parseJsonColumn<BagsData>(row.bags, {}),
 		tts_username: row.tts_username ?? null,
 		navigation_destination: row.navigation_destination ?? null,
-		spirit_rune_attachments: parseJsonWithFallback<SpiritRuneAttachmentSnapshot[]>(
-			row.spirit_rune_attachments,
+		spirit_augment_attachments: parseJsonColumn<SpiritAugmentAttachment[]>(
+			row.spirit_augment_attachments,
 			[]
 		),
-		dice: parseJsonWithFallback<PlayerDiceEntry[]>(row.dice, []),
+		dice: parseJsonColumn<PlayerDiceEntry[]>(row.dice, []),
 		created_at: row.created_at,
 		updated_at: row.updated_at
 	};
@@ -459,7 +464,7 @@ export async function fetchPlayerFavoriteSpiritsByUsernameKey(
 	}
 
 	const favoritesRaw = (data as Pick<PlayerFavoriteSpiritsRow, 'favorites'> | null)?.favorites ?? [];
-	return parseJsonWithFallback<FavoriteSpiritEntry[]>(favoritesRaw, []);
+	return parseJsonColumn<FavoriteSpiritEntry[]>(favoritesRaw, []);
 }
 
 export async function fetchPlayerBarrierTotalsByUsernameKey(
@@ -588,7 +593,7 @@ export async function fetchPlayerFavoriteSpiritsVerified(
 
 	const row = (data as PlayerFavoriteSpiritsRow[] | null)?.[0] ?? null;
 	const favoritesRaw = row?.favorites ?? [];
-	return parseJsonWithFallback<FavoriteSpiritEntry[]>(favoritesRaw, []);
+	return parseJsonColumn<FavoriteSpiritEntry[]>(favoritesRaw, []);
 }
 
 export async function fetchPlayerBarrierTotalsVerified(
@@ -761,7 +766,7 @@ export async function fetchTraitOccurrencesVerified(params: {
 // pure catalog builder and its tests can type fixtures without re-deriving it.
 export interface AssetsData {
 	spirits: HexSpiritAsset[];
-	runes: RuneAsset[];
+	mats: MatAsset[];
 	customDice: CustomDiceAsset[];
 	monsters: MonsterAsset[];
 	statusIcons: IconPoolEntry[];
@@ -777,7 +782,7 @@ export interface AssetsData {
 export async function fetchAssetsData(): Promise<AssetsData> {
 	const [
 		spiritsResult,
-		runesResult,
+		matsResult,
 		customDiceResult,
 		customDiceSidesResult,
 		monstersResult,
@@ -794,7 +799,7 @@ export async function fetchAssetsData(): Promise<AssetsData> {
 		supabaseAssets
 			.from(TABLES.HEX_SPIRITS)
 			.select('id, name, cost, traits, awaken_condition, game_print_image_path, art_raw_image_path'),
-		supabaseAssets.from(TABLES.RUNES).select('id, name, origin_id, class_id, icon_path'),
+		supabaseAssets.from(TABLES.MAT_ITEMS).select('id, name, origin_id, icon_path'),
 		supabaseAssets
 			.from(TABLES.CUSTOM_DICE)
 			.select(
@@ -815,7 +820,7 @@ export async function fetchAssetsData(): Promise<AssetsData> {
 		supabaseAssets.from(TABLES.ICON_POOL).select('id, name, file_path, tags'),
 		supabaseAssets
 			.from(TABLES.GAME_LOCATIONS)
-			.select('id, name, origin_id, reward_rows, background_image_path'),
+			.select('id, name, origin_id, background_image_path'),
 		supabaseAssets
 			.from(TABLES.GUARDIANS)
 			.select('id, name, origin_id, icon_image_path, image_mat_path, chibi_image_path'),
@@ -830,7 +835,7 @@ export async function fetchAssetsData(): Promise<AssetsData> {
 	]);
 
 	if (spiritsResult.error) throw spiritsResult.error;
-	if (runesResult.error) throw runesResult.error;
+	if (matsResult.error) throw matsResult.error;
 	if (customDiceResult.error) throw customDiceResult.error;
 	if (customDiceSidesResult.error) throw customDiceSidesResult.error;
 	if (monstersResult.error) throw monstersResult.error;
@@ -866,24 +871,21 @@ export async function fetchAssetsData(): Promise<AssetsData> {
 		editions[0] ??
 		null;
 
-	// Reward rows now live in their own records (game_location_rows), bound to a
-	// location + slot via reward_row_assignments. Rebuild each location's ordered
-	// reward_rows from that model so the play engine sees the live, authoritative
-	// interactions. The legacy game_locations.reward_rows jsonb is a stale fallback,
-	// used only if the new tables are unavailable/empty (e.g. a different environment).
+	// Reward rows live in their own records (game_location_rows), bound to a location
+	// + slot via reward_row_assignments. Rebuild each location's ordered reward_rows
+	// from that authoritative model. A fetch error here is surfaced, not swallowed —
+	// the engine must see real interactions, never a stale/empty stand-in.
+	if (rewardRowAssignmentsResult.error) throw rewardRowAssignmentsResult.error;
+	if (gameLocationRowsResult.error) throw gameLocationRowsResult.error;
 	const rawLocations = (gameLocationsResult.data as GameLocationAsset[]) ?? [];
 	const assignments =
-		(rewardRowAssignmentsResult.error
-			? null
-			: (rewardRowAssignmentsResult.data as
-					| { location_id: string; row_id: string; row_index: number | null }[]
-					| null)) ?? [];
+		(rewardRowAssignmentsResult.data as
+			| { location_id: string; row_id: string; row_index: number | null }[]
+			| null) ?? [];
 	const rowConfigById = new Map<string, GameLocationRewardRow>();
-	if (!gameLocationRowsResult.error) {
-		for (const row of (gameLocationRowsResult.data as { id: string; config: unknown }[] | null) ?? []) {
-			if (row.config && typeof row.config === 'object') {
-				rowConfigById.set(row.id, row.config as GameLocationRewardRow);
-			}
+	for (const row of (gameLocationRowsResult.data as { id: string; config: unknown }[] | null) ?? []) {
+		if (row.config && typeof row.config === 'object') {
+			rowConfigById.set(row.id, row.config as GameLocationRewardRow);
 		}
 	}
 	const rewardRowsByLocation = new Map<string, GameLocationRewardRow[]>();
@@ -894,16 +896,14 @@ export async function fetchAssetsData(): Promise<AssetsData> {
 		list.push(config);
 		rewardRowsByLocation.set(a.location_id, list);
 	}
-	// Only switch to the new model when it actually has assignments; otherwise keep
-	// the legacy jsonb so nothing regresses where the rework hasn't been applied.
-	const useNewRewardModel = assignments.length > 0 && rowConfigById.size > 0;
-	const gameLocations = rawLocations.map((loc) =>
-		useNewRewardModel ? { ...loc, reward_rows: rewardRowsByLocation.get(loc.id) ?? [] } : loc
-	);
+	const gameLocations = rawLocations.map((loc) => ({
+		...loc,
+		reward_rows: rewardRowsByLocation.get(loc.id) ?? []
+	}));
 
 	return {
 		spirits: (spiritsResult.data as HexSpiritAsset[]) ?? [],
-		runes: (runesResult.data as RuneAsset[]) ?? [],
+		mats: (matsResult.data as MatAsset[]) ?? [],
 		customDice: (((customDiceResult.data as Omit<CustomDiceAsset, 'sides'>[]) ?? []).map((die) => ({
 			...die,
 			sides: sidesByDiceId.get(die.id) ?? []
@@ -938,7 +938,7 @@ export async function fetchGameNotes(gameId: string): Promise<GameNotes | null> 
 	}
 
 	// Parse improvements JSONB
-	const improvements = parseJsonWithFallback<string[] | null>(data.improvements, null);
+	const improvements = parseJsonColumn<string[] | null>(data.improvements, null);
 
 	return {
 		...data,

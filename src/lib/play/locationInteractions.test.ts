@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { GameLocationRewardRow, RuneSlotSnapshot } from '$lib/types';
+import type { GameLocationRewardRow, MatSlotSnapshot } from '$lib/types';
 import {
 	buildLocationInteractions,
 	canAfford,
@@ -9,7 +9,7 @@ import {
 } from './locationInteractions';
 
 // Real reward-row icon ids + origin ids — mirror the live DB content
-// (`arc-spirits-rev2` reward-row model: game_location_rows + reward_row_assignments,
+// (`arc_spirits_assets` reward-row model: game_location_rows + reward_row_assignments,
 // re-synced 2026-06-17). Reward rows are read live from the DB at runtime; these
 // fixtures encode the current map so the tests guard that every row resolves.
 const SUMMON = '76e58219-e805-4b94-acf4-6d62dfe4c515';
@@ -76,7 +76,7 @@ const LIVE_LOCATIONS: Record<string, GameLocationRewardRow[]> = {
 	'Tidal Cove': TIDAL_COVE_ROWS
 };
 
-function rune(partial: Partial<RuneSlotSnapshot>): RuneSlotSnapshot {
+function rune(partial: Partial<MatSlotSnapshot>): MatSlotSnapshot {
 	return { slotIndex: 1, hasRune: true, ...partial };
 }
 

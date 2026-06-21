@@ -83,7 +83,7 @@ export interface EffectContext {
 export const EMPTY_CATALOG: PlayCatalog = {
 	guardians: [],
 	spirits: [],
-	runes: [],
+	mats: [],
 	classes: [],
 	dice: [],
 	monsters: []

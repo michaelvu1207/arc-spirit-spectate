@@ -9,7 +9,7 @@ import type { ClassAbility, ClassDecisions } from './types';
 // traded, +1 Exalted per relic traded) to a single Awakening-phase opt-in.
 // Implemented as a bespoke `run` handler on `awakeningPhase` (fires once per active
 // player at cleanup) so we can gate precisely on the player HOLDING the relevant
-// item — runes and relics both live as `player.runes` entries (`type === 'rune'` vs
+// item — runes and relics both live as `player.mats` entries (`type === 'rune'` vs
 // `type === 'relic'`, with `hasRune` true), which the declarative conditions can't
 // read. The colocated `runeMageTrade` resolver discards exactly one item of the
 // chosen kind and grants the matching attack die, then RE-OFFERS the choice so a
@@ -19,9 +19,9 @@ import type { ClassAbility, ClassDecisions } from './types';
 type EffectContextLike = Parameters<ClassDecisions[string]>[0];
 
 const heldRune = (player: EffectContextLike['player']) =>
-	player.runes.some((r) => r.type === 'rune' && r.hasRune);
+	player.mats.some((r) => r.type === 'rune' && r.hasRune);
 const heldRelic = (player: EffectContextLike['player']) =>
-	player.runes.some((r) => r.type === 'relic' && r.hasRune);
+	player.mats.some((r) => r.type === 'relic' && r.hasRune);
 
 /** Build the decision options for whatever the player can currently afford. Always
  *  includes a "no" out. Returns null when neither item is held (nothing to offer). */
@@ -71,7 +71,7 @@ export const ability: ClassAbility[] = [
 /** Discard exactly one held rune (non-relic). Returns true if one was discarded.
  *  Matches awakenHandlers' discard semantics: flip the slot's `hasRune` off. */
 function discardOneRune(ctx: EffectContextLike): boolean {
-	const slot = ctx.player.runes.find((r) => r.type === 'rune' && r.hasRune);
+	const slot = ctx.player.mats.find((r) => r.type === 'rune' && r.hasRune);
 	if (!slot) return false;
 	slot.hasRune = false;
 	ctx.log.push('Discarded rune.');
@@ -81,7 +81,7 @@ function discardOneRune(ctx: EffectContextLike): boolean {
 /** Discard exactly one held relic; keeps the `relics` tally in sync. Returns true if
  *  one was discarded. */
 function discardOneRelic(ctx: EffectContextLike): boolean {
-	const slot = ctx.player.runes.find((r) => r.type === 'relic' && r.hasRune);
+	const slot = ctx.player.mats.find((r) => r.type === 'relic' && r.hasRune);
 	if (!slot) return false;
 	slot.hasRune = false;
 	if (ctx.player.relics > 0) ctx.player.relics -= 1;

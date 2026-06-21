@@ -44,7 +44,7 @@ const CATALOG: PlayCatalog = {
 		{ id: 'g-a', name: 'Red Guard', originId: 'o1' },
 		{ id: 'g-b', name: 'Blue Guard', originId: 'o2' }
 	],
-	runes: [],
+	mats: [],
 	classes: [],
 	dice: [{ id: 'basic_attack', name: 'Basic Attack', diceType: 'attack', sides: [1, 1, 2, 2, 3, 3] }],
 	// 30 Spirit World (cost 1-5) + 10 Arcane Abyss (cost 8) spirits.
@@ -123,17 +123,17 @@ describe('resolveLocationInteraction (engine)', () => {
 		s.players.Red!.blood = s.players.Red!.maxTokens - s.players.Red!.barrier;
 		const beforeTokens = s.players.Red!.maxTokens;
 		const beforeBarrier = s.players.Red!.barrier;
-		s.players.Red!.runes.push(
+		s.players.Red!.mats.push(
 			{ slotIndex: 90, hasRune: true, originId: MOON_TIDE_ORIGIN, name: 'Moon Tide Rune', type: 'rune' },
 			{ slotIndex: 91, hasRune: true, originId: MOON_TIDE_ORIGIN, name: 'Moon Tide Rune', type: 'rune' }
 		);
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 2, choices: [] });
 
 		// Both Moon Tide runes were spent.
-		expect(s.players.Red!.runes.filter((r) => r.originId === MOON_TIDE_ORIGIN && r.hasRune)).toHaveLength(0);
+		expect(s.players.Red!.mats.filter((r) => r.originId === MOON_TIDE_ORIGIN && r.hasRune)).toHaveLength(0);
 		// Gained a Teapot relic (a rune slot) and restored 2 health — capacity is unchanged
 		// (barrier icons heal, they do not grant potential).
-		expect(s.players.Red!.runes.some((r) => r.name === 'Teapot' && r.hasRune && r.special)).toBe(true);
+		expect(s.players.Red!.mats.some((r) => r.name === 'Teapot' && r.hasRune && r.special)).toBe(true);
 		expect(s.players.Red!.maxTokens).toBe(beforeTokens);
 		expect(s.players.Red!.barrier).toBe(beforeBarrier + 2);
 		expect(s.players.Red!.blood).toBe(s.players.Red!.maxTokens - s.players.Red!.barrier);
@@ -141,18 +141,18 @@ describe('resolveLocationInteraction (engine)', () => {
 
 	test('an "or" gain grants the chosen option', () => {
 		let s = atLocation('Cyber City');
-		s.players.Red!.runes.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
+		s.players.Red!.mats.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 0, choices: [1] }); // pick Strategist
 		// Strategist is a class rune ⇒ a spirit augment: it lands in the to-place pouch,
 		// never a rune slot. Sorcerer (the unchosen option) is granted nowhere.
 		expect(s.players.Red!.unplacedAugments?.some((a) => a.name === 'Strategist')).toBe(true);
-		expect(s.players.Red!.runes.some((r) => r.name === 'Strategist')).toBe(false);
+		expect(s.players.Red!.mats.some((r) => r.name === 'Strategist')).toBe(false);
 		expect(s.players.Red!.unplacedAugments?.some((a) => a.name === 'Sorcerer')).toBe(false);
-		expect(s.players.Red!.runes.some((r) => r.name === 'Sorcerer')).toBe(false);
+		expect(s.players.Red!.mats.some((r) => r.name === 'Sorcerer')).toBe(false);
 		// One relic was spent to pay the "any relic" cost. (Starting Fairy Relics qualify
 		// too, so the greedy matcher may spend one of those before the spare relic — either
 		// way exactly one of the three held relics is consumed.)
-		expect(s.players.Red!.runes.filter((r) => r.hasRune).length).toBe(2);
+		expect(s.players.Red!.mats.filter((r) => r.hasRune).length).toBe(2);
 	});
 
 	test('repeated Cultivate tokens fire the Cultivate yield once (no per-token scaling)', () => {
@@ -161,7 +161,7 @@ describe('resolveLocationInteraction (engine)', () => {
 		// The reward row may carry several Cultivate tokens, but they COLLAPSE so the yield
 		// resolves ONCE (→ 2 "Floral Patch Rune", not 2× the token count). A spare relic
 		// covers any "any relic" cost on the row.
-		s.players.Red!.runes.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
+		s.players.Red!.mats.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
 		s.players.Red!.spirits = [
 			{ slotIndex: 1, id: 'x1', name: 'F A', cost: 1, classes: {}, origins: { 'Floral Patch': 1 }, isFaceDown: false },
 			{ slotIndex: 2, id: 'x2', name: 'F B', cost: 1, classes: {}, origins: { 'Floral Patch': 1 }, isFaceDown: false },
@@ -169,13 +169,13 @@ describe('resolveLocationInteraction (engine)', () => {
 			{ slotIndex: 4, id: 'x4', name: 'F D', cost: 1, classes: {}, origins: { 'Floral Patch': 1 }, isFaceDown: false }
 		];
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 0, choices: [] });
-		const forestRunes = s.players.Red!.runes.filter((r) => r.name === 'Floral Patch Rune' && r.hasRune);
+		const forestRunes = s.players.Red!.mats.filter((r) => r.name === 'Floral Patch Rune' && r.hasRune);
 		expect(forestRunes).toHaveLength(2);
 	});
 
 	test('a row granting two summons queues the second draw', () => {
 		let s = atLocation('Tidal Cove');
-		s.players.Red!.runes.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
+		s.players.Red!.mats.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 1, choices: [] }); // Summon + Abyss
 		expect(s.players.Red!.pendingDraw?.summonLimit).toBe(2); // Spirit World first
 		expect(s.players.Red!.pendingDrawQueue).toHaveLength(1); // Abyss queued
@@ -225,7 +225,7 @@ describe('summon draw-and-pick flow', () => {
 	test('Arcane Abyss Summon draws 3 (face-down) and lets the player summon up to 1', () => {
 		let s = atLocation('Tidal Cove');
 		s.players.Red!.spirits = [];
-		s.players.Red!.runes.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
+		s.players.Red!.mats.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
 		// Row 1 grants Spirit World Summon + a queued Arcane Abyss Summon.
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 1, choices: [] });
 		// Clear the Spirit World draw so the queued Abyss draw auto-starts.
@@ -268,7 +268,7 @@ describe('draw-leak guards', () => {
 
 	test('force-advancing also drops a queued (un-started) summon without leaking', () => {
 		let s = atLocation('Tidal Cove');
-		s.players.Red!.runes.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
+		s.players.Red!.mats.push({ slotIndex: 90, hasRune: true, special: true, type: 'relic', name: 'Spare Relic' });
 		const bagBefore = s.bags.hexSpirits.contents.length;
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 1, choices: [] }); // Summon + queued Abyss
 		expect(s.players.Red!.pendingDrawQueue).toHaveLength(1);
@@ -312,13 +312,13 @@ describe('trade-cost waivers (Mod Injector / Undercover)', () => {
 		s.players.Red!.spirits = [
 			{ slotIndex: 1, id: 'mod', name: 'Mole', cost: 2, classes: { 'Mod Injector': 1 }, origins: {}, isFaceDown: false }
 		];
-		s.players.Red!.runes = [];
+		s.players.Red!.mats = [];
 
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 0, choices: [1] }); // pick Strategist augment
 
 		// The augment was granted (lands in the to-place pouch) and NOTHING was consumed.
 		expect(s.players.Red!.unplacedAugments?.some((a) => a.name === 'Strategist')).toBe(true);
-		expect(s.players.Red!.runes.filter((r) => r.hasRune).length).toBe(0);
+		expect(s.players.Red!.mats.filter((r) => r.hasRune).length).toBe(0);
 		expect(s.players.Red!.lastAction?.log.some((l) => /Mod Injector/i.test(l))).toBe(true);
 	});
 
@@ -327,12 +327,12 @@ describe('trade-cost waivers (Mod Injector / Undercover)', () => {
 		// Arm the one-shot waiver (as the Undercover awakening does) and strip runes so
 		// the TIDAL,TIDAL cost can't be paid normally — the waiver is the only path.
 		s.players.Red!.freeNextRelicTrade = true;
-		s.players.Red!.runes = [];
+		s.players.Red!.mats = [];
 
 		s = apply(s, RED, { type: 'resolveLocationInteraction', rowIndex: 2, choices: [] }); // TIDAL,TIDAL → Teapot relic
 
 		// Got the Teapot relic for free; the one-shot flag is now spent.
-		expect(s.players.Red!.runes.some((r) => r.hasRune && r.name === 'Teapot')).toBe(true);
+		expect(s.players.Red!.mats.some((r) => r.hasRune && r.name === 'Teapot')).toBe(true);
 		expect(s.players.Red!.freeNextRelicTrade).toBe(false);
 		expect(s.players.Red!.lastAction?.log.some((l) => /Undercover/i.test(l))).toBe(true);
 

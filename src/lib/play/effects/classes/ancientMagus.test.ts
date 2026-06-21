@@ -8,24 +8,24 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { RuneSlotSnapshot } from '$lib/types';
+import type { MatSlotSnapshot } from '$lib/types';
 import { ability } from './ancientMagus';
 import { ctxFor, fire, makePlayer } from './testHelpers';
 
 /** A held relic slot (type='relic'); `name` drives the uniqueness dedupe. */
-function relic(slotIndex: number, name?: string): RuneSlotSnapshot {
+function relic(slotIndex: number, name?: string): MatSlotSnapshot {
 	return { slotIndex, hasRune: true, name, type: 'relic' };
 }
 
 /** A held non-relic rune slot (must NOT count toward the reduction). */
-function rune(slotIndex: number, name: string): RuneSlotSnapshot {
+function rune(slotIndex: number, name: string): MatSlotSnapshot {
 	return { slotIndex, hasRune: true, name, type: 'rune' };
 }
 
 const handler = ability[0];
 
-function run(runes: RuneSlotSnapshot[]) {
-	const player = makePlayer({ runes, damageReduction: 0 });
+function run(runes: MatSlotSnapshot[]) {
+	const player = makePlayer({ mats: runes, damageReduction: 0 });
 	const ctx = ctxFor(player, { trigger: 'onTakeDamage' });
 	handler.run!(ctx);
 	return { player, log: ctx.log };
@@ -54,7 +54,7 @@ describe('Ancient Magus', () => {
 	});
 
 	it('adds to existing damageReduction rather than overwriting it', () => {
-		const player = makePlayer({ runes: [relic(1, 'Teapot')], damageReduction: 3 });
+		const player = makePlayer({ mats: [relic(1, 'Teapot')], damageReduction: 3 });
 		const ctx = ctxFor(player, { trigger: 'onTakeDamage' });
 		handler.run!(ctx);
 		expect(player.damageReduction).toBe(5); // 3 prior + 2 from one relic
@@ -77,7 +77,7 @@ describe('Ancient Magus', () => {
 	// applyTrigger on onTakeDamage (not just callable in isolation).
 	it('is dispatched through the assembler on onTakeDamage', () => {
 		const { player } = fire({ 'Ancient Magus': 1 }, 'onTakeDamage', {
-			player: { runes: [relic(1, 'Teapot'), relic(2, 'Keepsake')] }
+			player: { mats: [relic(1, 'Teapot'), relic(2, 'Keepsake')] }
 		});
 		expect(player.damageReduction).toBe(4); // 2 unique relics × 2, via the real dispatch
 	});

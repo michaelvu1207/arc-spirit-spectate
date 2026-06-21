@@ -33,7 +33,7 @@
 			.sort((a, b) => a.name.localeCompare(b.name))
 	);
 	const runes = $derived(
-		[...assets.runeAssets.entries()]
+		[...assets.matAssets.entries()]
 			.map(([id, r]) => ({ id, name: r.name ?? 'Rune' }))
 			.sort((a, b) => a.name.localeCompare(b.name))
 	);

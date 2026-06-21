@@ -6,14 +6,14 @@
  *
  * ── How to regenerate ─────────────────────────────────────────────────────────
  * Run these two queries against Supabase project `gvxfokbptelmvvlxbigh`, schema
- * `"arc-spirits-rev2"`, and paste the rows below verbatim:
+ * `"arc_spirits_assets"`, and paste the rows below verbatim:
  *
  *   select id, name, class_type, is_special
- *     from "arc-spirits-rev2".classes
+ *     from "arc_spirits_assets".classes
  *     order by name;
  *
  *   select id, name, awaken_condition
- *     from "arc-spirits-rev2".hex_spirits
+ *     from "arc_spirits_assets".hex_spirits
  *     order by name;
  *
  * (Captured 2026-06-15: 38 classes, 61 spirits; Arcane Abyss awaken_conditions

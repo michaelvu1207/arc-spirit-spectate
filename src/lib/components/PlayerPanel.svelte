@@ -1,6 +1,6 @@
 <script lang="ts">
 	import HexGrid from '$lib/components/HexGrid.svelte';
-	import type { HandDrawSnapshot, RuneSlotSnapshot, Spirit } from '$lib/types';
+	import type { HandDrawSnapshot, MatSlotSnapshot, Spirit } from '$lib/types';
 
 	interface Props {
 		playerColor: 'Red' | 'Blue' | 'Orange' | 'Green' | 'Purple' | 'Yellow';
@@ -11,7 +11,7 @@
 		statusLevel: number;
 		statusToken: string | null;
 		victoryPoints: number;
-		runes: RuneSlotSnapshot[];
+		runes: MatSlotSnapshot[];
 		handDraws: HandDrawSnapshot[];
 		spiritAssets: Map<string, string>;
 		runeIcons: Map<string, string>;

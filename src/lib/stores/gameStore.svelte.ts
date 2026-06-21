@@ -60,9 +60,9 @@ function rowsToPlayerSnapshots(rows: GameSnapshot[]): PlayerSnapshot[] {
 		statusLevel: row.status_level ?? 1,
 		statusToken: row.status_token ?? null,
 		spirits: row.spirits,
-		runes: row.runes ?? [],
+		mats: row.mats ?? [],
 		handDraws: row.hand_draws ?? [],
-		spiritRuneAttachments: row.spirit_rune_attachments ?? [],
+		spiritAugmentAttachments: row.spirit_augment_attachments ?? [],
 		dice: row.dice ?? []
 	}));
 }
@@ -123,9 +123,9 @@ async function fetchAllSnapshots(gameId: string): Promise<{
 			statusLevel: snapshot.status_level ?? 1,
 			statusToken: snapshot.status_token ?? null,
 			spirits: snapshot.spirits,
-			runes: snapshot.runes ?? [],
+			mats: snapshot.mats ?? [],
 			handDraws: snapshot.hand_draws ?? [],
-			spiritRuneAttachments: snapshot.spirit_rune_attachments ?? [],
+			spiritAugmentAttachments: snapshot.spirit_augment_attachments ?? [],
 			dice: snapshot.dice ?? []
 		};
 
@@ -265,9 +265,9 @@ function handleInsertSnapshot(payload: RealtimePayload) {
 		statusLevel: snapshot.status_level ?? 1,
 		statusToken: snapshot.status_token ?? null,
 		spirits: snapshot.spirits,
-		runes: snapshot.runes ?? [],
+		mats: snapshot.mats ?? [],
 		handDraws: snapshot.hand_draws ?? [],
-		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? [],
+		spiritAugmentAttachments: snapshot.spirit_augment_attachments ?? [],
 		dice: snapshot.dice ?? []
 	};
 
@@ -368,9 +368,9 @@ function handleUpdateSnapshot(payload: RealtimePayload) {
 		statusLevel: snapshot.status_level ?? 1,
 		statusToken: snapshot.status_token ?? null,
 		spirits: snapshot.spirits,
-		runes: snapshot.runes ?? [],
+		mats: snapshot.mats ?? [],
 		handDraws: snapshot.hand_draws ?? [],
-		spiritRuneAttachments: snapshot.spirit_rune_attachments ?? [],
+		spiritAugmentAttachments: snapshot.spirit_augment_attachments ?? [],
 		dice: snapshot.dice ?? []
 	};
 

@@ -21,7 +21,7 @@
 	// Placed Spirit Augment badges (class-token icons), keyed by host spirit slot.
 	const augmentsBySlot = $derived.by(() => {
 		const map = new Map<number, { runeId: string; name: string; icon: string | null }[]>();
-		for (const att of player?.spiritRuneAttachments ?? []) {
+		for (const att of player?.spiritAugmentAttachments ?? []) {
 			const className = typeof att.className === 'string' ? att.className : null;
 			if (!className) continue;
 			const arr = map.get(att.spiritSlotIndex) ?? [];

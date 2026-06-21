@@ -38,7 +38,7 @@ describe('augmentContributions', () => {
 	test('an augment on an awakened spirit is an active contribution', () => {
 		const player = {
 			spirits: [spirit(1, false, { Hero: 1 })],
-			spiritRuneAttachments: [{ spiritSlotIndex: 1, className: 'Mystic' }]
+			spiritAugmentAttachments: [{ spiritSlotIndex: 1, className: 'Mystic' }]
 		};
 		expect(augmentContributions(player)).toEqual([{ className: 'Mystic', awake: true }]);
 	});
@@ -46,7 +46,7 @@ describe('augmentContributions', () => {
 	test('an augment on a face-down spirit is dormant (follows the spirit)', () => {
 		const player = {
 			spirits: [spirit(1, true, {})],
-			spiritRuneAttachments: [{ spiritSlotIndex: 1, className: 'Mystic' }]
+			spiritAugmentAttachments: [{ spiritSlotIndex: 1, className: 'Mystic' }]
 		};
 		expect(augmentContributions(player)).toEqual([{ className: 'Mystic', awake: false }]);
 	});
@@ -54,7 +54,7 @@ describe('augmentContributions', () => {
 	test('attachments with no resolved class (plain runes) are ignored', () => {
 		const player = {
 			spirits: [spirit(1, false, {})],
-			spiritRuneAttachments: [{ spiritSlotIndex: 1 }, { spiritSlotIndex: 1, className: 'Hero' }]
+			spiritAugmentAttachments: [{ spiritSlotIndex: 1 }, { spiritSlotIndex: 1, className: 'Hero' }]
 		};
 		expect(augmentContributions(player)).toEqual([{ className: 'Hero', awake: true }]);
 	});
@@ -62,7 +62,7 @@ describe('augmentContributions', () => {
 	test('an orphaned augment (host spirit gone) is ignored', () => {
 		const player = {
 			spirits: [spirit(2, false, {})],
-			spiritRuneAttachments: [{ spiritSlotIndex: 1, className: 'Hero' }]
+			spiritAugmentAttachments: [{ spiritSlotIndex: 1, className: 'Hero' }]
 		};
 		expect(augmentContributions(player)).toEqual([]);
 	});
@@ -70,7 +70,7 @@ describe('augmentContributions', () => {
 	test('multiple augments across awakened and dormant hosts', () => {
 		const player = {
 			spirits: [spirit(1, false, {}), spirit(2, true, {})],
-			spiritRuneAttachments: [
+			spiritAugmentAttachments: [
 				{ spiritSlotIndex: 1, className: 'Hero' },
 				{ spiritSlotIndex: 1, className: 'Mystic' },
 				{ spiritSlotIndex: 2, className: 'Hero' }

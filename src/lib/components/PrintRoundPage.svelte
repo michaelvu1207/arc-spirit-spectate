@@ -88,7 +88,7 @@
 						<div class="section-title">Runes</div>
 						<div class="slots-grid slots-4">
 							{#each [1, 2, 3, 4] as i}
-								{@const r = (p.runes ?? []).find((x) => x.slotIndex === i)}
+								{@const r = (p.mats ?? []).find((x) => x.slotIndex === i)}
 								<div class="slot">
 									<div class="slot-index">{i}</div>
 									<div class="slot-value">{r?.hasRune ? (r.name ?? 'Rune') : '—'}</div>

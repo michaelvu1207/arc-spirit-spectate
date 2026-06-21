@@ -24,27 +24,24 @@ test.describe('2D play — P0 round loop', () => {
 		await guestCtx.close();
 	});
 
-	test('navigation lock/reveal, summon, cleanup, round advance', async () => {
+	test('navigation lock/reveal, pass, cleanup, round advance', async () => {
 		await setupTwoPlayerGame(host, guest);
 
 		// Host locks first — destinations must NOT reveal yet.
 		await lockDestination(host, 'Cyber City');
 		await expectPhase(host, 'navigation');
 
-		// Guest locks — now both reveal and advance to the location phase.
+		// Guest locks — once every seat is locked the server collapses the navigation
+		// deadline to a short grace, then reveals and advances to the location phase.
 		await lockDestination(guest, 'Tidal Cove');
 		await expectPhase(host, 'location');
 		await expectPhase(guest, 'location');
 
-		// Host picks the Spirit World Summon action card → the stage shows the draw tray.
-		await host.getByTestId('action-spiritWorldSummon').click();
-		await expect(host.getByTestId('draw-tray')).toBeVisible();
-		await expect(host.getByTestId('picks-left')).toHaveText('Picks left: 2');
-		await host.getByTestId('draw-card').first().click();
-		await expect(host.getByTestId('picks-left')).toHaveText('Picks left: 1');
-		await host.getByTestId('draw-card').first().click();
-		// Both picks spent → tray clears and the stage returns to the action grid.
-		await expect(host.getByTestId('draw-tray')).toHaveCount(0);
+		// NOTE: the per-location action beats (Spirit World Summon → draw tray, etc.) now
+		// resolve through the interaction grid and are scenario-data-dependent; that
+		// migration lives with play-full. This P0 spec covers the core PHASE MACHINE —
+		// lock → reveal → pass → cleanup → round advance — which is the highest-value
+		// regression net. Both players simply pass their location turn.
 
 		// Both pass their turn → cleanup.
 		await passTurn(host);

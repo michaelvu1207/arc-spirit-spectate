@@ -12,6 +12,7 @@
 	import {
 		getAssetState,
 		preloadAssetImages,
+		loadAssetDataSkipImages,
 		getGuardianAsset
 	} from '$lib/stores/assetStore.svelte';
 	import { stopMenu, playMenuSfx, primeMenuSfx } from '$lib/stores/menuAudio.svelte';
@@ -141,7 +142,13 @@
 		hydratePlayRoom(data.initialView);
 
 		const preloadAbort = new AbortController();
-		void preloadAssetImages(preloadAbort.signal);
+		// E2E: `?e2e` skips the ~240-image board-art preload (which otherwise saturates
+		// the network and gates the board) and renders with placeholder art instead.
+		if (browser && new URLSearchParams(location.search).has('e2e')) {
+			void loadAssetDataSkipImages();
+		} else {
+			void preloadAssetImages(preloadAbort.signal);
+		}
 
 		let botTimer: ReturnType<typeof setInterval> | null = null;
 		if (browser) {
@@ -291,11 +298,13 @@
 	{#if isClosed}
 		<MenuShell>
 			<div class="closed">
-				<span class="kicker"><span class="kn">RM</span><span class="kl"></span> {room.roomCode}</span>
+				<span class="kicker"
+					><span class="kn">RM</span><span class="kl"></span> {room.roomCode}</span
+				>
 				<h1 class="closed-title brand-flame-text">Room closed</h1>
 				<p class="closed-sub">
-					This room was closed because everyone left, or it stayed open too long without a
-					game finishing.
+					This room was closed because everyone left, or it stayed open too long without a game
+					finishing.
 				</p>
 				<button type="button" class="closed-btn" onclick={() => goto('/play')}>
 					<span class="arrow" aria-hidden="true">←</span> Back to Servers
@@ -306,7 +315,13 @@
 	{:else if isLobby}
 		<MenuShell>
 			<div class="lobby" use:lobbySfx>
-				<button type="button" class="leave-btn" data-testid="leave-room" title="Leave this room" onclick={leaveRoom}>
+				<button
+					type="button"
+					class="leave-btn"
+					data-testid="leave-room"
+					title="Leave this room"
+					onclick={leaveRoom}
+				>
 					<span class="arrow" aria-hidden="true">←</span> Leave
 				</button>
 				<header class="lhead reveal" style="--d: 0.04s">
@@ -417,10 +432,17 @@
 							</select>
 						</label>
 					{:else}
-						<span class="setting-chip" data-testid="nav-timer-readonly">Nav timer · {navTimerLabel}</span>
+						<span class="setting-chip" data-testid="nav-timer-readonly"
+							>Nav timer · {navTimerLabel}</span
+						>
 					{/if}
 					{#if !mySeat && openSeats.length}
-						<button class="primary" onclick={takeSeat} disabled={pendingAction !== null}>
+						<button
+							class="primary"
+							data-testid="take-seat"
+							onclick={takeSeat}
+							disabled={pendingAction !== null}
+						>
 							{pendingAction === 'claim' ? 'Seating…' : 'Take a seat'}
 						</button>
 					{/if}
@@ -591,7 +613,11 @@
 		cursor: pointer;
 		-webkit-backdrop-filter: blur(8px);
 		backdrop-filter: blur(8px);
-		transition: background 140ms ease, border-color 140ms ease, transform 140ms ease, color 140ms ease;
+		transition:
+			background 140ms ease,
+			border-color 140ms ease,
+			transform 140ms ease,
+			color 140ms ease;
 	}
 	.leave-btn:hover {
 		background: rgba(255, 255, 255, 0.1);

@@ -1,49 +1,34 @@
 import { expect, type Page } from '@playwright/test';
 
-const ROOM_URL = /\/play\/[A-Z0-9]+$/;
-
 /**
- * Click a button that triggers a client-side navigation, retrying until the URL
- * changes. The first click after a full page load can land before SvelteKit has
- * hydrated (so the onclick handler isn't wired yet); retrying absorbs that race.
+ * POST a play API endpoint from inside a page's browser context, so the session-member
+ * cookie the server sets (and re-reads) belongs to THAT player. Returns the parsed
+ * RoomView. Throws with the status + body on a non-2xx so setup failures are legible.
+ *
+ * Why API and not the UI for setup: the room create/join/seat/guardian/start flow is
+ * not what these specs exercise — the round LOOP is. Driving setup through the API is
+ * far more robust than racing SvelteKit hydration on the Server Browser's create button
+ * (a click landing pre-hydration silently no-ops), and `expectedRevision` is documented
+ * as un-gated server-side (play is simultaneous), so no revision threading is needed.
  */
-async function clickUntilNavigated(page: Page, testId: string): Promise<void> {
-	await expect(async () => {
-		await page.getByTestId(testId).click();
-		await page.waitForURL(ROOM_URL, { timeout: 2500 });
-	}).toPass({ timeout: 30_000 });
-}
-
-export async function createRoom(page: Page, name: string): Promise<string> {
-	await page.goto('/play');
-	await page.getByTestId('create-open').click();
-	await page.getByTestId('create-name').fill(name);
-	await clickUntilNavigated(page, 'create-room');
-	const code = new URL(page.url()).pathname.split('/').pop();
-	if (!code) throw new Error('No room code in URL after create');
-	return code;
-}
-
-export async function joinRoom(page: Page, code: string, name: string): Promise<void> {
-	await page.goto('/play');
-	await page.getByTestId('join-open').click();
-	await page.getByTestId('join-code').fill(code);
-	await page.getByTestId('join-name').fill(name);
-	await clickUntilNavigated(page, 'join-room');
-}
-
-export async function claimSeat(page: Page, seat: string, guardianIndex: number): Promise<void> {
-	await page.getByTestId(`claim-${seat}`).click();
-	await page.getByTestId(`guardian-${seat}`).selectOption({ index: guardianIndex });
-	// The <select> uses a one-way value binding, so its DOM value flips instantly
-	// on selectOption — that does NOT mean the command persisted. Wait instead on
-	// the seat's guardian label, which is driven by the server-confirmed `room`
-	// state, so a subsequent startGame can't race ahead of the guardian write.
-	await expect(page.getByTestId(`seat-guardian-${seat}`)).not.toHaveText('No guardian selected');
-}
-
-export async function startGame(page: Page): Promise<void> {
-	await page.getByTestId('start-game').click();
+async function apiPost(
+	page: Page,
+	path: string,
+	body: Record<string, unknown> = {}
+): Promise<{ projection: { roomCode: string; revision: number; guardianPool: string[] } }> {
+	return page.evaluate(
+		async ({ path, body }) => {
+			const r = await fetch(path, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			const text = await r.text();
+			if (!r.ok) throw new Error(`POST ${path} → ${r.status}: ${text.slice(0, 300)}`);
+			return JSON.parse(text);
+		},
+		{ path, body }
+	);
 }
 
 export async function expectPhase(page: Page, phase: string): Promise<void> {
@@ -92,16 +77,42 @@ export async function claimMonsterRewardIfPresent(page: Page): Promise<void> {
 	}
 }
 
-/** Drive a fresh 2-player game from the lobby into the active navigation phase. */
+/**
+ * Stand up a fresh 2-player game and land both clients in the active navigation phase.
+ *
+ * Setup runs through the API (see {@link apiPost}); each player's call executes in
+ * their own browser context so the member cookie is scoped correctly. Then both pages
+ * navigate into the room via the UI — which is where the specs take over and drive the
+ * real round loop. Host takes Red, guest takes Blue, each with a distinct Guardian from
+ * the room's pool; the host then starts the game.
+ */
 export async function setupTwoPlayerGame(host: Page, guest: Page): Promise<{ code: string }> {
-	const code = await createRoom(host, 'Host');
-	await joinRoom(guest, code, 'Guest');
+	// Land on a same-origin page first so in-context fetch() + Set-Cookie work.
+	await host.goto('/play');
+	await guest.goto('/play');
 
-	await claimSeat(host, 'Red', 1);
-	await claimSeat(guest, 'Blue', 2);
+	const created = await apiPost(host, '/api/play/sessions', { displayName: 'Host' });
+	const code = created.projection.roomCode;
+	const pool = created.projection.guardianPool;
 
-	await startGame(host);
+	await apiPost(guest, `/api/play/sessions/${code}/join`, { displayName: 'Guest' });
 
+	await apiPost(host, `/api/play/sessions/${code}/claim-seat`, { seatColor: 'Red' });
+	await apiPost(host, `/api/play/sessions/${code}/commands`, {
+		command: { type: 'selectGuardian', guardianName: pool[0] }
+	});
+	await apiPost(guest, `/api/play/sessions/${code}/claim-seat`, { seatColor: 'Blue' });
+	await apiPost(guest, `/api/play/sessions/${code}/commands`, {
+		command: { type: 'selectGuardian', guardianName: pool[1] }
+	});
+
+	await apiPost(host, `/api/play/sessions/${code}/start`);
+
+	// Hand off to the UI: load both players into the now-active game. `?e2e` skips the
+	// ~240-image board-art preload (which otherwise saturates the network, starves the
+	// presence poll, and gets the room reaped mid-load) — the board renders with
+	// placeholder art, which is all the round-loop assertions need.
+	await Promise.all([host.goto(`/play/${code}?e2e=1`), guest.goto(`/play/${code}?e2e=1`)]);
 	await expectPhase(host, 'navigation');
 	await expectPhase(guest, 'navigation');
 	return { code };

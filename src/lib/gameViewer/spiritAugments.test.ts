@@ -1,20 +1,18 @@
 import { describe, expect, test } from 'vitest';
 import { buildSpiritAugmentRow } from './spiritAugments';
-import type { PlayerSnapshot, RuneAsset } from '$lib/types';
+import type { PlayerSnapshot, MatAsset } from '$lib/types';
 
-const augmentAsset: RuneAsset = {
+const augmentAsset: MatAsset = {
 	id: 'augment-fighter',
 	name: 'Fighter',
 	origin_id: null,
-	class_id: 'fighter',
 	icon_path: 'runes/fighter.png'
 };
 
-const runeAsset: RuneAsset = {
+const runeAsset: MatAsset = {
 	id: 'rune-forest',
 	name: 'Forest',
 	origin_id: 'forest',
-	class_id: null,
 	icon_path: 'runes/forest.png'
 };
 
@@ -31,9 +29,9 @@ function player(overrides: Partial<PlayerSnapshot>): PlayerSnapshot {
 		statusLevel: 1,
 		statusToken: null,
 		spirits: [],
-		runes: [],
+		mats: [],
 		handDraws: [],
-		spiritRuneAttachments: [],
+		spiritAugmentAttachments: [],
 		dice: [],
 		...overrides
 	};
@@ -48,7 +46,7 @@ describe('buildSpiritAugmentRow', () => {
 
 		const row = buildSpiritAugmentRow(
 			player({
-				runes: [
+				mats: [
 					{
 						slotIndex: 1,
 						hasRune: true,
@@ -63,14 +61,15 @@ describe('buildSpiritAugmentRow', () => {
 						id: augmentAsset.id,
 						name: augmentAsset.name,
 						type: 'class',
-						classId: augmentAsset.class_id ?? undefined
+						classId: 'fighter'
 					}
 				],
-				spiritRuneAttachments: [
+				spiritAugmentAttachments: [
 					{
 						runeId: augmentAsset.id,
 						spiritId: 'spirit-1',
-						spiritSlotIndex: 3
+						spiritSlotIndex: 3,
+						classId: 'fighter'
 					}
 				]
 			}),

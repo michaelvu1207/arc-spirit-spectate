@@ -18,12 +18,17 @@ type GameSummaryRow = {
 	display_name: string | null;
 };
 
+// The 2D engine session tables live in their own schema (arc_spirits_2d);
+// everything else stays in the default game/history schema (arc_spirits_game).
+const PLAY_SCHEMA = 'arc_spirits_2d';
+
 // Per-game tables to wipe on a hard delete. Views (game_summaries,
 // *_verified) regenerate automatically; only base tables are listed.
+// NOTE: play_game_sessions lives in PLAY_SCHEMA and is deleted separately
+// (see the delete action) — it is intentionally NOT in this default-schema list.
 const GAME_TABLES_TO_DELETE = [
 	'game_state_snapshots',
 	'game_notes',
-	'play_game_sessions',
 	'player_composition_tags',
 	'player_feedback',
 	'player_rating_events',
@@ -224,6 +229,17 @@ export const actions: Actions = {
 			.delete()
 			.eq('game_id', gameId);
 		if (snapErr) throw error(500, `Failed to delete snapshots: ${snapErr.message}`);
+
+		// play_game_sessions lives in the 2D engine schema, so it needs its own
+		// schema-bound client (the default supabaseAdmin is bound to arc_spirits_game).
+		const playAdmin = getSupabaseAdmin(PLAY_SCHEMA);
+		if (playAdmin) {
+			const { error: sessErr } = await playAdmin
+				.from('play_game_sessions')
+				.delete()
+				.eq('game_id', gameId);
+			if (sessErr) throw error(500, `Failed to delete play sessions: ${sessErr.message}`);
+		}
 
 		// Don't await recompute — it can take a while and we want the redirect
 		// snappy. The next admin action will pick up fresh stats.

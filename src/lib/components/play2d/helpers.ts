@@ -1,6 +1,6 @@
 /** Shared helpers for the 2D play board. */
 import { STORAGE_BASE_URL } from '$lib/supabase';
-import type { HexSpiritAsset, IconPoolEntry, RuneAsset, RuneSlotSnapshot } from '$lib/types';
+import type { HexSpiritAsset, IconPoolEntry, MatAsset, MatSlotSnapshot } from '$lib/types';
 import { PLAYER_COLOR_HEX, type PlayerColor } from '$lib/types';
 import type { SeatColor } from '$lib/play/types';
 import type { getAssetState } from '$lib/stores/assetStore.svelte';
@@ -25,19 +25,15 @@ export function iconPoolUrl(iconPool: Map<string, IconPoolEntry>, id: string): s
  */
 export function runeAssetFor(
 	assets: ReturnType<typeof getAssetState>,
-	rune: RuneSlotSnapshot
-): RuneAsset | null {
-	const all = [...assets.runeAssets.values()];
+	rune: MatSlotSnapshot
+): MatAsset | null {
+	const all = [...assets.matAssets.values()];
 	if (rune.id) {
-		const a = assets.runeAssets.get(rune.id);
+		const a = assets.matAssets.get(rune.id);
 		if (a?.icon_path) return a;
 	}
 	if (rune.originId) {
 		const a = all.find((r) => r.origin_id === rune.originId);
-		if (a?.icon_path) return a;
-	}
-	if (rune.classId) {
-		const a = all.find((r) => r.class_id === rune.classId);
 		if (a?.icon_path) return a;
 	}
 	if (rune.type === 'relic') {
@@ -63,7 +59,7 @@ export function runeAssetFor(
 /** Rune-slot icon URL, falling back to the generic rune glyph. */
 export function runeIconUrl(
 	assets: ReturnType<typeof getAssetState>,
-	rune: RuneSlotSnapshot
+	rune: MatSlotSnapshot
 ): string | null {
 	return (
 		storageUrl(runeAssetFor(assets, rune)?.icon_path ?? null) ??
@@ -72,26 +68,18 @@ export function runeIconUrl(
 }
 
 /**
- * The Spirit Augment token icon for a given augment CLASS. A Spirit Augment's art
- * lives on the class-linked rune row (`runes.icon_path`), keyed by class id —
- * `classTraits` is keyed by class id, `runeAssets` carry `class_id`. Returns null if
- * the class or its augment rune isn't loaded.
+ * The Spirit Augment token icon for a given augment CLASS. Augments are derived
+ * purely from the 6 augment classes (no catalog rows), so the token uses the
+ * CLASS's own icon (`classes.icon_png`), keyed by class name. Returns null if the
+ * class isn't loaded or has no icon.
  */
 export function augmentIconForClass(
 	assets: ReturnType<typeof getAssetState>,
 	className: string | null | undefined
 ): string | null {
 	if (!className) return null;
-	let classId: string | undefined;
-	for (const c of assets.classTraits.values()) {
-		if (c.name === className) {
-			classId = c.id;
-			break;
-		}
-	}
-	if (!classId) return null;
-	for (const r of assets.runeAssets.values()) {
-		if (r.class_id === classId) return storageUrl(r.icon_path ?? null);
+	for (const cls of assets.classTraits.values()) {
+		if (cls.name === className) return storageUrl(cls.icon_png ?? null);
 	}
 	return null;
 }

@@ -17,8 +17,8 @@ import type { PlaySpirit } from './types';
 
 /**
  * The canonical Spirit Augment token set. A Spirit Augment is its OWN token type
- * (NOT a rune — the Swordsman/Sorcerer/… rows in the `runes` table are only an
- * organizational artifact and are not used here). There are exactly these six, each
+ * (NOT a rune — augments are derived purely from the 6 augment classes; they have
+ * no catalog rows). There are exactly these six, each
  * identified by the class it grants; placing one adds one of that class to the host
  * spirit and renders that class's icon. "Any Spirit Augment" = the player picks one
  * of these six.
@@ -78,7 +78,7 @@ export interface AugmentContribution {
  *  the engine's PrivatePlayerState and the client's PlayerProjection. */
 interface AugmentCountablePlayer {
 	spirits: { slotIndex: number; isFaceDown: boolean }[];
-	spiritRuneAttachments?: { spiritSlotIndex: number; className?: unknown }[];
+	spiritAugmentAttachments?: { spiritSlotIndex: number; className?: unknown }[];
 }
 
 /**
@@ -89,7 +89,7 @@ interface AugmentCountablePlayer {
  */
 export function augmentContributions(player: AugmentCountablePlayer): AugmentContribution[] {
 	const out: AugmentContribution[] = [];
-	for (const att of player.spiritRuneAttachments ?? []) {
+	for (const att of player.spiritAugmentAttachments ?? []) {
 		const className = typeof att.className === 'string' ? att.className : null;
 		if (!className) continue; // not a class-linked augment
 		const host = player.spirits.find((s) => s.slotIndex === att.spiritSlotIndex);

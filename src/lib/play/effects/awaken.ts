@@ -7,9 +7,9 @@
  * the player can pay:
  *
  *   - no condition (`undefined`)  → free flip (current behavior).
- *   - `rune_cost`                 → match the required runes against the player's
- *                                   held runes via {@link matchRuneCost}; pay by
- *                                   discarding the chosen runes.
+ *   - `rune_cost`                 → match the required mats against the player's
+ *                                   held mats via {@link matchMatCost}; pay by
+ *                                   discarding the chosen mats.
  *   - `text`                      → never auto-satisfiable; the runtime surfaces a
  *                                   manualPrompt and the flip is blocked (Phase 6
  *                                   scripts the encodable text conditions).
@@ -19,6 +19,7 @@
  */
 
 import type {
+	AwakenDiscardOption,
 	AwakenLockedOffer,
 	AwakenOffer,
 	NormalizedAwaken,
@@ -26,7 +27,7 @@ import type {
 	PlaySpirit
 } from '../types';
 import type { EffectContext } from './context';
-import { matchRuneCost, spendableRunes } from './runeMatch';
+import { matchMatCost, spendableMats } from './matMatch';
 import { AWAKEN_HANDLERS, type AwakenHandlerContext } from './awakenHandlers';
 
 /** Result of {@link checkAwakenCondition}: satisfiable + an optional reason. */
@@ -62,8 +63,8 @@ function catalogSpiritFor(ctx: EffectContext, spirit: PlaySpirit): PlayCatalogSp
  * Can the spirit in `target` be awakened given the player's current runes?
  *
  * Reads the catalog spirit's normalized `awaken`. A missing condition is free.
- * A `rune_cost` is satisfiable iff {@link matchRuneCost} can assign every
- * requirement to a distinct held rune. A `text` condition is never
+ * A `rune_cost` is satisfiable iff {@link matchMatCost} can assign every
+ * requirement to a distinct held mat. A `text` condition is never
  * auto-satisfiable here (manual path), but the verbatim text is returned so the
  * caller can prompt for it.
  */
@@ -94,7 +95,7 @@ export function checkAwakenCondition(ctx: EffectContext, target: AwakenTarget): 
 	}
 
 	// rune_cost → generic resolver.
-	const match = matchRuneCost(awaken.runes, spendableRunes(ctx.player.runes));
+	const match = matchMatCost(awaken.mats, spendableMats(ctx.player.mats));
 	if (!match.ok) {
 		return { ok: false, reason: 'insufficient_runes', kind: 'rune_cost' };
 	}
@@ -146,15 +147,15 @@ export function payAwakenCondition(
 		return { ok: true, discarded: ctx.log.slice(before) };
 	}
 
-	const runes = ctx.player.runes;
-	const match = matchRuneCost(awaken.runes, spendableRunes(runes), runeInstanceIds);
+	const mats = ctx.player.mats;
+	const match = matchMatCost(awaken.mats, spendableMats(mats), runeInstanceIds);
 	if (!match.ok) {
 		return { ok: false, reason: 'insufficient_runes', discarded: [] };
 	}
 
 	const discarded: string[] = [];
 	for (const arrayIndex of match.consumedIndices) {
-		const slot = runes[arrayIndex];
+		const slot = mats[arrayIndex];
 		if (!slot) continue;
 		slot.hasRune = false;
 		discarded.push(slot.name ?? slot.id ?? 'rune');
@@ -212,13 +213,20 @@ export function buildAwakenOffer(ctx: EffectContext, target: AwakenTarget): Awak
 		return { ...base, requirement: 'Free', discardCount: 0, options: [] };
 	}
 
-	// rune_cost — show the runes; copies are auto-matched (no per-item choice).
+	// rune_cost — list the player's spendable runes/relics so the owner picks WHICH to
+	// spend (the chosen instance ids become a spend preference for matchMatCost). The
+	// requirement still spells out what the cost needs.
 	if (awaken.kind === 'rune_cost') {
-		const summary = awaken.runes
+		const summary = awaken.mats
 			.map((r) => (r.count > 1 ? `${r.name} ×${r.count}` : r.name))
 			.join(', ');
-		const discardCount = awaken.runes.reduce((sum, r) => sum + r.count, 0);
-		return { ...base, requirement: `Discard ${summary}`, discardCount, options: [] };
+		const discardCount = awaken.mats.reduce((sum, r) => sum + r.count, 0);
+		const options: AwakenDiscardOption[] = spendableMats(ctx.player.mats).map((r) => ({
+			ref: { kind: 'rune' as const, slotIndex: ctx.player.mats[r.arrayIndex].slotIndex },
+			label: r.name ?? 'Rune',
+			...(r.id ? { runeId: r.id } : {})
+		}));
+		return { ...base, requirement: `Discard ${summary}`, discardCount, options };
 	}
 
 	// Scripted text — discard handlers expose a choice; event/flag handlers don't.
@@ -240,7 +248,7 @@ function describeRequirement(ctx: EffectContext, spirit: PlaySpirit): string {
 	const awaken = catalogSpiritFor(ctx, spirit)?.awaken;
 	if (!awaken) return 'Free';
 	if (awaken.kind === 'rune_cost') {
-		const summary = awaken.runes
+		const summary = awaken.mats
 			.map((r) => (r.count > 1 ? `${r.name} ×${r.count}` : r.name))
 			.join(', ');
 		return `Discard ${summary}`;

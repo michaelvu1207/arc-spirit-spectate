@@ -62,14 +62,26 @@
 	<div class="picker" style="--accent: {accent}">
 		<button type="button" class="backdrop" aria-label="Close" onclick={close}></button>
 
-		<div class="panel" role="dialog" aria-modal="true" aria-label={title}>
+		<div
+			class="panel"
+			role="dialog"
+			aria-modal="true"
+			aria-label={title}
+			data-testid="guardian-picker"
+		>
 			<header class="phead">
 				<div>
 					<div class="peyebrow">Character Select</div>
 					<h2>{title}</h2>
 					{#if subtitle}<p>{subtitle}</p>{/if}
 				</div>
-				<button class="close" type="button" onpointerenter={() => playMenuSfx('ui-hover', { volume: 0.4 })} onclick={close} aria-label="Close">✕</button>
+				<button
+					class="close"
+					type="button"
+					onpointerenter={() => playMenuSfx('ui-hover', { volume: 0.4 })}
+					onclick={close}
+					aria-label="Close">✕</button
+				>
 			</header>
 
 			<div class="grid">
@@ -83,6 +95,7 @@
 						class:taken={isTaken}
 						class:current={isCurrent}
 						style="--oc: {originColor(name)}"
+						data-testid="guardian-tile"
 						disabled={isTaken}
 						onpointerenter={() => !isTaken && playMenuSfx('ui-hover', { volume: 0.38 })}
 						onclick={() => pick(name)}

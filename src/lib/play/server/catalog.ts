@@ -7,9 +7,9 @@ const CACHE_TTL_MS = 60_000;
 let cachedCatalog: PlayCatalog | null = null;
 let cachedAt = 0;
 
-/** Resolve a rune's catalog `kind` from its FK columns (matches PlayCatalogRune). */
-function runeKind(rune: { class_id: string | null; origin_id: string | null }): PlayCatalogRune['kind'] {
-	return rune.class_id ? 'augment' : rune.origin_id ? 'rune' : 'relic';
+/** Resolve a mat's catalog `kind` from its FK columns (matches PlayCatalogRune). */
+function matKind(mat: { origin_id: string | null }): PlayCatalogRune['kind'] {
+	return mat.origin_id ? 'rune' : 'relic';
 }
 
 /**
@@ -37,9 +37,9 @@ function countRolesByName(ids: string[], names: Map<string, string>): Record<str
 export function buildPlayCatalog(assets: AssetsData): PlayCatalog {
 	const classNames = new Map(assets.classes.map((entry) => [entry.id, entry.name]));
 	const originNames = new Map(assets.origins.map((entry) => [entry.id, entry.name]));
-	// Rune name+kind by id, for normalizing each spirit's awaken rune cost.
+	// Mat name+kind by id, for normalizing each spirit's awaken mat cost.
 	const runesById = new Map<string, AwakenRuneInfo>(
-		assets.runes.map((rune) => [rune.id, { name: rune.name, kind: runeKind(rune) }])
+		assets.mats.map((mat) => [mat.id, { name: mat.name, kind: matKind(mat) }])
 	);
 
 	return {
@@ -60,14 +60,13 @@ export function buildPlayCatalog(assets: AssetsData): PlayCatalog {
 				origins: countRolesByName(spirit.traits?.origin_ids ?? [], originNames),
 				awaken: normalizeAwaken(spirit.awaken_condition, runesById)
 			})),
-		runes: [...assets.runes]
+		mats: [...assets.mats]
 			.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
-			.map((rune) => ({
-				id: rune.id,
-				name: rune.name,
-				kind: runeKind(rune),
-				originId: rune.origin_id,
-				classId: rune.class_id
+			.map((mat) => ({
+				id: mat.id,
+				name: mat.name,
+				kind: matKind(mat),
+				originId: mat.origin_id
 			})),
 		classes: [...assets.classes]
 			.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))

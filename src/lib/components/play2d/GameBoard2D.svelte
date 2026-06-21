@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { browser, dev } from '$app/environment';
-	import { sendPlayCommand } from '$lib/stores/playStore.svelte';
+	import { sendPlayCommand, applyOptimistic } from '$lib/stores/playStore.svelte';
 	import { getAssetState } from '$lib/stores/assetStore.svelte';
 	import type {
 		AwakenDiscardRef,
@@ -29,13 +29,15 @@
 	import InfoLegend from './InfoLegend.svelte';
 	import Leaderboard from './Leaderboard.svelte';
 	import TraitTracker from './TraitTracker.svelte';
-	import RuneSlots from './RuneSlots.svelte';
+	import MatSlots from './MatSlots.svelte';
 	import MainStage, { type ActiveAction } from './MainStage.svelte';
 	import CompositionStage from './CompositionStage.svelte';
 	import DestinationReveal from './DestinationReveal.svelte';
 	import GameStartCutscene from './GameStartCutscene.svelte';
 	import SplatBackground from './SplatBackground.svelte';
+	import SplatQualityControl from './SplatQualityControl.svelte';
 	import { prefersReducedData } from '$lib/play/dataSaver';
+	import { getGraphicsSettings } from '$lib/stores/graphicsSettings.svelte';
 	import BagViewer from './BagViewer.svelte';
 	import DebugPanel from './DebugPanel.svelte';
 	import SummonFxLayer from './SummonFxLayer.svelte';
@@ -110,7 +112,8 @@
 	// lingering combat doesn't re-open for the rest of the round.
 	const myPvpCombat = $derived(
 		mySeat
-			? (room.combats.find((c) => c.kind === 'pvp' && c.sides.some((s) => s.seat === mySeat)) ?? null)
+			? (room.combats.find((c) => c.kind === 'pvp' && c.sides.some((s) => s.seat === mySeat)) ??
+					null)
 			: null
 	);
 	$effect(() => {
@@ -164,11 +167,13 @@
 	);
 
 	// ── Splat background ───────────────────────────────────────────────────
-	// On metered/slow/Data-Saver connections skip the WebGL splat entirely —
-	// the board is fully playable with just the radial-gradient base background.
-	// prefersReducedData() is checked once at mount time (Network Information API);
-	// it returns false conservatively where the API is unavailable (Safari/Firefox).
-	const showSplat = !prefersReducedData();
+	const graphics = getGraphicsSettings();
+	// Skip the WebGL splat when the player disabled it (Settings → Background → Off)
+	// OR on metered/slow/Data-Saver connections — the board is fully playable with
+	// just the radial-gradient base background. prefersReducedData() returns false
+	// conservatively where the Network Information API is unavailable (Safari/Firefox).
+	// Reactive so toggling the in-game setting starts/stops the renderer live.
+	const showSplat = $derived(graphics.splatEnabled && !prefersReducedData());
 
 	// Each destination maps to a Gaussian-splat world (static .spz under /splats);
 	// the map + defaults are the single source of truth in locations.ts (splatFor).
@@ -589,12 +594,25 @@
 	// ── Navigation ─────────────────────────────────────────────────────────
 	function handleSelectDestination(destination: NavigationDestination) {
 		if (!canPickDestination) return;
+		const seat = mySeat;
 		// Clicking a location locks it in immediately; clicking the locked one unlocks.
+		// Reflect the lock LOCALLY before the round-trip so the tap feels instant; the
+		// authoritative /view reconciles over it and self-corrects on any divergence.
 		if (lockedDestination === destination) {
 			playSfx('nav-unlock');
+			applyOptimistic((r) => {
+				const p = seat ? r.players[seat] : null;
+				if (p) p.pendingDestination = null;
+				if (seat && r.navigation[seat]) r.navigation[seat].locked = false;
+			});
 			send('unlock', { type: 'unlockNavigation' });
 		} else {
 			playSfx('nav-lock');
+			applyOptimistic((r) => {
+				const p = seat ? r.players[seat] : null;
+				if (p) p.pendingDestination = destination;
+				if (seat && r.navigation[seat]) r.navigation[seat].locked = true;
+			});
 			send('lock', { type: 'lockNavigation', destination });
 		}
 	}
@@ -749,7 +767,7 @@
 
 	// Held runes/relics over the carry limit must be discarded before cleanup can end.
 	const runeOverflow = $derived(
-		(myPlayer?.runes ?? []).filter((r) => r.hasRune).length > RUNE_CARRY_LIMIT
+		(myPlayer?.mats ?? []).filter((r) => r.hasRune).length > RUNE_CARRY_LIMIT
 	);
 
 	// ── "Pass turn" — the single per-phase "I'm done" control ───────────────
@@ -976,7 +994,12 @@
 					<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
 						<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7" />
 						<circle cx="12" cy="8" r="1.15" fill="currentColor" />
-						<path d="M12 11.2v5.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+						<path
+							d="M12 11.2v5.2"
+							stroke="currentColor"
+							stroke-width="1.9"
+							stroke-linecap="round"
+						/>
 					</svg>
 				</button>
 				<div class="settings-wrap">
@@ -1033,6 +1056,9 @@
 							>
 								{audioState.muted ? 'Unmute audio' : 'Mute audio'}
 							</button>
+							<div class="settings-control">
+								<SplatQualityControl />
+							</div>
 							{#if isHost && room.status === 'active'}
 								<button
 									type="button"
@@ -1069,7 +1095,9 @@
 			<div class="trait-col">
 				<div class="trait-center">
 					{#if traitPlayer}
-						<div class="rune-row"><RuneSlots player={traitPlayer} {assets} orientation="row" /></div>
+						<div class="rune-row">
+							<MatSlots player={traitPlayer} {assets} orientation="row" />
+						</div>
 					{/if}
 					<div class="trait-host"><TraitTracker player={traitPlayer} {assets} /></div>
 				</div>
@@ -1722,6 +1750,9 @@
 	.settings-item:hover {
 		border-color: rgba(255, 255, 255, 0.4);
 		color: #fff;
+	}
+	.settings-control {
+		padding: 4px 2px 2px;
 	}
 
 	/* Pass-turn — a pill in the stage footer (never stretches; bounded by .stage-foot). */

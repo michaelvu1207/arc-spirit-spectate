@@ -77,7 +77,7 @@ function beginNavigation(state: PublicGameState): void {
 			// Compact rune slots for the new round: drop spent/discarded slots,
 			// re-index, and enforce the carry limit (a host force-advance can bypass
 			// the cleanup discard, so trim here as a backstop).
-			player.runes = player.runes
+			player.mats = player.mats
 				.filter((r) => r.hasRune)
 				.slice(0, RUNE_CARRY_LIMIT)
 				.map((r, i) => ({ ...r, slotIndex: i + 1 }));

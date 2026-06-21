@@ -34,7 +34,7 @@ export {
 // =============================================================================
 export type {
 	Spirit,
-	RuneSlotSnapshot,
+	MatSlotSnapshot,
 	HandDrawSnapshot,
 	BagEntrySnapshot,
 	BagSnapshot,

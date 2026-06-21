@@ -9,7 +9,7 @@ import { prefersReducedData } from '$lib/play/dataSaver';
 import type {
 	HexSpiritAsset,
 	GuardianAsset,
-	RuneAsset,
+	MatAsset,
 	CustomDiceAsset,
 	MonsterAsset,
 	IconPoolEntry,
@@ -22,7 +22,7 @@ import type {
 
 // Reactive state using Svelte 5 runes
 let spiritAssets = $state<Map<string, HexSpiritAsset>>(new Map());
-let runeAssets = $state<Map<string, RuneAsset>>(new Map());
+let matAssets = $state<Map<string, MatAsset>>(new Map());
 let customDiceAssets = $state<Map<string, CustomDiceAsset>>(new Map());
 let monsterAssets = $state<Map<string, MonsterAsset>>(new Map());
 let guardianAssets = $state<Map<string, GuardianAsset>>(new Map());
@@ -71,11 +71,11 @@ export async function loadAssets() {
 		}
 		spiritAssets = newSpirits;
 
-		const newRunes = new Map<string, RuneAsset>();
-		for (const rune of assets.runes) {
-			newRunes.set(rune.id, rune);
+		const newMats = new Map<string, MatAsset>();
+		for (const mat of assets.mats) {
+			newMats.set(mat.id, mat);
 		}
-		runeAssets = newRunes;
+		matAssets = newMats;
 
 		const newCustomDice = new Map<string, CustomDiceAsset>();
 		for (const die of assets.customDice) {
@@ -143,7 +143,7 @@ function collectCompressedImageUrls(): string[] {
 	};
 
 	for (const spirit of spiritAssets.values()) add(spirit.game_print_image_path); // compressed only
-	for (const rune of runeAssets.values()) add(rune.icon_path);
+	for (const mat of matAssets.values()) add(mat.icon_path);
 	for (const die of customDiceAssets.values()) {
 		add(die.background_image_path);
 		add(die.template_image_path);
@@ -198,6 +198,20 @@ export async function preloadAssetImages(signal?: AbortSignal): Promise<void> {
 		// Allow a fresh attempt if we bailed out before finishing.
 		if (!imagesReady) imagePreloadStarted = false;
 	}
+}
+
+/**
+ * E2E hook: load asset DATA (the JSON the board needs to render) but SKIP the
+ * bandwidth-heavy image preload, marking the board ready as soon as data is in.
+ * Playwright drives this via `?e2e` on the room URL so the suite isn't gated on (and
+ * starved by) caching ~240 images from storage — the game logic under test renders
+ * fine with placeholder art. Production paths never call this.
+ */
+export async function loadAssetDataSkipImages(): Promise<void> {
+	if (!isLoaded) await loadAssets();
+	imagePreloadStarted = true; // block the real preloader from also saturating the network
+	imageProgress = { loaded: 0, total: 0 };
+	imagesReady = true;
 }
 
 // Get a resolved spirit asset by ID
@@ -272,8 +286,8 @@ export function getAssetState() {
 		get spiritAssets() {
 			return spiritAssets;
 		},
-		get runeAssets() {
-			return runeAssets;
+		get matAssets() {
+			return matAssets;
 		},
 		get customDiceAssets() {
 			return customDiceAssets;

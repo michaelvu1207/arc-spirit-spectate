@@ -11,6 +11,7 @@
 	import type { RoomSummary } from '$lib/play/types';
 	import { formatRelative } from '$lib/features/stats/format';
 	import { playMenuSfx } from '$lib/stores/menuAudio.svelte';
+	import { auth } from '$lib/auth/auth.svelte';
 	import ScreenScaffold from './ScreenScaffold.svelte';
 	import StateMessage from './StateMessage.svelte';
 
@@ -42,13 +43,27 @@
 	const liveGames = $derived(
 		rooms
 			.filter((r) => r.status === 'active')
-			.sort((a, b) => Date.parse(b.startedAt ?? b.createdAt) - Date.parse(a.startedAt ?? a.createdAt))
+			.sort(
+				(a, b) => Date.parse(b.startedAt ?? b.createdAt) - Date.parse(a.startedAt ?? a.createdAt)
+			)
 	);
 
 	const hover = () => playMenuSfx('ui-hover', { volume: 0.4 });
 
-	/** Trimmed name, or null (flagging the field) when empty. */
+	// A PERMANENT account's name is authoritative — locked here so it can't be spoofed.
+	// Guests (anonymous / not-yet-signed-in) can still type a name freely.
+	const accountName = $derived(auth.isPermanent ? (auth.displayName ?? '') : null);
+
+	// Keep the field showing the account name reactively while signed in (it updates if
+	// they rename on /account, and reverts to the typed guest name on sign-out).
+	$effect(() => {
+		if (accountName) name = accountName;
+	});
+
+	/** Trimmed name to play under, or null (flagging the field) when empty. Signed-in
+	 *  users always resolve to their account name. */
 	function requireName(): string | null {
+		if (accountName) return accountName;
 		const trimmed = name.trim();
 		if (!trimmed) {
 			nameError = true;
@@ -77,11 +92,13 @@
 
 	async function create() {
 		if (busy) return;
-		const player = requireName();
-		if (player === null) return;
+		const typed = requireName();
+		if (typed === null) return;
 		busy = 'create';
 		playMenuSfx('game-start', { volume: 0.8 });
 		try {
+			// Anonymous-first: a first-time guest becomes a real (owned) guest account here.
+			const player = await auth.resolvePlayIdentity(typed);
 			const view = await createPlayRoom(player);
 			await goto(`/play/${encodeURIComponent(view.projection.roomCode)}`);
 		} catch (e) {
@@ -126,11 +143,12 @@
 
 	async function join(room: RoomSummary) {
 		if (busy) return;
-		const player = requireName();
-		if (player === null) return;
+		const typed = requireName();
+		if (typed === null) return;
 		busy = room.roomCode;
 		playMenuSfx('game-start', { volume: 0.8 });
 		try {
+			const player = await auth.resolvePlayIdentity(typed);
 			await joinPlayRoom(room.roomCode, player);
 			await goto(`/play/${encodeURIComponent(room.roomCode)}`);
 		} catch (e) {
@@ -154,7 +172,9 @@
 	}
 
 	onMount(() => {
-		if (browser) name = localStorage.getItem(NAME_KEY) ?? '';
+		// Signed-in users get their account name (the $effect above sets it); guests
+		// restore their last-typed name.
+		if (browser && !accountName) name = localStorage.getItem(NAME_KEY) ?? '';
 		void refresh();
 		const timer = setInterval(() => {
 			// Don't thrash the list mid-navigation.
@@ -164,7 +184,9 @@
 	});
 
 	$effect(() => {
-		if (browser) localStorage.setItem(NAME_KEY, name);
+		// Persist GUEST names only — never let an edit clobber the account name in
+		// storage (the auth store owns that mirror for signed-in users).
+		if (browser && !auth.isSignedIn) localStorage.setItem(NAME_KEY, name);
 	});
 </script>
 
@@ -177,7 +199,13 @@
 	{backLabel}
 >
 	{#snippet actions()}
-		<button class="btn-ghost" type="button" onclick={refresh} onpointerenter={hover} disabled={loading}>
+		<button
+			class="btn-ghost"
+			type="button"
+			onclick={refresh}
+			onpointerenter={hover}
+			disabled={loading}
+		>
 			<svg
 				class={loading ? 'spin' : ''}
 				width="12"
@@ -205,6 +233,7 @@
 			<input
 				bind:this={nameInput}
 				class="input-bare"
+				data-testid="player-name"
 				bind:value={name}
 				oninput={() => (nameError = false)}
 				maxlength="40"
@@ -212,12 +241,21 @@
 				spellcheck="false"
 				aria-label="Playing as"
 				aria-invalid={nameError}
+				readonly={!!accountName}
+				title={accountName ? 'Your account name (change it on the Account page)' : undefined}
 			/>
-			{#if nameError}<span class="name-hint" role="alert">Enter a name to play</span>{/if}
+			{#if accountName}
+				<span class="name-hint account" data-testid="player-name-locked"
+					>From your account · <a href="/account">change</a></span
+				>
+			{:else if nameError}
+				<span class="name-hint" role="alert">Enter a name to play</span>
+			{/if}
 		</label>
 		<button
 			class="create-btn"
 			type="button"
+			data-testid="create-room"
 			onclick={create}
 			onpointerenter={hover}
 			disabled={busy !== null}
@@ -282,6 +320,7 @@
 							type="button"
 							class="room-card lobby"
 							class:busy={busy === room.roomCode}
+							data-testid={`room-${room.roomCode}`}
 							onclick={() => join(room)}
 							onpointerenter={hover}
 							disabled={busy !== null}
@@ -332,7 +371,9 @@
 							disabled={busy !== null}
 						>
 							<div class="room-top">
-								<span class="status-pill live"><span class="live-dot" aria-hidden="true"></span>Live</span>
+								<span class="status-pill live"
+									><span class="live-dot" aria-hidden="true"></span>Live</span
+								>
 								<span class="room-code">{room.roomCode}</span>
 							</div>
 							<div class="room-host">{room.hostName}'s game</div>
@@ -398,6 +439,12 @@
 		font-size: 0.8rem;
 		color: var(--color-blood);
 		letter-spacing: 0.02em;
+	}
+	.name-hint.account {
+		color: var(--color-fog);
+	}
+	.name-hint.account a {
+		color: var(--brand-magenta-soft, #ff5dd1);
 	}
 	.create-btn {
 		display: inline-flex;
@@ -487,7 +534,9 @@
 		background: transparent;
 		color: var(--brand-cyan, #24d4ff);
 		cursor: pointer;
-		transition: background 140ms ease, color 140ms ease;
+		transition:
+			background 140ms ease,
+			color 140ms ease;
 	}
 	.debug-btn:not(:disabled):hover {
 		background: var(--brand-cyan, #24d4ff);

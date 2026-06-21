@@ -1,20 +1,18 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import AccountWidget from './AccountWidget.svelte';
 </script>
 
 {#if !$page.url.pathname.endsWith('/export')}
 	{@const pathname = $page.url.pathname}
 	{@const isImmersivePlay = /^\/play\/[^/]+$/.test(pathname)}
-	{@const isLeaderboard = pathname.startsWith('/leaderboard')}
-	{@const isStats = pathname.startsWith('/stats') && !pathname.startsWith('/stats-analysis')}
-	{@const isStatsAnalysis = pathname.startsWith('/stats-analysis')}
-	{@const isCompositionAnalysis = pathname.startsWith('/composition-analysis')}
-	{@const isAdmin = pathname.startsWith('/admin')}
-	{@const isPlayers = pathname.startsWith('/players')}
-	{@const isClasses = pathname.startsWith('/classes')}
 	{@const isPlay = pathname.startsWith('/play')}
-	{@const isBotStats = pathname.startsWith('/bot-stats')}
-	{@const isGames = !isLeaderboard && !isPlayers && !isStats && !isStatsAnalysis && !isCompositionAnalysis && !isAdmin && !isClasses && !isPlay && !isBotStats}
+	{@const isAdmin = pathname.startsWith('/admin')}
+	{@const isRecords = pathname.startsWith('/admin/records')}
+	{@const isLeaderboard = pathname.startsWith('/admin/leaderboard') || pathname.startsWith('/admin/players')}
+	{@const isStats =
+		pathname.startsWith('/admin/stats') && !pathname.startsWith('/admin/stats-analysis')}
+	{@const isGamesAdmin = pathname.startsWith('/admin/games')}
 
 	{#if !isImmersivePlay}
 	<header class="screen-only topbar">
@@ -22,18 +20,7 @@
 		<div class="topbar-inner">
 			<a href="/" class="brand">
 				<span class="lantern" aria-hidden="true">
-					<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-						<path d="M16 3v3" stroke="url(#lg)" stroke-width="2" stroke-linecap="round" />
-						<path d="M11 6h10l-1 3H12z" fill="url(#lg)" />
-						<path d="M12 9h8v14a4 4 0 0 1-4 4 4 4 0 0 1-4-4z" fill="rgba(255,43,199,0.18)" stroke="url(#lg)" stroke-width="1.5" />
-						<path d="M16 13c-2 1.6-3 3.2-3 5a3 3 0 0 0 6 0c0-1.8-1-3.4-3-5z" fill="url(#lg)" />
-						<defs>
-							<linearGradient id="lg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-								<stop stop-color="#ff2bc7" />
-								<stop offset="1" stop-color="#7b1dff" />
-							</linearGradient>
-						</defs>
-					</svg>
+					<img src="/favicon.png" alt="" width="44" height="44" />
 				</span>
 				<div class="brand-text">
 					<div class="brand-eyebrow">Lantern Light Games</div>
@@ -43,30 +30,22 @@
 
 			<div class="nav-wrap">
 				<nav class="nav">
-					<a href="/" class="nav-link" class:active={isGames} aria-current={isGames ? 'page' : undefined}>
-						<span class="nav-dot"></span>Records
-					</a>
 					<a href="/play" class="nav-link" class:active={isPlay} aria-current={isPlay ? 'page' : undefined}>
 						<span class="nav-dot"></span>Play
 					</a>
-					<a href="/leaderboard" class="nav-link" class:active={isLeaderboard || isPlayers} aria-current={isLeaderboard || isPlayers ? 'page' : undefined}>
-						<span class="nav-dot"></span>Leaderboard
-					</a>
-					<a href="/classes" class="nav-link" class:active={isClasses} aria-current={isClasses ? 'page' : undefined}>
-						<span class="nav-dot"></span>Classes
-					</a>
-					<a href="/stats-analysis" class="nav-link" class:active={isStatsAnalysis} aria-current={isStatsAnalysis ? 'page' : undefined}>
-						<span class="nav-dot"></span>Stats Analysis
-					</a>
-					<a href="/composition-analysis" class="nav-link" class:active={isCompositionAnalysis} aria-current={isCompositionAnalysis ? 'page' : undefined}>
-						<span class="nav-dot"></span>Composition Analysis
-					</a>
-					<a href="/bot-stats" class="nav-link" class:active={isBotStats} aria-current={isBotStats ? 'page' : undefined}>
-						<span class="nav-dot"></span>Bot Stats
-					</a>
+
 					{#if $page.data.isAdmin}
-						<a href="/stats" class="nav-link" class:active={isStats} aria-current={isStats ? 'page' : undefined}>
+						<a href="/admin/records" class="nav-link" class:active={isRecords} aria-current={isRecords ? 'page' : undefined}>
+							<span class="nav-dot"></span>Records
+						</a>
+						<a href="/admin/leaderboard" class="nav-link" class:active={isLeaderboard} aria-current={isLeaderboard ? 'page' : undefined}>
+							<span class="nav-dot"></span>Leaderboard
+						</a>
+						<a href="/admin/stats" class="nav-link" class:active={isStats} aria-current={isStats ? 'page' : undefined}>
 							<span class="nav-dot"></span>Stats
+						</a>
+						<a href="/admin/games" class="nav-link" class:active={isGamesAdmin} aria-current={isGamesAdmin ? 'page' : undefined}>
+							<span class="nav-dot"></span>Games
 						</a>
 					{/if}
 				</nav>
@@ -76,6 +55,8 @@
 						<span class="admin-dot"></span>Admin
 					</div>
 				{/if}
+
+				<AccountWidget />
 			</div>
 		</div>
 	</header>
@@ -123,12 +104,15 @@
 		display: grid;
 		place-items: center;
 		border-radius: 4px;
-		background: var(--brand-magenta);
+		overflow: hidden;
+		background: var(--color-shadow);
 	}
 
-	.lantern svg {
-		width: 28px;
-		height: 28px;
+	.lantern img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
 	}
 
 	.brand-text { min-width: 0; }

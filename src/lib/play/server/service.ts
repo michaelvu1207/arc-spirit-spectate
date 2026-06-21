@@ -7,7 +7,7 @@ import {
 	buildSessionProjection
 } from '../runtime';
 import { enterBenefits, enterAwakening } from '../phases';
-import { WILDCARD_RUNE_IDS } from '../awakenConditions';
+import { WILDCARD_MAT_IDS } from '../awakenConditions';
 import { AWAKEN_PROGRESS_KEYS } from '../effects/awakenHandlers';
 import { nextId } from '../rng';
 import type {
@@ -25,7 +25,7 @@ import type {
 	SeatColor,
 	SpectatorProjection
 } from '../types';
-import type { RuneSlotSnapshot } from '$lib/types';
+import type { MatSlotSnapshot } from '$lib/types';
 import { SEAT_COLORS, phaseDurationMs } from '../types';
 import {
 	roomCloseReason,
@@ -37,7 +37,10 @@ import {
 import { loadPlayCatalog } from './catalog';
 import { getSupabaseAdmin } from '$lib/server/supabaseAdmin';
 
-const HISTORY_SCHEMA = 'arc-spirits-game-history';
+const HISTORY_SCHEMA = 'arc_spirits_game';
+// The live 2D engine session tables live in their own schema; everything else
+// (snapshots, replay codes, verified/stats tables) stays in HISTORY_SCHEMA.
+const PLAY_SCHEMA = 'arc_spirits_2d';
 const PLAY_TABLES = {
 	SESSIONS: 'play_game_sessions',
 	MEMBERS: 'play_session_members',
@@ -96,7 +99,7 @@ function parseJsonValue<T>(value: T | string | null | undefined, fallback: T): T
 }
 
 function getPlayAdmin() {
-	const client = getSupabaseAdmin(HISTORY_SCHEMA);
+	const client = getSupabaseAdmin(PLAY_SCHEMA);
 	if (!client) {
 		throw kitError(500, 'Missing SUPABASE_SERVICE_ROLE_KEY on the server.');
 	}
@@ -208,29 +211,34 @@ async function updateLastSeen(memberId: string) {
 async function syncMemberMirrors(sessionId: string, state: PublicGameState) {
 	const members = await getMembersForSession(sessionId);
 
-	for (const member of members) {
-		const occupiedSeat =
-			SEAT_COLORS.find((seatColor) => state.seats[seatColor].memberId === member.id) ?? null;
-		const selectedGuardian = occupiedSeat ? state.seats[occupiedSeat].selectedGuardian ?? null : null;
-		const role: MemberRole =
-			member.role === 'host' ? 'host' : occupiedSeat ? 'player' : 'spectator';
+	// Run the per-member mirror writes CONCURRENTLY — they touch independent rows, so
+	// serializing them (the old `for await` loop) added one DB round-trip per member to
+	// every command's latency, which is painful for cross-region players. A single
+	// rejection still surfaces as a 500 below.
+	const results = await Promise.all(
+		members.map((member) => {
+			const occupiedSeat =
+				SEAT_COLORS.find((seatColor) => state.seats[seatColor].memberId === member.id) ?? null;
+			const selectedGuardian = occupiedSeat
+				? state.seats[occupiedSeat].selectedGuardian ?? null
+				: null;
+			const role: MemberRole =
+				member.role === 'host' ? 'host' : occupiedSeat ? 'player' : 'spectator';
 
-		// NOTE: do NOT touch last_seen_at here. It must reflect only THIS member's own
-		// activity (their SSE poll in loadRoomView / their own command), so that a stale
-		// last_seen_at is a reliable "this member has disconnected" signal. Bumping it
-		// for every member on every command (the old behavior) made it useless.
-		const { error } = await getPlayAdmin()
-			.from(PLAY_TABLES.MEMBERS)
-			.update({
-				seat_color: occupiedSeat,
-				selected_guardian: selectedGuardian,
-				role
-			})
-			.eq('id', member.id);
+			// NOTE: do NOT touch last_seen_at here. It must reflect only THIS member's own
+			// activity (their /view poll in loadRoomView / their own command), so that a stale
+			// last_seen_at is a reliable "this member has disconnected" signal. Bumping it
+			// for every member on every command (the old behavior) made it useless.
+			return getPlayAdmin()
+				.from(PLAY_TABLES.MEMBERS)
+				.update({ seat_color: occupiedSeat, selected_guardian: selectedGuardian, role })
+				.eq('id', member.id);
+		})
+	);
 
-		if (error) {
-			throw kitError(500, `Failed to update member mirror: ${error.message}`);
-		}
+	const failed = results.find((result) => result.error);
+	if (failed?.error) {
+		throw kitError(500, `Failed to update member mirror: ${failed.error.message}`);
 	}
 }
 
@@ -329,18 +337,22 @@ async function persistSessionUpdate(params: {
 		return null;
 	}
 
-	const eventInsert = await getPlayAdmin().from(PLAY_TABLES.EVENTS).insert({
-		session_id: session.id,
-		revision: nextState.revision,
-		actor_member_id: actorMemberId,
-		command_type: command.type,
-		command_payload: command
-	});
+	// The audit/replay event-log insert and the member-mirror sync touch different
+	// tables and neither feeds the projection we return, so run them CONCURRENTLY
+	// instead of back-to-back — collapsing two sequential round-trips into one.
+	const [eventInsert] = await Promise.all([
+		getPlayAdmin().from(PLAY_TABLES.EVENTS).insert({
+			session_id: session.id,
+			revision: nextState.revision,
+			actor_member_id: actorMemberId,
+			command_type: command.type,
+			command_payload: command
+		}),
+		syncMemberMirrors(session.id, nextState)
+	]);
 	if (eventInsert.error) {
 		throw kitError(500, `Failed to append room event: ${eventInsert.error.message}`);
 	}
-
-	await syncMemberMirrors(session.id, nextState);
 
 	return data as PlaySessionRow;
 }
@@ -588,7 +600,10 @@ export async function closeAbandonedRooms(): Promise<void> {
 	}
 }
 
-export async function createRoom(displayName: string): Promise<{ roomCode: string; memberId: string }> {
+export async function createRoom(
+	displayName: string,
+	userId?: string | null
+): Promise<{ roomCode: string; memberId: string }> {
 	const catalog = await loadPlayCatalog();
 	const normalizedName = normalizeDisplayName(displayName);
 
@@ -630,7 +645,8 @@ export async function createRoom(displayName: string): Promise<{ roomCode: strin
 				session_id: createdSession.id,
 				display_name: normalizedName,
 				role: 'host',
-				private_state: {}
+				private_state: {},
+				user_id: userId ?? null
 			})
 			.select('*')
 			.single();
@@ -667,17 +683,17 @@ function pickDebugSpirit(catalog: PlayCatalog, className: string): PlayCatalogSp
  *  so the seeded face-down spirit is immediately awakenable. */
 function grantAwakenRunes(player: PrivatePlayerState, awaken: NormalizedAwaken | undefined): void {
 	if (awaken?.kind !== 'rune_cost') return;
-	let slot = (player.runes.at(-1)?.slotIndex ?? 0) + 1;
-	for (const req of awaken.runes) {
+	let slot = (player.mats.at(-1)?.slotIndex ?? 0) + 1;
+	for (const req of awaken.mats) {
 		for (let n = 0; n < req.count; n += 1) {
 			const wildcardKind = req.wildcard
-				? req.runeId === WILDCARD_RUNE_IDS.anyRune
+				? req.runeId === WILDCARD_MAT_IDS.anyRune
 					? 'rune'
 					: 'relic'
 				: req.kind;
 			const isRune = req.wildcard ? wildcardKind === 'rune' : req.kind === 'rune';
 			const isAugment = req.wildcard ? false : req.kind === 'augment';
-			player.runes.push({
+			player.mats.push({
 				slotIndex: slot++,
 				hasRune: true,
 				// Named requirements match on id; wildcards match on derived kind only.
@@ -685,7 +701,7 @@ function grantAwakenRunes(player: PrivatePlayerState, awaken: NormalizedAwaken |
 				name: req.name,
 				originId: isRune ? 'debug-origin' : undefined,
 				classId: isAugment ? 'debug-class' : undefined
-			} satisfies RuneSlotSnapshot);
+			} satisfies MatSlotSnapshot);
 		}
 	}
 }
@@ -916,7 +932,11 @@ export async function createDebugRoom(
 	return { roomCode, memberId };
 }
 
-export async function joinRoom(roomCode: string, displayName: string): Promise<{ memberId: string }> {
+export async function joinRoom(
+	roomCode: string,
+	displayName: string,
+	userId?: string | null
+): Promise<{ memberId: string }> {
 	let session = await getSessionByRoomCode(normalizeRoomCode(roomCode));
 	if (!session) {
 		throw kitError(404, 'Room not found.');
@@ -934,7 +954,8 @@ export async function joinRoom(roomCode: string, displayName: string): Promise<{
 			session_id: session.id,
 			display_name: normalizeDisplayName(displayName),
 			role: 'spectator',
-			private_state: {}
+			private_state: {},
+			user_id: userId ?? null
 		})
 		.select('*')
 		.single();
@@ -1189,16 +1210,25 @@ export async function runRoomCommand(params: {
 			await writeHistorySnapshots(state, new Date().toISOString());
 		}
 
-		// The acting member just made a request → they're alive. This (plus the SSE
+		// The acting member just made a request → they're alive. This (plus the /view
 		// poll in loadRoomView) is the only writer of last_seen_at, keeping it a
-		// trustworthy per-player liveness signal.
-		await updateLastSeen(member.id);
+		// trustworthy per-player liveness signal. Best-effort + off the critical path:
+		// don't make the player wait on a heartbeat write, and the next poll re-stamps it.
+		void updateLastSeen(member.id).catch(() => {});
 
-		const memberAfterUpdate = await getMemberById(member.id);
-		const projection = buildSessionProjection(
-			commandResult.state,
-			viewerForMember(commandResult.state, memberAfterUpdate)
-		);
+		// Project from the authoritative in-memory next-state we just persisted, with the
+		// member's role/seat recomputed locally (the same rule syncMemberMirrors applies).
+		// This drops a post-write SELECT round-trip that only re-read our own seat back —
+		// meaningful latency for cross-region players on every command.
+		const occupiedSeat =
+			SEAT_COLORS.find((seat) => commandResult.state.seats[seat].memberId === member.id) ?? null;
+		const updatedRole: MemberRole =
+			member.role === 'host' ? 'host' : occupiedSeat ? 'player' : 'spectator';
+		const projection = buildSessionProjection(commandResult.state, {
+			role: updatedRole,
+			seatColor: occupiedSeat ?? member.seat_color ?? null,
+			displayName: member.display_name
+		});
 
 		return {
 			projection,

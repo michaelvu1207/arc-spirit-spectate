@@ -17,7 +17,7 @@ const CATALOG: PlayCatalog = {
 		{ id: 'g-b', name: 'Nyra', originId: 'o2' },
 		{ id: 'g-c', name: 'Orro', originId: 'o3' }
 	],
-	runes: [],
+	mats: [],
 	classes: [],
 	dice: [{ id: 'basic_attack', name: 'Basic Attack', diceType: 'attack' }],
 	spirits: Array.from({ length: 6 }, (_, i) => ({

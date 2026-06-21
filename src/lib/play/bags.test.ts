@@ -34,7 +34,7 @@ const CATALOG: PlayCatalog = {
 		{ id: 'g-a', name: 'Myrtle', originId: 'o1' },
 		{ id: 'g-b', name: 'Nyra', originId: 'o2' }
 	],
-	runes: [],
+	mats: [],
 	classes: [],
 	dice: [],
 	spirits: [

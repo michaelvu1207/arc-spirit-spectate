@@ -101,7 +101,7 @@
 		return modInjectorFree || undercoverFree;
 	}
 	function affordable(interaction: LocationInteraction): boolean {
-		return freeTrade(interaction) || canAfford(interaction, player?.runes ?? []);
+		return freeTrade(interaction) || canAfford(interaction, player?.mats ?? []);
 	}
 	// A specific card instance (`inst`, 0-based) is spent once that many uses have
 	// been made; instances fill left-to-right.

@@ -6,20 +6,20 @@
  * and reused by later rules-engine phases (awakening gate + rune payment).
  */
 import type { AwakenCondition } from '$lib/types';
-import type { AwakenRuneRequirement, MatItemKind, NormalizedAwaken } from './types';
+import type { AwakenMatRequirement, MatItemKind, NormalizedAwaken } from './types';
 
 /** The two wildcard rune UUIDs that accept any matching item when paying a cost. */
-export const WILDCARD_RUNE_IDS = {
+export const WILDCARD_MAT_IDS = {
 	/** "Any Relic" — accepts any relic-kind item only. */
 	anyRelic: '19d72567-4ac8-4214-a21f-596bc88de8f7',
 	/** "Any Rune" — accepts any origin rune. */
 	anyRune: '7ca279f0-1ca8-484a-a86e-0a87aaa7b312'
 } as const;
 
-const WILDCARD_RUNE_ID_SET: ReadonlySet<string> = new Set(Object.values(WILDCARD_RUNE_IDS));
+const WILDCARD_MAT_ID_SET: ReadonlySet<string> = new Set(Object.values(WILDCARD_MAT_IDS));
 
 export function isWildcardRuneId(runeId: string): boolean {
-	return WILDCARD_RUNE_ID_SET.has(runeId);
+	return WILDCARD_MAT_ID_SET.has(runeId);
 }
 
 /** Minimal rune-lookup shape: just what awaken normalization needs (name + kind). */
@@ -37,8 +37,8 @@ export interface AwakenRuneInfo {
 export function normalizeRuneCost(
 	runeIds: string[],
 	runesById: ReadonlyMap<string, AwakenRuneInfo>
-): AwakenRuneRequirement[] {
-	const byRune = new Map<string, AwakenRuneRequirement>();
+): AwakenMatRequirement[] {
+	const byRune = new Map<string, AwakenMatRequirement>();
 	for (const runeId of runeIds) {
 		const existing = byRune.get(runeId);
 		if (existing) {
@@ -68,7 +68,7 @@ export function normalizeAwaken(
 ): NormalizedAwaken | undefined {
 	if (!condition) return undefined;
 	if (condition.type === 'rune_cost') {
-		return { kind: 'rune_cost', runes: normalizeRuneCost(condition.rune_ids ?? [], runesById) };
+		return { kind: 'rune_cost', mats: normalizeRuneCost(condition.rune_ids ?? [], runesById) };
 	}
 	if (condition.type === 'text') {
 		return { kind: 'text', text: condition.text };

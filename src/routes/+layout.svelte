@@ -1,10 +1,37 @@
 <script lang="ts">
 	import './layout.css';
 	import { page } from '$app/stores';
+	import { invalidate } from '$app/navigation';
 	import TopBar from '$lib/components/TopBar.svelte';
 	import { stopMenu } from '$lib/stores/menuAudio.svelte';
+	import { auth } from '$lib/auth/auth.svelte';
 
-	let { children } = $props();
+	let { data, children } = $props();
+
+	// Push the freshest SSR→CSR auth state into the shared auth store (reactive on
+	// every layout re-load, i.e. every `invalidate('supabase:auth')`).
+	$effect(() => {
+		auth.sync(data.supabase, data.session, data.user, data.profile);
+	});
+
+	// Re-validate when the session changes anywhere (token refresh, sign in/out, a
+	// second tab) so all tabs converge.
+	$effect(() => {
+		const { data: sub } = data.supabase.auth.onAuthStateChange((event, newSession) => {
+			// Re-sync on a token change (refresh) OR an explicit identity event from any
+			// tab (sign in/out elsewhere, email/name change → USER_UPDATED). INITIAL_SESSION
+			// (fired on every re-subscribe) is intentionally excluded to avoid a loop.
+			if (
+				event === 'SIGNED_IN' ||
+				event === 'SIGNED_OUT' ||
+				event === 'USER_UPDATED' ||
+				newSession?.expires_at !== data.session?.expires_at
+			) {
+				invalidate('supabase:auth');
+			}
+		});
+		return () => sub.subscription.unsubscribe();
+	});
 
 	// Audio lives ONLY in the immersive /play experience. The menu theme is a
 	// module-scoped <audio> that keeps playing across client-side navigation, so

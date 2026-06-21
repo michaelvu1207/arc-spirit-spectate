@@ -41,7 +41,7 @@ import type {
 	PublicGameState,
 	SeatColor
 } from '../types';
-import type { RuneSlotSnapshot } from '$lib/types';
+import type { MatSlotSnapshot } from '$lib/types';
 
 const ANY_RELIC = '19d72567-4ac8-4214-a21f-596bc88de8f7';
 const ANY_RUNE = '7ca279f0-1ca8-484a-a86e-0a87aaa7b312';
@@ -61,13 +61,13 @@ function makePlayer(overrides: Partial<PrivatePlayerState> = {}): PrivatePlayerS
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],
-		runes: [],
+		mats: [],
 		handDraws: [],
 		pendingDraw: null,
 		pendingDrawQueue: [],
 		spawnedDice: [],
 		spawnedItems: [],
-		spiritRuneAttachments: [],
+		spiritAugmentAttachments: [],
 		pendingDestination: null,
 		attackDice: [],
 		initiative: 0,
@@ -125,7 +125,7 @@ function rune(
 		classId?: string;
 		special?: boolean;
 	} = {}
-): RuneSlotSnapshot {
+): MatSlotSnapshot {
 	return {
 		slotIndex,
 		hasRune: opts.hasRune ?? true,
@@ -158,7 +158,7 @@ function catalogWith(spiritId: string, awaken: NormalizedAwaken | undefined, ext
 		awaken,
 		...extra
 	};
-	return { guardians: [], spirits: [entry], runes: [], classes: [], dice: [], monsters: [] };
+	return { guardians: [], spirits: [entry], mats: [], classes: [], dice: [], monsters: [] };
 }
 
 function ctxFor(player: PrivatePlayerState, catalog: PlayCatalog): ReturnType<typeof buildEffectContext> {
@@ -187,11 +187,11 @@ describe('checkAwakenCondition', () => {
 	it('insufficient runes → ok:false with a reason', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'fire3', 'Golem')],
-			runes: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE })] // only 2 of 3
+			mats: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE })] // only 2 of 3
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
 		};
 		const check = checkAwakenCondition(ctxFor(player, catalogWith('fire3', awaken)), {
 			spirit: player.spirits[0]
@@ -204,11 +204,11 @@ describe('checkAwakenCondition', () => {
 	it('exact runes → ok:true', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'fire3', 'Golem')],
-			runes: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: FIRE_RUNE })]
+			mats: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: FIRE_RUNE })]
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
 		};
 		expect(
 			checkAwakenCondition(ctxFor(player, catalogWith('fire3', awaken)), { spirit: player.spirits[0] }).ok
@@ -223,7 +223,7 @@ describe('checkAwakenCondition', () => {
 	it('Mod Injector (3 "any relic"): 2 relics + 2 origin runes held → NOT awakenable', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'mod', 'Mod Injector')],
-			runes: [
+			mats: [
 				rune(1, { id: FAIRY_RELIC, name: 'Fairy' }), // relic (no originId/classId)
 				rune(2, { id: FAIRY_RELIC, name: 'Fairy' }), // relic
 				rune(3, { id: WATER_RUNE, name: 'Water', originId: 'water-origin' }), // origin rune
@@ -232,7 +232,7 @@ describe('checkAwakenCondition', () => {
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 3, wildcard: true }]
+			mats: [{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 3, wildcard: true }]
 		};
 		const check = checkAwakenCondition(ctxFor(player, catalogWith('mod', awaken)), {
 			spirit: player.spirits[0]
@@ -247,7 +247,7 @@ describe('checkAwakenCondition', () => {
 	it('any-relic cost (×3): 3 origin RUNES held → NOT awakenable (rune ≠ relic)', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'mod', 'Mod Injector')],
-			runes: [
+			mats: [
 				rune(1, { id: WATER_RUNE, name: 'Water', originId: 'water-origin' }),
 				rune(2, { id: 'fire', name: 'Fire', originId: 'fire-origin' }),
 				rune(3, { id: 'cyber', name: 'Cyber', originId: 'cyber-origin' })
@@ -255,7 +255,7 @@ describe('checkAwakenCondition', () => {
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 3, wildcard: true }]
+			mats: [{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 3, wildcard: true }]
 		};
 		const check = checkAwakenCondition(ctxFor(player, catalogWith('mod', awaken)), {
 			spirit: player.spirits[0]
@@ -269,11 +269,11 @@ describe('checkAwakenCondition', () => {
 	it('any-rune cost (×1): 1 RELIC held → NOT awakenable (relic ≠ rune)', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'sleeper', 'Sleeper')],
-			runes: [rune(1, { id: FAIRY_RELIC, name: 'Fairy' })] // relic, no originId
+			mats: [rune(1, { id: FAIRY_RELIC, name: 'Fairy' })] // relic, no originId
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }]
+			mats: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }]
 		};
 		const check = checkAwakenCondition(ctxFor(player, catalogWith('sleeper', awaken)), {
 			spirit: player.spirits[0]
@@ -286,7 +286,7 @@ describe('checkAwakenCondition', () => {
 	it('Mod Injector (3 "any relic"): 3 relics held → awakenable (positive control)', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'mod', 'Mod Injector')],
-			runes: [
+			mats: [
 				rune(1, { id: FAIRY_RELIC, name: 'Fairy' }),
 				rune(2, { id: FAIRY_RELIC, name: 'Fairy' }),
 				rune(3, { id: FAIRY_RELIC, name: 'Fairy' })
@@ -294,7 +294,7 @@ describe('checkAwakenCondition', () => {
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 3, wildcard: true }]
+			mats: [{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 3, wildcard: true }]
 		};
 		const check = checkAwakenCondition(ctxFor(player, catalogWith('mod', awaken)), {
 			spirit: player.spirits[0]
@@ -306,11 +306,11 @@ describe('checkAwakenCondition', () => {
 	it('any-rune cost (×1): 1 origin rune held → awakenable (positive control)', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'sleeper', 'Sleeper')],
-			runes: [rune(1, { id: WATER_RUNE, name: 'Water', originId: 'water-origin' })]
+			mats: [rune(1, { id: WATER_RUNE, name: 'Water', originId: 'water-origin' })]
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }]
+			mats: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }]
 		};
 		const check = checkAwakenCondition(ctxFor(player, catalogWith('sleeper', awaken)), {
 			spirit: player.spirits[0]
@@ -336,7 +336,7 @@ describe('payAwakenCondition', () => {
 	it('discards exactly the required runes, leaving others untouched', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'fire3', 'Golem')],
-			runes: [
+			mats: [
 				rune(1, { id: FIRE_RUNE }),
 				rune(2, { id: FIRE_RUNE }),
 				rune(3, { id: FIRE_RUNE }),
@@ -345,20 +345,20 @@ describe('payAwakenCondition', () => {
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
 		};
 		const pay = payAwakenCondition(ctxFor(player, catalogWith('fire3', awaken)), { spirit: player.spirits[0] });
 		expect(pay.ok).toBe(true);
 		expect(pay.discarded).toHaveLength(3);
 		// The three Fire runes are spent; the unrelated rune is still held.
-		expect(player.runes.filter((r) => r.id === FIRE_RUNE).every((r) => r.hasRune === false)).toBe(true);
-		expect(player.runes.find((r) => r.id === 'unrelated')!.hasRune).toBe(true);
+		expect(player.mats.filter((r) => r.id === FIRE_RUNE).every((r) => r.hasRune === false)).toBe(true);
+		expect(player.mats.find((r) => r.id === 'unrelated')!.hasRune).toBe(true);
 	});
 
 	it('Water Dragon mixed cost: 2 named + 1 Any-Relic wildcard, wildcard eats a relic', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'water', 'Water Dragon')],
-			runes: [
+			mats: [
 				rune(1, { id: WATER_RUNE }),
 				rune(2, { id: WATER_RUNE }),
 				rune(3, { name: 'Random Relic', id: 'misc' }) // relic-kind → satisfies Any Relic
@@ -366,7 +366,7 @@ describe('payAwakenCondition', () => {
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [
+			mats: [
 				{ runeId: WATER_RUNE, name: 'Water', kind: 'rune', count: 2, wildcard: false },
 				{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 1, wildcard: true }
 			]
@@ -374,7 +374,7 @@ describe('payAwakenCondition', () => {
 		const pay = payAwakenCondition(ctxFor(player, catalogWith('water', awaken)), { spirit: player.spirits[0] });
 		expect(pay.ok).toBe(true);
 		// All three runes consumed (2 Water named + 1 wildcard = the misc relic).
-		expect(player.runes.every((r) => r.hasRune === false)).toBe(true);
+		expect(player.mats.every((r) => r.hasRune === false)).toBe(true);
 	});
 
 	it('prefers consuming the exact-name match before spending a wildcard', () => {
@@ -383,43 +383,43 @@ describe('payAwakenCondition', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'w', 'W')],
 			// The misc rune is an ORIGIN rune so it can satisfy the Any-Rune wildcard.
-			runes: [rune(1, { id: WATER_RUNE, originId: 'water-origin' }), rune(2, { name: 'misc', id: 'misc', originId: 'misc-origin' })]
+			mats: [rune(1, { id: WATER_RUNE, originId: 'water-origin' }), rune(2, { name: 'misc', id: 'misc', originId: 'misc-origin' })]
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [
+			mats: [
 				{ runeId: WATER_RUNE, name: 'Water', kind: 'rune', count: 1, wildcard: false },
 				{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }
 			]
 		};
 		const pay = payAwakenCondition(ctxFor(player, catalogWith('w', awaken)), { spirit: player.spirits[0] });
 		expect(pay.ok).toBe(true);
-		expect(player.runes.every((r) => r.hasRune === false)).toBe(true);
+		expect(player.mats.every((r) => r.hasRune === false)).toBe(true);
 	});
 
 	it('count-via-repeats: needs 3, succeeds with 3 and fails with 2', () => {
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
 		};
 		const withThree = makePlayer({
 			spirits: [spirit(1, 'f', 'F')],
-			runes: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: FIRE_RUNE })]
+			mats: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: FIRE_RUNE })]
 		});
 		expect(payAwakenCondition(ctxFor(withThree, catalogWith('f', awaken)), { spirit: withThree.spirits[0] }).ok).toBe(true);
 
 		const withTwo = makePlayer({
 			spirits: [spirit(1, 'f', 'F')],
-			runes: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE })]
+			mats: [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE })]
 		});
 		const failed = payAwakenCondition(ctxFor(withTwo, catalogWith('f', awaken)), { spirit: withTwo.spirits[0] });
 		expect(failed.ok).toBe(false);
 		// Nothing discarded on a failed pay.
-		expect(withTwo.runes.every((r) => r.hasRune === true)).toBe(true);
+		expect(withTwo.mats.every((r) => r.hasRune === true)).toBe(true);
 	});
 
 	it('text conditions cannot be paid (manual path)', () => {
-		const player = makePlayer({ spirits: [spirit(1, 't', 'T')], runes: [rune(1, { id: FIRE_RUNE })] });
+		const player = makePlayer({ spirits: [spirit(1, 't', 'T')], mats: [rune(1, { id: FIRE_RUNE })] });
 		const awaken: NormalizedAwaken = { kind: 'text', text: 'do something' };
 		const pay = payAwakenCondition(ctxFor(player, catalogWith('t', awaken)), { spirit: player.spirits[0] });
 		expect(pay.ok).toBe(false);
@@ -429,19 +429,19 @@ describe('payAwakenCondition', () => {
 		const player = makePlayer({
 			spirits: [spirit(1, 'w', 'W')],
 			// Both copies are ORIGIN runes so either can satisfy the Any-Rune wildcard.
-			runes: [
+			mats: [
 				rune(1, { id: 'a', guid: 'g1', originId: 'o-a' }),
 				rune(2, { id: 'b', guid: 'g2', originId: 'o-b' })
 			]
 		});
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }]
+			mats: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }]
 		};
 		payAwakenCondition(ctxFor(player, catalogWith('w', awaken)), { spirit: player.spirits[0] }, ['g2']);
 		// The g2 copy is spent; g1 is preserved.
-		expect(player.runes.find((r) => r.guid === 'g2')!.hasRune).toBe(false);
-		expect(player.runes.find((r) => r.guid === 'g1')!.hasRune).toBe(true);
+		expect(player.mats.find((r) => r.guid === 'g2')!.hasRune).toBe(false);
+		expect(player.mats.find((r) => r.guid === 'g1')!.hasRune).toBe(true);
 	});
 });
 
@@ -450,14 +450,14 @@ describe('canAutoAwaken', () => {
 		const free = makePlayer({ spirits: [spirit(1, 'free', 'Free')] });
 		expect(canAutoAwaken(ctxFor(free, catalogWith('free', undefined)), { spirit: free.spirits[0] })).toBe(true);
 
-		const payable = makePlayer({ spirits: [spirit(1, 'f', 'F')], runes: [rune(1, { id: FIRE_RUNE })] });
+		const payable = makePlayer({ spirits: [spirit(1, 'f', 'F')], mats: [rune(1, { id: FIRE_RUNE })] });
 		const payAwaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 1, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 1, wildcard: false }]
 		};
 		expect(canAutoAwaken(ctxFor(payable, catalogWith('f', payAwaken)), { spirit: payable.spirits[0] })).toBe(true);
 
-		const broke = makePlayer({ spirits: [spirit(1, 'f', 'F')], runes: [] });
+		const broke = makePlayer({ spirits: [spirit(1, 'f', 'F')], mats: [] });
 		expect(canAutoAwaken(ctxFor(broke, catalogWith('f', payAwaken)), { spirit: broke.spirits[0] })).toBe(false);
 
 		const txt = makePlayer({ spirits: [spirit(1, 't', 'T')] });
@@ -478,20 +478,20 @@ describe('enterAwakening awakenEligible', () => {
 				spirit(4, 'txt', 'Text'), // text → excluded
 				{ ...spirit(5, 'faceup', 'FaceUp'), isFaceDown: false } // not face-down → excluded
 			],
-			runes: [rune(1, { id: FIRE_RUNE })] // funds exactly one rune cost
+			mats: [rune(1, { id: FIRE_RUNE })] // funds exactly one rune cost
 		});
 		const payAwaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 1, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 1, wildcard: false }]
 		};
 		const brokeAwaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 3, wildcard: true }]
+			mats: [{ runeId: ANY_RUNE, name: 'Any Rune', kind: 'rune', count: 3, wildcard: true }]
 		};
 		const textAwaken: NormalizedAwaken = { kind: 'text', text: 'do it by hand' };
 		const catalog: PlayCatalog = {
 			guardians: [],
-			runes: [],
+			mats: [],
 			classes: [],
 			dice: [],
 			monsters: [],
@@ -536,7 +536,7 @@ afterEach(() => {
 function awakenCatalog(awaken: NormalizedAwaken | undefined, classes: Record<string, number> = {}): PlayCatalog {
 	return {
 		guardians: [{ id: 'g-myrtle', name: 'Myrtle', originId: null }],
-		runes: [],
+		mats: [],
 		classes: [],
 		dice: [{ id: 'basic_attack', name: 'Basic Attack', diceType: 'attack' }],
 		monsters: [],
@@ -569,13 +569,13 @@ describe('runtime awakenSpirit gate', () => {
 	it('insufficient runes → ok:false awaken_unmet; spirit stays face-down', () => {
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 2, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 2, wildcard: false }]
 		};
 		const catalog = awakenCatalog(awaken);
 		const state = startedGame(catalog);
 		const red = state.players.Red!;
 		red.spirits = [spirit(1, 'sleeper', 'Sleeper')];
-		red.runes = [rune(1, { id: FIRE_RUNE })]; // only one of two
+		red.mats = [rune(1, { id: FIRE_RUNE })]; // only one of two
 
 		const result = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'awakenSpirit', slotIndex: 1 }, catalog);
 		expect(result.ok).toBe(false);
@@ -588,27 +588,27 @@ describe('runtime awakenSpirit gate', () => {
 	it('exact runes → ok:true, isFaceDown=false, required runes discarded, others untouched', () => {
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 2, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 2, wildcard: false }]
 		};
 		const catalog = awakenCatalog(awaken);
 		const state = startedGame(catalog);
 		const red = state.players.Red!;
 		red.spirits = [spirit(1, 'sleeper', 'Sleeper')];
-		red.runes = [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: 'keep', name: 'Keep' })];
+		red.mats = [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: 'keep', name: 'Keep' })];
 
 		const result = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'awakenSpirit', slotIndex: 1 }, catalog);
 		expect(result.ok).toBe(true);
 		if (!result.ok) throw new Error(result.error.message);
 		const out = result.state.players.Red!;
 		expect(out.spirits[0].isFaceDown).toBe(false);
-		expect(out.runes.filter((r) => r.id === FIRE_RUNE).every((r) => r.hasRune === false)).toBe(true);
-		expect(out.runes.find((r) => r.id === 'keep')!.hasRune).toBe(true);
+		expect(out.mats.filter((r) => r.id === FIRE_RUNE).every((r) => r.hasRune === false)).toBe(true);
+		expect(out.mats.find((r) => r.id === 'keep')!.hasRune).toBe(true);
 	});
 
 	it('Water Dragon mixed cost resolves through the command path; wildcard accepts a relic', () => {
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [
+			mats: [
 				{ runeId: WATER_RUNE, name: 'Water', kind: 'rune', count: 2, wildcard: false },
 				{ runeId: ANY_RELIC, name: 'Any Relic', kind: 'relic', count: 1, wildcard: true }
 			]
@@ -617,7 +617,7 @@ describe('runtime awakenSpirit gate', () => {
 		const state = startedGame(catalog);
 		const red = state.players.Red!;
 		red.spirits = [spirit(1, 'sleeper', 'Sleeper')];
-		red.runes = [
+		red.mats = [
 			rune(1, { id: WATER_RUNE }),
 			rune(2, { id: WATER_RUNE }),
 			rune(3, { id: 'unrelated', name: 'Trinket' })
@@ -628,24 +628,24 @@ describe('runtime awakenSpirit gate', () => {
 		if (!result.ok) throw new Error(result.error.message);
 		const out = result.state.players.Red!;
 		expect(out.spirits[0].isFaceDown).toBe(false);
-		expect(out.runes.every((r) => r.hasRune === false)).toBe(true);
+		expect(out.mats.every((r) => r.hasRune === false)).toBe(true);
 	});
 
 	it('count-via-repeats: a 3-of-a-rune cost needs 3 (fails with 2)', () => {
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire', kind: 'rune', count: 3, wildcard: false }]
 		};
 		const catalog = awakenCatalog(awaken);
 		const state = startedGame(catalog);
 		const red = state.players.Red!;
 		red.spirits = [spirit(1, 'sleeper', 'Sleeper')];
-		red.runes = [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE })];
+		red.mats = [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE })];
 
 		const failed = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'awakenSpirit', slotIndex: 1 }, catalog);
 		expect(failed.ok).toBe(false);
 
-		red.runes = [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: FIRE_RUNE })];
+		red.mats = [rune(1, { id: FIRE_RUNE }), rune(2, { id: FIRE_RUNE }), rune(3, { id: FIRE_RUNE })];
 		const ok = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'awakenSpirit', slotIndex: 1 }, catalog);
 		expect(ok.ok).toBe(true);
 	});
@@ -707,7 +707,7 @@ describe('runtime awakenSpirit gate', () => {
 const IDS = AWAKEN_SPIRIT_IDS;
 
 /** A held relic slot (type='relic'); `name` drives the substring filter. */
-function relic(slotIndex: number, name: string, hasRune = true): RuneSlotSnapshot {
+function relic(slotIndex: number, name: string, hasRune = true): MatSlotSnapshot {
 	return { slotIndex, hasRune, name, type: 'relic' };
 }
 
@@ -721,7 +721,7 @@ function handlerCtx(player: PrivatePlayerState, spiritSlot: PlaySpirit) {
 			trigger: 'awakening' as const,
 			log: [],
 			traitCount: 0,
-			catalog: { guardians: [], spirits: [], runes: [], classes: [], dice: [], monsters: [] }
+			catalog: { guardians: [], spirits: [], mats: [], classes: [], dice: [], monsters: [] }
 		}),
 		spirit: spiritSlot
 	};
@@ -731,7 +731,7 @@ function handlerCtx(player: PrivatePlayerState, spiritSlot: PlaySpirit) {
 function textCatalog(spiritId: string, name: string, text: string): PlayCatalog {
 	return {
 		guardians: [],
-		runes: [],
+		mats: [],
 		classes: [],
 		dice: [],
 		monsters: [],
@@ -745,7 +745,7 @@ describe('AWAKEN_HANDLERS discard choice (let-me-choose)', () => {
 		// Both candidates are RELICS ("Discard a Fairy or Teapot Relic").
 		const player = makePlayer({
 			spirits: [sp],
-			runes: [relic(1, 'Fairy'), relic(2, 'Teapot')]
+			mats: [relic(1, 'Fairy'), relic(2, 'Teapot')]
 		});
 		const handler = AWAKEN_HANDLERS[IDS.tidalFairy];
 		const choice = handler.discardChoice!(handlerCtx(player, sp));
@@ -760,15 +760,15 @@ describe('AWAKEN_HANDLERS discard choice (let-me-choose)', () => {
 			command: { type: 'awakenSpirit', slotIndex: 1, discardRefs: [{ kind: 'rune', slotIndex: 2 }] }
 		};
 		handler.pay(payCtx);
-		expect(player.runes.find((r) => r.name === 'Teapot')!.hasRune).toBe(false);
-		expect(player.runes.find((r) => r.name === 'Fairy')!.hasRune).toBe(true);
+		expect(player.mats.find((r) => r.name === 'Teapot')!.hasRune).toBe(false);
+		expect(player.mats.find((r) => r.name === 'Fairy')!.hasRune).toBe(true);
 	});
 
 	it('buildAwakenOffer surfaces the requirement text + candidate options', () => {
 		const sp = spirit(1, IDS.tidalFairy, 'Tidal Fairy');
 		const player = makePlayer({
 			spirits: [sp],
-			runes: [relic(1, 'Fairy'), relic(2, 'Teapot')]
+			mats: [relic(1, 'Fairy'), relic(2, 'Teapot')]
 		});
 		const catalog = textCatalog(IDS.tidalFairy, 'Tidal Fairy', 'Discard a Fairy or Teapot Relic');
 		const ctx = buildEffectContext({
@@ -790,7 +790,7 @@ describe('AWAKEN_HANDLERS discard choice (let-me-choose)', () => {
 
 	it('an invalid selection falls back to auto-pick (still pays the cost)', () => {
 		const sp = spirit(1, IDS.tidalFairy, 'Tidal Fairy');
-		const player = makePlayer({ spirits: [sp], runes: [relic(1, 'Fairy')] });
+		const player = makePlayer({ spirits: [sp], mats: [relic(1, 'Fairy')] });
 		const handler = AWAKEN_HANDLERS[IDS.tidalFairy];
 		const payCtx = {
 			...handlerCtx(player, sp),
@@ -798,19 +798,19 @@ describe('AWAKEN_HANDLERS discard choice (let-me-choose)', () => {
 		};
 		handler.pay(payCtx);
 		// Bad ref ⇒ auto-pick the only valid candidate (the Fairy Relic) instead.
-		expect(player.runes.find((r) => r.name === 'Fairy')!.hasRune).toBe(false);
+		expect(player.mats.find((r) => r.name === 'Fairy')!.hasRune).toBe(false);
 	});
 
-	it('buildAwakenOffer summarizes a rune_cost (no per-item choice)', () => {
+	it('buildAwakenOffer lists the player spendable runes to choose which to spend', () => {
 		const sp = spirit(1, 'rc-spirit', 'Rune Cost Spirit');
-		const player = makePlayer({ spirits: [sp], runes: [rune(1, { id: FIRE_RUNE })] });
+		const player = makePlayer({ spirits: [sp], mats: [rune(1, { id: FIRE_RUNE })] });
 		const awaken: NormalizedAwaken = {
 			kind: 'rune_cost',
-			runes: [{ runeId: FIRE_RUNE, name: 'Fire Rune', kind: 'rune', count: 1, wildcard: false }]
+			mats: [{ runeId: FIRE_RUNE, name: 'Fire Rune', kind: 'rune', count: 1, wildcard: false }]
 		};
 		const catalog: PlayCatalog = {
 			guardians: [],
-			runes: [],
+			mats: [],
 			classes: [],
 			dice: [],
 			monsters: [],
@@ -828,7 +828,10 @@ describe('AWAKEN_HANDLERS discard choice (let-me-choose)', () => {
 		const offer = buildAwakenOffer(ctx, { spirit: sp });
 		expect(offer!.requirement).toBe('Discard Fire Rune');
 		expect(offer!.discardCount).toBe(1);
-		expect(offer!.options).toEqual([]);
+		// The held rune is offered so the owner picks WHICH copy to spend.
+		expect(offer!.options).toHaveLength(1);
+		expect(offer!.options[0].ref).toEqual({ kind: 'rune', slotIndex: 1 });
+		expect(offer!.options[0].runeId).toBe(FIRE_RUNE);
 	});
 
 	// Discoverability: a Faerie the player CANNOT yet pay for produces no clickable
@@ -837,7 +840,7 @@ describe('AWAKEN_HANDLERS discard choice (let-me-choose)', () => {
 	it('buildAwakenLockedOffer surfaces the requirement when NOT yet payable', () => {
 		const sp = spirit(1, IDS.tidalFairy, 'Tidal Fairy');
 		// Holds neither a Fairy nor a Teapot relic → not awakenable.
-		const player = makePlayer({ spirits: [sp], runes: [relic(1, 'Keepsake')] });
+		const player = makePlayer({ spirits: [sp], mats: [relic(1, 'Keepsake')] });
 		const catalog = textCatalog(IDS.tidalFairy, 'Tidal Fairy', 'Discard a Fairy or Teapot Relic');
 		const ctx = buildEffectContext({
 			state: makeState(player),
@@ -859,7 +862,7 @@ describe('AWAKEN_HANDLERS discard choice (let-me-choose)', () => {
 
 	it('buildAwakenLockedOffer returns null once the spirit IS payable (it gets a real offer)', () => {
 		const sp = spirit(1, IDS.tidalFairy, 'Tidal Fairy');
-		const player = makePlayer({ spirits: [sp], runes: [relic(2, 'Teapot')] });
+		const player = makePlayer({ spirits: [sp], mats: [relic(2, 'Teapot')] });
 		const catalog = textCatalog(IDS.tidalFairy, 'Tidal Fairy', 'Discard a Fairy or Teapot Relic');
 		const ctx = buildEffectContext({
 			state: makeState(player),
@@ -909,23 +912,23 @@ describe('AWAKEN_HANDLERS discard-at-location', () => {
 		const player = makePlayer({
 			spirits: [sp],
 			// No navigationDestination — the DB condition has no location requirement.
-			runes: [relic(1, 'Flower Charm')] // a relic matching "Flower"
+			mats: [relic(1, 'Flower Charm')] // a relic matching "Flower"
 		});
 		const handler = AWAKEN_HANDLERS[IDS.floralFairy];
 		const ctx = handlerCtx(player, sp);
 		expect(handler.check(ctx).ok).toBe(true);
 		handler.pay(ctx);
-		expect(player.runes[0].hasRune).toBe(false);
+		expect(player.mats[0].hasRune).toBe(false);
 	});
 
 	it('Floral Fairy: a Fairy Relic also satisfies (Fairy is a relic, not a rune)', () => {
 		const sp = spirit(1, IDS.floralFairy, 'Floral Fairy');
-		const player = makePlayer({ spirits: [sp], runes: [relic(1, 'Fairy')] });
+		const player = makePlayer({ spirits: [sp], mats: [relic(1, 'Fairy')] });
 		const handler = AWAKEN_HANDLERS[IDS.floralFairy];
 		const ctx = handlerCtx(player, sp);
 		expect(handler.check(ctx).ok).toBe(true);
 		handler.pay(ctx);
-		expect(player.runes[0].hasRune).toBe(false);
+		expect(player.mats[0].hasRune).toBe(false);
 	});
 
 	it('Space Invader: needs 4 attack dice; pay discards exactly 4', () => {
@@ -955,7 +958,7 @@ describe('AWAKEN_HANDLERS discard-at-location', () => {
 		const state = startedGame(catalog);
 		const red = state.players.Red!;
 		red.spirits = [spirit(1, IDS.bloodHound, 'Blood Hound')];
-		red.runes = [relic(1, 'Teapot'), relic(2, 'Keepsake')];
+		red.mats = [relic(1, 'Teapot'), relic(2, 'Keepsake')];
 
 		const res = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'awakenSpirit', slotIndex: 1 }, catalog);
 		expect(res.ok).toBe(true);
@@ -964,7 +967,7 @@ describe('AWAKEN_HANDLERS discard-at-location', () => {
 		expect(out.spirits[0].isFaceDown).toBe(false); // flipped, no manual prompt
 		expect(out.manualPrompts.filter((p) => p.source === 'awaken')).toHaveLength(0);
 		// Exactly one relic was spent to pay the cost.
-		expect(out.runes.filter((r) => r.hasRune).length).toBe(1);
+		expect(out.mats.filter((r) => r.hasRune).length).toBe(1);
 	});
 
 	it('awakenSpirit on an unsatisfiable scripted text spirit hard-blocks (no manual prompt)', () => {
@@ -972,7 +975,7 @@ describe('AWAKEN_HANDLERS discard-at-location', () => {
 		const state = startedGame(catalog);
 		const red = state.players.Red!;
 		red.spirits = [spirit(1, IDS.bloodHound, 'Blood Hound')];
-		red.runes = []; // no relic to discard → unsatisfiable
+		red.mats = []; // no relic to discard → unsatisfiable
 
 		const res = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'awakenSpirit', slotIndex: 1 }, catalog);
 		expect(res.ok).toBe(false);
@@ -1075,7 +1078,7 @@ describe('combat-event awaken progress (Hollow Eyes)', () => {
 				{ id: 'g-a', name: 'Myrtle', originId: null },
 				{ id: 'g-b', name: 'Nyra', originId: null }
 			],
-			runes: [],
+			mats: [],
 			classes: [],
 			dice: [{ id: 'basic_attack', name: 'Basic Attack', diceType: 'attack' }],
 			monsters: [],
@@ -1128,7 +1131,7 @@ describe('combat-event awaken progress (Hollow Eyes)', () => {
 
 	const pvpCatalog: PlayCatalog = {
 		guardians: [{ id: 'g-a', name: 'Myrtle', originId: null }, { id: 'g-b', name: 'Nyra', originId: null }],
-		runes: [],
+		mats: [],
 		classes: [],
 		dice: [{ id: 'basic_attack', name: 'Basic Attack', diceType: 'attack' }],
 		monsters: [],

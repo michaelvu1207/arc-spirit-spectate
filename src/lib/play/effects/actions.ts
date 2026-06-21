@@ -166,8 +166,8 @@ export function runAction(ctx: EffectContext, action: EffectAction, multiplier =
 			// Rune Traveler's per-turn doubleRunes flag doubles any rune gained.
 			const amount = scaled(action.amount) * (player.doubleRunes ? 2 : 1);
 			for (let i = 0; i < amount; i += 1) {
-				player.runes.push({
-					slotIndex: player.runes.length + 1,
+				player.mats.push({
+					slotIndex: player.mats.length + 1,
 					hasRune: true,
 					name: 'Rune',
 					type: 'rune'
@@ -243,8 +243,8 @@ export function runAction(ctx: EffectContext, action: EffectAction, multiplier =
 			// slots so it actually shows and can be spent on trades/awakens — the `relics`
 			// tally is kept for stats + awaken parity.
 			for (let i = 0; i < amount; i += 1) {
-				player.runes.push({
-					slotIndex: player.runes.length + 1,
+				player.mats.push({
+					slotIndex: player.mats.length + 1,
 					hasRune: true,
 					name: 'Relic',
 					type: 'relic'

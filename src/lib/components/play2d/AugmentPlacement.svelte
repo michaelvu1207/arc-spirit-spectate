@@ -1,7 +1,11 @@
 <script lang="ts">
 	import type { getAssetState } from '$lib/stores/assetStore.svelte';
 	import type { PlayerProjection } from '$lib/play/types';
-	import { SPIRIT_AUGMENT_CLASSES, augmentCapacityForSpirit } from '$lib/play/augments';
+	import {
+		SPIRIT_AUGMENT_CLASSES,
+		augmentCapacityForSpirit,
+		isSpiritAugmentClass
+	} from '$lib/play/augments';
 	import { augmentIconForClass, spiritBackImageUrl } from './helpers';
 	import HexGrid from '$lib/components/HexGrid.svelte';
 
@@ -28,15 +32,32 @@
 
 	// The Spirit Augment token icon for a class (the class-linked rune art).
 	const augmentIcon = (className: string) => augmentIconForClass(assets, className);
+
+	// The class this augment is DESIGNATED to (from its source — e.g. a location reward
+	// grants a specific augment). Generic "gain any Spirit Augment" grants carry no class,
+	// so the player picks one of the six. `classTraits` is keyed by class id.
+	const designatedClass = $derived.by(() => {
+		const id = current?.classId;
+		if (!id) return null;
+		const name = assets.classTraits.get(id)?.name;
+		return name && isSpiritAugmentClass(name) ? name : null;
+	});
+
+	// Show ONLY the designated augment when there is one; otherwise all six ("any").
 	const augmentIcons = $derived(
-		SPIRIT_AUGMENT_CLASSES.map((cls) => ({ className: cls, icon: augmentIcon(cls) }))
+		(designatedClass ? [designatedClass] : [...SPIRIT_AUGMENT_CLASSES]).map((cls) => ({
+			className: cls,
+			icon: augmentIcon(cls)
+		}))
 	);
 
-	// Armed augment class — click an icon to arm, then click a spirit hex to place.
+	// Armed augment class. A designated augment is always armed to its class (no real
+	// choice); a generic "any" augment is armed by clicking one of the six icons.
 	let pickedClass = $state<string | null>(null);
+	const armedClass = $derived(designatedClass ?? pickedClass);
 
 	function placedAugmentsOn(slotIndex: number): number {
-		return (player?.spiritRuneAttachments ?? []).filter(
+		return (player?.spiritAugmentAttachments ?? []).filter(
 			(a) => a.spiritSlotIndex === slotIndex && typeof a.className === 'string'
 		).length;
 	}
@@ -58,7 +79,7 @@
 	// Placed-augment badges (Spirit Augment icons), keyed by host spirit slot.
 	const augmentsBySlot = $derived.by(() => {
 		const map = new Map<number, { runeId: string; name: string; icon: string | null }[]>();
-		for (const att of player?.spiritRuneAttachments ?? []) {
+		for (const att of player?.spiritAugmentAttachments ?? []) {
 			const className = typeof att.className === 'string' ? att.className : null;
 			if (!className) continue;
 			const arr = map.get(att.spiritSlotIndex) ?? [];
@@ -76,8 +97,8 @@
 	});
 
 	function dropOn(slotIndex: number) {
-		if (busy || !current || !pickedClass || !isEligible(slotIndex)) return;
-		onPlace?.(0, current.runeId, slotIndex, pickedClass);
+		if (busy || !current || !armedClass || !isEligible(slotIndex)) return;
+		onPlace?.(0, current.runeId, slotIndex, armedClass);
 		pickedClass = null;
 	}
 </script>
@@ -90,16 +111,17 @@
 		</span>
 	</header>
 
-	<!-- Pick list: the six Spirit Augment icons. Click one to arm it. -->
+	<!-- Pick list: the augment(s) the player may place. A designated augment shows only
+	     its own class; a generic "any" grant shows all six to choose from. -->
 	<div class="aug-list" data-testid="augment-icons">
 		{#each augmentIcons as a (a.className)}
 			<button
 				type="button"
 				class="aug-icon"
-				class:armed={pickedClass === a.className}
-				disabled={busy}
+				class:armed={armedClass === a.className}
+				disabled={busy || designatedClass != null}
 				title={a.className}
-				aria-pressed={pickedClass === a.className}
+				aria-pressed={armedClass === a.className}
 				data-testid={`augment-icon-${a.className}`}
 				onclick={() => (pickedClass = pickedClass === a.className ? null : a.className)}
 			>
@@ -109,8 +131,8 @@
 	</div>
 
 	<p class="hint">
-		{#if pickedClass}
-			Click a spirit to place the <strong>{pickedClass}</strong> augment{current?.boundLabel
+		{#if armedClass}
+			Click a spirit to place the <strong>{armedClass}</strong> augment{current?.boundLabel
 				? ` on ${current.boundLabel}`
 				: ''}.
 		{:else}
@@ -124,7 +146,7 @@
 			spiritAssets={spiritImages}
 			{backImageBySlot}
 			{augmentsBySlot}
-			augmentDropMode={!busy && pickedClass !== null}
+			augmentDropMode={!busy && armedClass !== null}
 			augmentEligibleSlots={eligibleSlots}
 			onDropAugment={dropOn}
 		/>

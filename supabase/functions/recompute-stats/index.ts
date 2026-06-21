@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { Client } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 import { rate, rating } from "https://esm.sh/openskill@4.1.0?target=deno";
 
-const SCHEMA = "arc-spirits-game-history";
+const SCHEMA = "arc_spirits_game";
 
 type GameResultRow = {
   game_id: string;

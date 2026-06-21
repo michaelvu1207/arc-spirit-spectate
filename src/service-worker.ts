@@ -45,8 +45,8 @@ sw.addEventListener('fetch', (event) => {
 
 	const url = new URL(request.url);
 
-	// Only handle same-origin requests; let the API/SSE stream and the heavy
-	// media (and any cross-origin asset) go straight to the network untouched.
+	// Only handle same-origin requests; let the API (realtime/view polling) and the
+	// heavy media (and any cross-origin asset) go straight to the network untouched.
 	if (url.origin !== location.origin) return;
 	if (url.pathname.startsWith('/api/')) return;
 	if (HEAVY.test(url.pathname)) return;

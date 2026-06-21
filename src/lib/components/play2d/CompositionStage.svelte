@@ -10,7 +10,7 @@
 	import { DICE_TIER_ORDER, MAX_ATTACK_DICE } from '$lib/play/types';
 	import type { ClassTrait } from '$lib/types';
 	import { seatAccent, storageUrl, spiritBackImageUrl, augmentIconForClass } from './helpers';
-	import { WILDCARD_RUNE_IDS } from '$lib/play/awakenConditions';
+	import { WILDCARD_MAT_IDS } from '$lib/play/awakenConditions';
 	import { expectedAttack } from '$lib/play/combat';
 	import HexGrid from '$lib/components/HexGrid.svelte';
 
@@ -135,11 +135,11 @@
 		const runes = [...counts.entries()].map(([id, count]) => {
 			// The two wildcard cost-matchers aren't real rune records, so a direct lookup
 			// would mislabel them — name them explicitly.
-			if (id === WILDCARD_RUNE_IDS.anyRune)
+			if (id === WILDCARD_MAT_IDS.anyRune)
 				return { id, count, name: 'Any Rune', icon: null, wildcard: true };
-			if (id === WILDCARD_RUNE_IDS.anyRelic)
+			if (id === WILDCARD_MAT_IDS.anyRelic)
 				return { id, count, name: 'Any Relic', icon: null, wildcard: true };
-			const asset = assets.runeAssets.get(id);
+			const asset = assets.matAssets.get(id);
 			return {
 				id,
 				count,
@@ -161,7 +161,7 @@
 	// host spirit slot. Only class-linked attachments are Spirit Augments.
 	const augmentsBySlot = $derived.by(() => {
 		const map = new Map<number, { runeId: string; name: string; icon: string | null }[]>();
-		for (const att of player?.spiritRuneAttachments ?? []) {
+		for (const att of player?.spiritAugmentAttachments ?? []) {
 			const className = typeof att.className === 'string' ? att.className : null;
 			if (!className) continue; // not a Spirit Augment
 			const entry = {

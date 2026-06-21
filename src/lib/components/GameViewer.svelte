@@ -11,7 +11,7 @@
 		IconPoolEntry,
 		MonsterAsset,
 		PlayerSnapshot,
-		RuneAsset
+		MatAsset
 	} from '$lib/types';
 
 	interface Props {
@@ -19,7 +19,7 @@
 		// Previous round's snapshots for diffing "discarded this turn".
 		prevPlayerSnapshots?: PlayerSnapshot[];
 		spiritAssets: Map<string, HexSpiritAsset>;
-		runeAssets: Map<string, RuneAsset>;
+		matAssets: Map<string, MatAsset>;
 		statusIcons: Map<string, IconPoolEntry>; // key: normalized status token
 		guardianAssets: Map<string, GuardianAsset>;
 		customDiceAssets?: Map<string, CustomDiceAsset>;
@@ -36,7 +36,7 @@
 		playerSnapshots,
 		prevPlayerSnapshots = [],
 		spiritAssets,
-		runeAssets,
+		matAssets,
 		statusIcons,
 		guardianAssets,
 		customDiceAssets = new Map<string, CustomDiceAsset>(),
@@ -233,11 +233,11 @@
 
 	const playerDicePool = $derived(() => buildDicePool(selectedPlayer()));
 	const playerSpiritAugments = $derived(() =>
-		buildSpiritAugmentRow(selectedPlayer(), runeAssets, getStorageUrl)
+		buildSpiritAugmentRow(selectedPlayer(), matAssets, getStorageUrl)
 	);
 
 	function spiritAugmentCountFor(player: PlayerSnapshot | null): number {
-		return buildSpiritAugmentRow(player, runeAssets, getStorageUrl).length;
+		return buildSpiritAugmentRow(player, matAssets, getStorageUrl).length;
 	}
 
 	function formatExpected(value: number | null): string {

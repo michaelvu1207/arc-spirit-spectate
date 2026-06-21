@@ -1,14 +1,11 @@
 /**
- * Code-defined Spirit World location config.
+ * Code-defined Spirit World location presentation config.
  *
- * The `game_locations.reward_rows` table is currently placeholder data, so the
- * per-location action sets live here. This is intentionally shaped like the
- * eventual data model (origin + ordered actions) so it can later be swapped to
- * read from Supabase once that content is authored.
- *
- * `implemented` marks which actions the rules engine resolves today (P0); the
- * rest render in the UI but are flagged as upcoming so the board is complete
- * without lying about what works yet.
+ * Reward-row content (the per-location actions) is authored in Supabase
+ * (`game_location_rows` + `reward_row_assignments`) and loaded by the catalog —
+ * it does NOT live here. What lives here is app-local presentation that has no
+ * business in the data layer: each location's origin/element flavor, brand accent
+ * color, and the static splat/music asset paths bundled with the client.
  */
 
 import type { NavigationDestination } from './types';

@@ -146,8 +146,8 @@ function buildPlayerState(seatColor: SeatColor, seat: LobbySeatState): PrivatePl
 		statusToken: STATUS_LADDER[0],
 		corruptionCount: 0,
 		spirits: [],
-		// Every player begins with two Fairy relics occupying their first rune slots.
-		runes: [
+		// Every player begins with two Fairy relics occupying their first mat slots.
+		mats: [
 			{ slotIndex: 1, hasRune: true, name: 'Fairy Relic', type: 'relic' },
 			{ slotIndex: 2, hasRune: true, name: 'Fairy Relic', type: 'relic' }
 		],
@@ -159,7 +159,7 @@ function buildPlayerState(seatColor: SeatColor, seat: LobbySeatState): PrivatePl
 		pendingDrawQueue: [],
 		spawnedDice: [],
 		spawnedItems: [],
-		spiritRuneAttachments: [],
+		spiritAugmentAttachments: [],
 		pendingDestination: null,
 		attackDice: [],
 		initiative: 0,
@@ -220,7 +220,7 @@ function findCatalogDie(catalog: PlayCatalog, diceId: string): PlayCatalogDie | 
 }
 
 function findCatalogRune(catalog: PlayCatalog, runeId: string): PlayCatalogRune | null {
-	return catalog.runes.find((entry) => entry.id === runeId) ?? null;
+	return catalog.mats.find((entry) => entry.id === runeId) ?? null;
 }
 
 function nextDicePosition(index: number) {
@@ -412,8 +412,8 @@ function addGainedRune(player: PrivatePlayerState, rune: ResolvedRune) {
 		});
 		return;
 	}
-	player.runes.push({
-		slotIndex: player.runes.length + 1,
+	player.mats.push({
+		slotIndex: player.mats.length + 1,
 		hasRune: true,
 		id: rune.runeId,
 		name: rune.name,
@@ -426,7 +426,7 @@ function addGainedRune(player: PrivatePlayerState, rune: ResolvedRune) {
 
 /** Runes/relics the player is currently carrying (occupied slots). */
 function heldRuneCount(player: PrivatePlayerState): number {
-	return player.runes.filter((slot) => slot.hasRune).length;
+	return player.mats.filter((slot) => slot.hasRune).length;
 }
 
 /**
@@ -655,7 +655,7 @@ function autoResolveCorruptionDiscard(state: PublicGameState, player: PrivatePla
 		// Pick the highest slot index — the OLD trim behavior.
 		const victim = [...player.spirits].sort((a, b) => b.slotIndex - a.slotIndex)[0];
 		player.spirits = player.spirits.filter((entry) => entry.slotIndex !== victim.slotIndex);
-		player.spiritRuneAttachments = (player.spiritRuneAttachments ?? []).filter(
+		player.spiritAugmentAttachments = (player.spiritAugmentAttachments ?? []).filter(
 			(attachment) => attachment.spiritSlotIndex !== victim.slotIndex
 		);
 		const sourceBag =
@@ -706,11 +706,11 @@ function refillEmptyMarketSlots(state: PublicGameState) {
 
 function ensurePlayerCollections(player: PrivatePlayerState) {
 	player.handDraws ??= [];
-	player.runes ??= [];
+	player.mats ??= [];
 	player.spirits ??= [];
 	player.spawnedDice ??= [];
 	player.spawnedItems ??= [];
-	player.spiritRuneAttachments ??= [];
+	player.spiritAugmentAttachments ??= [];
 	player.unplacedAugments ??= [];
 	player.pendingDraw ??= null;
 	player.pendingReward ??= null;
@@ -1101,8 +1101,8 @@ export function applyGameCommand(
 			);
 			// Overwriting a slot drops any augment bound to the spirit that was there —
 			// the augment dies with it rather than migrating to the new spirit.
-			activePlayer.player.spiritRuneAttachments = (
-				activePlayer.player.spiritRuneAttachments ?? []
+			activePlayer.player.spiritAugmentAttachments = (
+				activePlayer.player.spiritAugmentAttachments ?? []
 			).filter((attachment) => attachment.spiritSlotIndex !== slotIndex);
 			activePlayer.player.spirits.push({
 				slotIndex,
@@ -1256,8 +1256,8 @@ export function applyGameCommand(
 				(candidate) => candidate.slotIndex !== slotIndex
 			);
 			// Overwriting a slot drops any augment bound to the spirit that was there.
-			activePlayer.player.spiritRuneAttachments = (
-				activePlayer.player.spiritRuneAttachments ?? []
+			activePlayer.player.spiritAugmentAttachments = (
+				activePlayer.player.spiritAugmentAttachments ?? []
 			).filter((attachment) => attachment.spiritSlotIndex !== slotIndex);
 			activePlayer.player.spirits.push({
 				slotIndex,
@@ -1523,7 +1523,7 @@ export function applyGameCommand(
 			// Remove it from the tableau (freeing the slot for a new summon) and drop
 			// any runes attached to that slot.
 			player.spirits = player.spirits.filter((entry) => entry.slotIndex !== command.slotIndex);
-			player.spiritRuneAttachments = (player.spiritRuneAttachments ?? []).filter(
+			player.spiritAugmentAttachments = (player.spiritAugmentAttachments ?? []).filter(
 				(attachment) => attachment.spiritSlotIndex !== command.slotIndex
 			);
 
@@ -1621,7 +1621,7 @@ export function applyGameCommand(
 			// it, and some augments carry their own host cap (Purifier grants 2 per Cursed
 			// Spirit). Count every placed augment (class-linked, or a legacy generic token).
 			const capacity = Math.max(augmentCapacityForSpirit(spirit), augment.hostCapacity ?? 0);
-			const placedOnSpirit = (player.spiritRuneAttachments ?? []).filter(
+			const placedOnSpirit = (player.spiritAugmentAttachments ?? []).filter(
 				(a) =>
 					a.spiritSlotIndex === spirit.slotIndex &&
 					(typeof a.className === 'string' || a.runeId === GENERIC_AUGMENT_RUNE_ID)
@@ -1633,7 +1633,7 @@ export function applyGameCommand(
 			// Permanently attach: pull it from the to-place pouch and bind it to the spirit.
 			// It rides along if the spirit is ever discarded (see discardSpirit).
 			player.unplacedAugments = player.unplacedAugments.filter((_, i) => i !== idx);
-			(player.spiritRuneAttachments ??= []).push({
+			(player.spiritAugmentAttachments ??= []).push({
 				runeId: augment.runeId,
 				spiritId: spirit.id,
 				spiritSlotIndex: spirit.slotIndex,
@@ -1819,7 +1819,7 @@ export function applyGameCommand(
 			}
 			const active = activePlayerForActor(state, actor);
 			if (!active) return failure('seat_required', 'Only seated players can discard runes.');
-			const slot = active.player.runes.find(
+			const slot = active.player.mats.find(
 				(r) => r.slotIndex === command.slotIndex && r.hasRune
 			);
 			if (!slot) return failure('rune_missing', 'No rune in that slot to discard.');
@@ -1996,7 +1996,19 @@ export function applyGameCommand(
 				return failure('awaken_unmet', `${spirit.name} cannot be awakened yet.`);
 			}
 
-			const payment = payAwakenCondition(ctx, { spirit }, command.runeInstanceIds);
+			// A rune_cost offer lets the owner pick WHICH held runes to spend; the picker
+			// sends them as `discardRefs` (kind 'rune', by slot). Translate those to the
+			// runes' instance ids so matchMatCost prefers exactly the chosen copies.
+			// (Scripted text handlers read discardRefs directly and ignore this arg.)
+			let runeInstanceIds = command.runeInstanceIds;
+			if (!runeInstanceIds && command.discardRefs?.length) {
+				const ids = command.discardRefs
+					.filter((r) => r.kind === 'rune')
+					.map((r) => active.player.mats.find((s) => s.slotIndex === r.slotIndex)?.guid)
+					.filter((g): g is string => !!g);
+				if (ids.length) runeInstanceIds = ids;
+			}
+			const payment = payAwakenCondition(ctx, { spirit }, runeInstanceIds);
 			if (!payment.ok) {
 				return failure('awaken_unmet', `${spirit.name} cannot be awakened yet.`);
 			}
@@ -2133,16 +2145,15 @@ export function applyGameCommand(
 					break;
 				}
 				case 'rune': {
-					const r = catalog.runes.find((x) => x.id === grant.runeId);
+					const r = catalog.mats.find((x) => x.id === grant.runeId);
 					if (!r) return failure('rune_missing', 'That rune is not in the catalog.');
-					const slot = (player.runes.at(-1)?.slotIndex ?? 0) + 1;
-					player.runes.push({
+					const slot = (player.mats.at(-1)?.slotIndex ?? 0) + 1;
+					player.mats.push({
 						slotIndex: slot,
 						hasRune: true,
 						id: r.id,
 						name: r.name,
-						originId: r.originId ?? undefined,
-						classId: r.classId ?? undefined
+						originId: r.originId ?? undefined
 					});
 					log.push(`Debug: added ${r.name}.`);
 					break;
@@ -2242,14 +2253,39 @@ export function applyGameCommand(
 				} else if (undercoverFree) {
 					log.push('Undercover — this trade is free.');
 					player.freeNextRelicTrade = false; // one-shot
+					// "…then discard this spirit." The Undercover spirit(s) stayed on the
+					// board until the free trade was spent — discard them now (return to bag,
+					// drop attachments), mirroring the discardSpirit command.
+					const undercovers = player.spirits.filter(
+						(s) => !s.isFaceDown && (s.classes?.Undercover ?? 0) > 0
+					);
+					for (const u of undercovers) {
+						player.spirits = player.spirits.filter((s) => s.slotIndex !== u.slotIndex);
+						player.spiritAugmentAttachments = (player.spiritAugmentAttachments ?? []).filter(
+							(a) => a.spiritSlotIndex !== u.slotIndex
+						);
+						const sourceBag =
+							bagForSpiritCost(u.cost) ?? (u.isFaceDown ? ARCANE_ABYSS_BAG : SPIRIT_WORLD_BAG);
+						const bag = runtimeBagForSource(state, sourceBag);
+						bag.contents.push({
+							name: u.name,
+							guid: nextId(state.rng, 'discard'),
+							id: u.id,
+							cost: u.cost
+						});
+						shuffleBag(bag.contents, state.rng);
+						bag.count = bag.contents.length;
+						log.push(`${u.name} went undercover and was discarded.`);
+					}
+					if (undercovers.length > 0) state.bags.history = buildHistoryBags(state.bags);
 				} else {
-					const matched = matchRewardCost(interaction.cost, player.runes);
+					const matched = matchRewardCost(interaction.cost, player.mats);
 					if (!matched.ok) {
 						return failure('cannot_afford', 'You cannot pay the cost for that interaction.');
 					}
 					const paid: string[] = [];
 					for (const arrayIndex of matched.consumedArrayIndexes) {
-						const slot = player.runes[arrayIndex];
+						const slot = player.mats[arrayIndex];
 						if (slot) {
 							slot.hasRune = false;
 							paid.push(slot.name ?? 'rune');
@@ -2608,7 +2644,7 @@ export function buildSessionProjection(
 			pendingDecisions: isOwner ? player.pendingDecisions : [],
 			lastAction: isOwner ? player.lastAction : null,
 			// Augments-to-place are the owner's private staging pouch; placed augments
-			// live in spiritRuneAttachments and stay visible to everyone.
+			// live in spiritAugmentAttachments and stay visible to everyone.
 			unplacedAugments: isOwner ? (player.unplacedAugments ?? []) : [],
 			// Unified Awakening-phase ability UX — owner-only, derived from the fields
 			// above so AwakeningSheet can render every interaction from one list.
@@ -2683,8 +2719,8 @@ export function buildHistorySnapshotRows(
 				status_level: player.statusLevel,
 				status_token: player.statusToken,
 				spirits: player.spirits,
-				runes: player.runes,
-				spirit_rune_attachments: player.spiritRuneAttachments,
+				mats: player.mats,
+				spirit_augment_attachments: player.spiritAugmentAttachments,
 				hand_draws: player.handDraws,
 				bags: state.bags.history,
 				scenario: state.scenario

@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 import { env } from '$env/dynamic/private';
 
-const DEFAULT_SCHEMA = 'arc-spirits-game-history';
+const DEFAULT_SCHEMA = 'arc_spirits_game';
 
 const cached = new Map<string, SupabaseClient<any, any, any>>();
 

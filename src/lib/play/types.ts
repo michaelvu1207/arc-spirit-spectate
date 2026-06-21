@@ -3,8 +3,8 @@ import type {
 	ClassBreakpoint,
 	GameLocationRewardRow,
 	HandDrawSnapshot,
-	RuneSlotSnapshot,
-	SpiritRuneAttachmentSnapshot
+	MatSlotSnapshot,
+	SpiritAugmentAttachment
 } from '$lib/types';
 import type { RngState } from './rng';
 
@@ -448,8 +448,8 @@ export interface PlayCatalogGuardian {
 	originId: string | null;
 }
 
-/** One resolved rune line of a spirit's awaken cost (a rune UUID + how many of it). */
-export interface AwakenRuneRequirement {
+/** One resolved mat line of a spirit's awaken cost (a rune/relic UUID + how many of it). */
+export interface AwakenMatRequirement {
 	runeId: string;
 	name: string;
 	kind: MatItemKind;
@@ -459,9 +459,9 @@ export interface AwakenRuneRequirement {
 	wildcard: boolean;
 }
 
-/** Normalized awakening requirement: a payable rune cost, or un-encodable text. */
+/** Normalized awakening requirement: a payable mat cost, or un-encodable text. */
 export type NormalizedAwaken =
-	| { kind: 'rune_cost'; runes: AwakenRuneRequirement[] }
+	| { kind: 'rune_cost'; mats: AwakenMatRequirement[] }
 	| { kind: 'text'; text: string };
 
 export interface PlayCatalogSpirit {
@@ -479,7 +479,6 @@ export interface PlayCatalogRune {
 	name: string;
 	kind: MatItemKind;
 	originId: string | null;
-	classId: string | null;
 }
 
 export interface PlayCatalogDie {
@@ -523,7 +522,7 @@ export interface PlayCatalogLocation {
 export interface PlayCatalog {
 	guardians: PlayCatalogGuardian[];
 	spirits: PlayCatalogSpirit[];
-	runes: PlayCatalogRune[];
+	mats: PlayCatalogRune[];
 	classes: PlayCatalogClass[];
 	dice: PlayCatalogDie[];
 	monsters?: PlayCatalogMonster[];
@@ -616,7 +615,7 @@ export interface RuntimeBagsState {
 /**
  * A spirit augment the player has gained but not yet placed. Augments never sit in
  * rune slots; they wait here until the owner drags one onto a hex spirit, at which
- * point they become a permanent SpiritRuneAttachmentSnapshot on that spirit.
+ * point they become a permanent SpiritAugmentAttachment on that spirit.
  */
 export interface PendingAugment {
 	runeId: string;
@@ -659,7 +658,7 @@ export interface PrivatePlayerState {
 	 *  (1st corruption sheds 1 spirit, 2nd sheds 2, …). Optional/defaults to 0. */
 	corruptionCount?: number;
 	spirits: PlaySpirit[];
-	runes: RuneSlotSnapshot[];
+	mats: MatSlotSnapshot[];
 	handDraws: HandDrawSnapshot[];
 	pendingDraw: PendingDrawState | null;
 	/**
@@ -687,7 +686,7 @@ export interface PrivatePlayerState {
 	}[];
 	spawnedDice: PlayDie[];
 	spawnedItems: PlayMatItem[];
-	spiritRuneAttachments: SpiritRuneAttachmentSnapshot[];
+	spiritAugmentAttachments: SpiritAugmentAttachment[];
 	/**
 	 * Spirit augments gained this game but not yet placed on a spirit. Owner-only in
 	 * the projection. Optional for backward compatibility with older snapshots.
@@ -952,8 +951,8 @@ export interface HistorySnapshotRow {
 	status_level: number;
 	status_token: string | null;
 	spirits: PlaySpirit[];
-	runes: RuneSlotSnapshot[];
-	spirit_rune_attachments: SpiritRuneAttachmentSnapshot[];
+	mats: MatSlotSnapshot[];
+	spirit_augment_attachments: SpiritAugmentAttachment[];
 	hand_draws: HandDrawSnapshot[];
 	bags: BagsData;
 	scenario: PublicGameState['scenario'];

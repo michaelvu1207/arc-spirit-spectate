@@ -10,7 +10,7 @@
  * The engine is pure + offline-testable and works in terms of resolved effects,
  * not raw icon_pool UUIDs. This module is the single place that maps a reward
  * icon id to its meaning. The table below is GENERATED from the live DB
- * (`arc-spirits-rev2` schema). Reward-row *content* is read live from
+ * (`arc_spirits_assets` schema). Reward-row *content* is read live from
  * `game_locations.reward_rows` (so map changes need no code change); only this
  * icon→meaning table is in code. Icon coverage re-verified against live on
  * 2026-06-17 — refresh it (and the fixtures in locationInteractions.test.ts) if a
@@ -20,7 +20,7 @@
  * the bot policy, so all three agree on what each row costs and grants.
  */
 
-import type { GameLocationRewardRow, RewardIconToken, RuneSlotSnapshot } from '$lib/types';
+import type { GameLocationRewardRow, RewardIconToken, MatSlotSnapshot } from '$lib/types';
 
 export type RewardActionKind = 'spiritWorldSummon' | 'abyssSummon' | 'cultivate' | 'rest';
 
@@ -413,11 +413,11 @@ export function buildLocationInteractions(
  * starting Fairy Relic every player begins with. A rune NEVER pays a relic cost and a
  * class augment never sits in the spendable pool, so neither one matches.
  */
-export function isRelic(slot: RuneSlotSnapshot): boolean {
+export function isRelic(slot: MatSlotSnapshot): boolean {
 	return slot.type === 'relic';
 }
 
-function slotSatisfies(slot: RuneSlotSnapshot, req: CostRequirement): boolean {
+function slotSatisfies(slot: MatSlotSnapshot, req: CostRequirement): boolean {
 	switch (req.match) {
 		case 'origin':
 			return slot.originId === req.originId || slot.name === `${req.originName} Rune`;
@@ -444,7 +444,7 @@ export interface CostMatch {
  * (origin / named) are assigned before the wildcards so a wildcard never "steals"
  * a rune a specific requirement needs.
  */
-export function matchRewardCost(cost: CostRequirement[], runes: RuneSlotSnapshot[]): CostMatch {
+export function matchRewardCost(cost: CostRequirement[], runes: MatSlotSnapshot[]): CostMatch {
 	if (cost.length === 0) return { ok: true, consumedArrayIndexes: [] };
 
 	const available = runes
@@ -466,6 +466,6 @@ export function matchRewardCost(cost: CostRequirement[], runes: RuneSlotSnapshot
 	return { ok: true, consumedArrayIndexes: [...used] };
 }
 
-export function canAfford(interaction: LocationInteraction, runes: RuneSlotSnapshot[]): boolean {
+export function canAfford(interaction: LocationInteraction, runes: MatSlotSnapshot[]): boolean {
 	return matchRewardCost(interaction.cost, runes).ok;
 }

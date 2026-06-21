@@ -29,7 +29,7 @@ const CATALOG: PlayCatalog = {
 		{ id: 'g-c', name: 'Orin', originId: 'o3' },
 		{ id: 'g-d', name: 'Vesper', originId: 'o4' }
 	],
-	runes: [],
+	mats: [],
 	classes: [],
 	dice: [{ id: 'basic_attack', name: 'Basic Attack', diceType: 'attack', sides: [1, 1, 2, 2, 3, 3] }],
 	spirits: Array.from({ length: 40 }, (_, i) => ({
@@ -276,7 +276,7 @@ const SPACE_INVADER_ID = 'b3068fcf-d197-4030-ba55-29ac1621f9a9'; // text: discar
 const FX_CLASSES = ['Fighter', 'Healer', 'Arc Mage', 'Spirit Animal', 'Fairy', 'Sharpshooter'];
 const FX_CATALOG: PlayCatalog = {
 	guardians: CATALOG.guardians,
-	runes: [],
+	mats: [],
 	classes: [],
 	dice: CATALOG.dice,
 	monsters: CATALOG.monsters,
@@ -325,7 +325,7 @@ function seedAwakenables(state: PublicGameState, catalog: PlayCatalog): void {
 			cost: 2,
 			classes: { Healer: 1 },
 			origins: { Forest: 1 },
-			awaken: { kind: 'rune_cost', runes: [{ runeId: ANY_RUNE_ID, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }] }
+			awaken: { kind: 'rune_cost', mats: [{ runeId: ANY_RUNE_ID, name: 'Any Rune', kind: 'rune', count: 1, wildcard: true }] }
 		},
 		{
 			id: SPACE_INVADER_ID,
@@ -348,7 +348,7 @@ function seedAwakenables(state: PublicGameState, catalog: PlayCatalog): void {
 			faceDownSlot(base + 3, SPACE_INVADER_ID, 'Space Invader', { Fighter: 1 })
 		);
 		// Runes to pay Field Nurse + attack dice for Space Invader, every round.
-		player.runes.push(heldRune(player.runes.length + 1, ANY_RUNE_ID));
+		player.mats.push(heldRune(player.mats.length + 1, ANY_RUNE_ID));
 		for (let d = 0; d < 6; d += 1) {
 			player.attackDice.push({ instanceId: `${seat}-die-${d}`, tier: 'basic' });
 		}

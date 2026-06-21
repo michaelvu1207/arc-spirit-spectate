@@ -188,7 +188,7 @@ function destinationOfferingAugment(
 function hasAugmentCapacity(player: BotPlayer): boolean {
 	return player.spirits.some((s) => {
 		if (s.isFaceDown) return false;
-		const placed = (player.spiritRuneAttachments ?? []).filter(
+		const placed = (player.spiritAugmentAttachments ?? []).filter(
 			(a) => a.spiritSlotIndex === s.slotIndex && typeof a.className === 'string'
 		).length;
 		return placed < augmentCapacityForSpirit(s);
@@ -211,7 +211,7 @@ function wantsElementalistAugment(player: BotPlayer, profile: BotProfile): boole
 	// with a basic-dice pool + a relic must be able to buy its way to count 2 — else it deadlocks,
 	// resting forever on 10 un-upgradable basic dice (the exact 100-round jam seen at hp4).
 	if (c < 1 || c >= 5) return false;
-	if (!player.runes.some((r) => r.hasRune && r.type === 'relic')) return false; // can pay the trade
+	if (!player.mats.some((r) => r.hasRune && r.type === 'relic')) return false; // can pay the trade
 	return hasAugmentCapacity(player);
 }
 
@@ -278,7 +278,7 @@ function wantsArcaneFish(player: BotPlayer, profile: BotProfile): boolean {
 	if (!hasSustain(player) && !canHealViaEconomy(player)) return false;
 	if (hasArcaneSource(player)) return false;
 	if (player.pendingDraw || player.spirits.some((sp) => sp.isFaceDown)) return false; // pending recruit already
-	if (!player.runes.some((r) => r.hasRune && r.type === 'relic')) return false; // can pay the trade
+	if (!player.mats.some((r) => r.hasRune && r.type === 'relic')) return false; // can pay the trade
 	return true;
 }
 
@@ -295,7 +295,7 @@ function wantsArcaneFish(player: BotPlayer, profile: BotProfile): boolean {
 function wantsAbyssFish(player: BotPlayer, profile: BotProfile): boolean {
 	if (profile.pursuePvp || profile.pursueCorruption) return false;
 	if (player.pendingDraw || player.spirits.some((sp) => sp.isFaceDown)) return false;
-	if (!player.runes.some((r) => r.hasRune && r.type === 'relic')) return false;
+	if (!player.mats.some((r) => r.hasRune && r.type === 'relic')) return false;
 	const room =
 		player.spirits.length < spiritLimitFor(player.statusLevel) ||
 		player.spirits.some((s) => !s.isFaceDown && keepValue(s, player, profile, null) <= 1);
@@ -374,7 +374,7 @@ function chooseBuildDestination(
 			!player.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted');
 		const belowOneShot = expectedAttack(state, seat, catalog) < maxLadderHp(catalog) + 1;
 		if (coreBuilt && belowOneShot && hasAugmentCapacity(player)) {
-			const heldRelics = player.runes.filter((r) => r.hasRune && r.type === 'relic').length;
+			const heldRelics = player.mats.filter((r) => r.hasRune && r.type === 'relic').length;
 			if (heldRelics >= 1) {
 				const d = legalDest(destinationOfferingAugment(catalog, ['Spirit Animal']));
 				if (d) return d;
@@ -457,13 +457,13 @@ function augmentChoices(
 
 function wantsInteraction(player: BotPlayer, profile: BotProfile, it: LocationInteraction, catalog: PlayCatalog): boolean {
 	const hurt = player.barrier < player.maxTokens;
-	const heldRelics = player.runes.filter((s) => s.hasRune && s.type === 'relic').length;
+	const heldRelics = player.mats.filter((s) => s.hasRune && s.type === 'relic').length;
 	if (it.kind === 'gain') {
 		// Free. Take it — unless it's purely a heal we don't need right now.
 		if (it.gains.every((g) => g.type === 'heal')) return hurt;
 		return true;
 	}
-	if (!canAfford(it, player.runes)) return false;
+	if (!canAfford(it, player.mats)) return false;
 	let want = false;
 	for (const g of it.gains) {
 		if (g.type === 'heal') want ||= hurt;
@@ -1270,8 +1270,8 @@ function hasSustain(player: BotPlayer): boolean {
  * relic, holds an origin rune, or has ≥2 same-origin spirits to Cultivate runes from.
  */
 function canHealViaEconomy(player: BotPlayer): boolean {
-	if (player.runes.some((r) => r.hasRune && r.type === 'relic')) return true;
-	if (player.runes.some((r) => r.hasRune && r.originId)) return true;
+	if (player.mats.some((r) => r.hasRune && r.type === 'relic')) return true;
+	if (player.mats.some((r) => r.hasRune && r.originId)) return true;
 	const byOrigin: Record<string, number> = {};
 	for (const sp of player.spirits) {
 		if (sp.isFaceDown) continue;
@@ -1646,7 +1646,7 @@ function canStillRaiseDamage(player: BotPlayer, profile: BotProfile): boolean {
 	// the bot summoned forever at the boss instead of taking its shot (the cullean boss-stall deadlock).
 	if (player.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted')) {
 		const ele = awakenedClassCounts(player)['Elementalist'] ?? 0;
-		const hasRelic = player.runes.some((r) => r.hasRune && r.type === 'relic');
+		const hasRelic = player.mats.some((r) => r.hasRune && r.type === 'relic');
 		if (ele >= 2 || (ele >= 1 && hasRelic)) return true;
 	}
 	if (profile.pursueArcane && !hasArcaneSource(player)) return true;
@@ -1655,7 +1655,7 @@ function canStillRaiseDamage(player: BotPlayer, profile: BotProfile): boolean {
 	// host. The relic that pays for it is pure action economy (Cultivate → origin runes → relic
 	// trade, plus monster-reward relics), so this is a near-unlimited damage cap — keep buying until
 	// the boss one-shots. Gated on having augment capacity AND a way to fund a relic.
-	if (hasAugmentCapacity(player) && player.runes.some((r) => r.hasRune && r.type === 'relic')) return true;
+	if (hasAugmentCapacity(player) && player.mats.some((r) => r.hasRune && r.type === 'relic')) return true;
 	return false;
 }
 
@@ -2003,7 +2003,7 @@ export function planMediumPhaseActions(
 						const target = [...p.spirits]
 							.filter((s) => {
 								if (s.isFaceDown) return false;
-								const placed = (p.spiritRuneAttachments ?? []).filter(
+								const placed = (p.spiritAugmentAttachments ?? []).filter(
 									(a) => a.spiritSlotIndex === s.slotIndex && typeof a.className === 'string'
 								).length;
 								return placed < augmentCapacityForSpirit(s);
@@ -2113,7 +2113,7 @@ export function planMediumPhaseActions(
 		case 'cleanup': {
 			let runeGuard = 0;
 			while (runeGuard < 16) {
-				const held = (working.players[seat]?.runes ?? []).filter((r) => r.hasRune);
+				const held = (working.players[seat]?.mats ?? []).filter((r) => r.hasRune);
 				if (held.length <= RUNE_CARRY_LIMIT) break;
 				runeGuard += 1;
 				// An arcane-pursuing bot hoards RELICS (they pay the "any relic" awaken cost for the
@@ -2633,7 +2633,7 @@ export function planBotPhaseActions(
 				if (interactions.length > 0 && rng.chance()) {
 					const affordable = interactions.filter(
 						(it) =>
-							canAfford(it, working.players[seat]?.runes ?? []) &&
+							canAfford(it, working.players[seat]?.mats ?? []) &&
 							isLegal(
 								working,
 								seat,
@@ -2694,7 +2694,7 @@ export function planBotPhaseActions(
 			// Discard overflow runes (newest first) so cleanup can be committed.
 			let runeGuard = 0;
 			while (runeGuard < 16) {
-				const held = (working.players[seat]?.runes ?? []).filter((r) => r.hasRune);
+				const held = (working.players[seat]?.mats ?? []).filter((r) => r.hasRune);
 				if (held.length <= RUNE_CARRY_LIMIT) break;
 				runeGuard += 1;
 				// An arcane-pursuing bot hoards RELICS (they pay the "any relic" awaken cost for the

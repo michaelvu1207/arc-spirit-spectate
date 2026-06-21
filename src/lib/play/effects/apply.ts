@@ -185,8 +185,8 @@ export function applyCultivate(
 		if (!rune) continue;
 		const count = Math.floor(traits / 2) * runeMult;
 		for (let i = 0; i < count; i += 1) {
-			player.runes.push({
-				slotIndex: player.runes.length + 1,
+			player.mats.push({
+				slotIndex: player.mats.length + 1,
 				hasRune: true,
 				id: rune.runeId,
 				name: rune.name,

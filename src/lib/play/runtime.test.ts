@@ -45,27 +45,24 @@ const CATALOG: PlayCatalog = {
 		{ id: 'g-myrtle', name: 'Myrtle', originId: 'astral-zone' },
 		{ id: 'g-nyra', name: 'Nyra', originId: 'arcane-abyss' }
 	],
-	runes: [
+	mats: [
 		{
 			id: 'rune-forest',
 			name: 'Forest Rune',
 			kind: 'rune',
-			originId: 'forest',
-			classId: null
+			originId: 'forest'
 		},
 		{
 			id: 'augment-fighter',
 			name: 'Fighter Augment',
 			kind: 'augment',
-			originId: null,
-			classId: 'fighter'
+			originId: null
 		},
 		{
 			id: 'relic-sun',
 			name: 'Sun Relic',
 			kind: 'relic',
-			originId: null,
-			classId: null
+			originId: null
 		}
 	],
 	classes: [],
@@ -960,14 +957,14 @@ describe('play runtime', () => {
 
 		// Pouch emptied; a permanent attachment now binds the augment to that spirit.
 		expect(res.state.players.Red!.unplacedAugments).toEqual([]);
-		const attachments = res.state.players.Red!.spiritRuneAttachments;
+		const attachments = res.state.players.Red!.spiritAugmentAttachments;
 		expect(attachments).toHaveLength(1);
 		expect(attachments[0].runeId).toBe('aug-sword');
 		expect(attachments[0].className).toBe('Fighter');
 		expect(attachments[0].spiritSlotIndex).toBe(target.slotIndex);
 		expect(attachments[0].spiritId).toBe(target.id);
 		// Augments never occupy rune slots.
-		expect(res.state.players.Red!.runes.some((r) => r.id === 'aug-sword')).toBe(false);
+		expect(res.state.players.Red!.mats.some((r) => r.id === 'aug-sword')).toBe(false);
 	});
 
 	test('a gained augment is placeable (owner picks the class) and counts toward the per-spirit cap', () => {
@@ -991,9 +988,9 @@ describe('play runtime', () => {
 		);
 		expect(first.ok).toBe(true);
 		if (!first.ok) return;
-		expect(first.state.players.Red!.spiritRuneAttachments).toHaveLength(1);
+		expect(first.state.players.Red!.spiritAugmentAttachments).toHaveLength(1);
 		// The placed augment adds the class the owner picked.
-		expect(first.state.players.Red!.spiritRuneAttachments[0].className).toBe('Cultivator');
+		expect(first.state.players.Red!.spiritAugmentAttachments[0].className).toBe('Cultivator');
 
 		// A second augment onto the SAME default-cap-1 spirit is rejected.
 		const second = applyGameCommand(
@@ -1020,7 +1017,7 @@ describe('play runtime', () => {
 			CATALOG
 		);
 		if (!placed.ok) throw new Error(placed.error.message);
-		expect(placed.state.players.Red!.spiritRuneAttachments).toHaveLength(1);
+		expect(placed.state.players.Red!.spiritAugmentAttachments).toHaveLength(1);
 
 		const discarded = applyGameCommand(
 			placed.state,
@@ -1031,7 +1028,7 @@ describe('play runtime', () => {
 		expect(discarded.ok).toBe(true);
 		if (!discarded.ok) return;
 		// The augment is gone with the spirit — not returned anywhere.
-		expect(discarded.state.players.Red!.spiritRuneAttachments).toHaveLength(0);
+		expect(discarded.state.players.Red!.spiritAugmentAttachments).toHaveLength(0);
 		expect(discarded.state.players.Red!.unplacedAugments).toEqual([]);
 	});
 
@@ -1096,7 +1093,7 @@ describe('play runtime', () => {
 			CATALOG
 		);
 		if (!placed.ok) throw new Error(placed.error.message);
-		expect(placed.state.players.Red!.spiritRuneAttachments).toHaveLength(1);
+		expect(placed.state.players.Red!.spiritAugmentAttachments).toHaveLength(1);
 
 		// Replace that slot with a fresh market spirit — the augment must NOT ride along.
 		const replaced = applyGameCommand(
@@ -1107,7 +1104,7 @@ describe('play runtime', () => {
 		);
 		expect(replaced.ok).toBe(true);
 		if (!replaced.ok) return;
-		expect(replaced.state.players.Red!.spiritRuneAttachments).toHaveLength(0);
+		expect(replaced.state.players.Red!.spiritAugmentAttachments).toHaveLength(0);
 	});
 
 	test('adjustBarrier / adjustBlood keep arcane blood === maxTokens − barrier', () => {
@@ -1631,11 +1628,11 @@ describe('Cursed Spirit cleanup claim flow', () => {
 		state.players.Red!.spirits = [cursedSpirit(2)];
 		state.players.Red!.becameCorruptThisRound = true;
 		enterBenefits(state, CATALOG);
-		const before = state.players.Red!.runes.length;
+		const before = state.players.Red!.mats.length;
 		const r = claim(state, 0, [2, 0]); // unit0 → Firecracker (idx 2), unit1 → Fairy (idx 0)
 		if (!r.ok) throw new Error(r.error.message);
 		const p = r.state.players.Red!;
 		expect(p.relics).toBe(2);
-		expect(p.runes.slice(before).map((x) => x.name)).toEqual(['Firecracker Relic', 'Fairy Relic']);
+		expect(p.mats.slice(before).map((x) => x.name)).toEqual(['Firecracker Relic', 'Fairy Relic']);
 	});
 });

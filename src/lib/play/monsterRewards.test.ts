@@ -58,7 +58,7 @@ const CATALOG: PlayCatalog = {
 		{ id: 'g-a', name: 'Red Guard', originId: 'o1' },
 		{ id: 'g-b', name: 'Blue Guard', originId: 'o2' }
 	],
-	runes: [],
+	mats: [],
 	classes: [],
 	dice: [{ id: 'basic_attack', name: 'Basic Attack', diceType: 'attack', sides: [1, 1, 2, 2, 3, 3] }],
 	// 30 Spirit World (cost 1-5) + 10 Arcane Abyss (cost 8) spirits.
@@ -216,11 +216,11 @@ describe('monster-kill reward flow (engine)', () => {
 
 	test('claiming a fixed rune adds it to the rune slots', () => {
 		let s = killMonster();
-		const before = s.players.Red!.runes.filter((r) => r.hasRune).length;
+		const before = s.players.Red!.mats.filter((r) => r.hasRune).length;
 		s = apply(s, RED, { type: 'resolveMonsterReward', picks: [3] }); // Teapot
-		const after = s.players.Red!.runes.filter((r) => r.hasRune).length;
+		const after = s.players.Red!.mats.filter((r) => r.hasRune).length;
 		expect(after).toBe(before + 1);
-		expect(s.players.Red!.runes.some((r) => r.name === 'Teapot')).toBe(true);
+		expect(s.players.Red!.mats.some((r) => r.name === 'Teapot')).toBe(true);
 	});
 
 	test('picking more than chooseAmount is rejected', () => {
@@ -287,7 +287,7 @@ describe('monster-kill reward flow (engine)', () => {
 		// The chosen option is granted wherever it belongs: a rune slot for relics/origin
 		// runes, or the augment pouch for a class rune (a spirit augment).
 		const grantedSecond =
-			s.players.Red!.runes.some((r) => r.name === second) ||
+			s.players.Red!.mats.some((r) => r.name === second) ||
 			(s.players.Red!.unplacedAugments ?? []).some((a) => a.name === second);
 		expect(grantedSecond).toBe(true);
 		expect(s.players.Red!.pendingReward).toBeNull();
@@ -348,7 +348,7 @@ describe('rune carry limit (cleanup)', () => {
 	test('overflow blocks cleanup until runes are discarded down to the limit', () => {
 		let s = atCleanup();
 		// Give Red 6 held runes — over the carry limit of 4.
-		s.players.Red!.runes = Array.from({ length: 6 }, (_, i) => ({
+		s.players.Red!.mats = Array.from({ length: 6 }, (_, i) => ({
 			slotIndex: i + 1,
 			hasRune: true,
 			name: `R${i}`,
@@ -362,7 +362,7 @@ describe('rune carry limit (cleanup)', () => {
 		// Discard two → exactly the limit, then cleanup commits.
 		s = apply(s, RED, { type: 'discardRune', slotIndex: 6 });
 		s = apply(s, RED, { type: 'discardRune', slotIndex: 5 });
-		expect(s.players.Red!.runes.filter((r) => r.hasRune).length).toBe(4);
+		expect(s.players.Red!.mats.filter((r) => r.hasRune).length).toBe(4);
 		s = apply(s, RED, { type: 'commitCleanup' });
 		expect(s.players.Red!.phaseReady).toBe(true);
 	});
@@ -377,7 +377,7 @@ describe('rune carry limit (cleanup)', () => {
 	test('the carry limit is enforced into the next round (compaction backstop)', () => {
 		let s = atCleanup();
 		// Overflow that survives to the next round (e.g. via a host force-advance):
-		s.players.Red!.runes = Array.from({ length: 7 }, (_, i) => ({
+		s.players.Red!.mats = Array.from({ length: 7 }, (_, i) => ({
 			slotIndex: i + 1,
 			hasRune: true,
 			name: `R${i}`,
@@ -387,7 +387,7 @@ describe('rune carry limit (cleanup)', () => {
 		s = apply(s, RED, { type: 'forceAdvancePhase' });
 		expect(s.phase).toBe('navigation');
 		// beginNavigation compacted + trimmed Red's runes to the carry limit.
-		expect(s.players.Red!.runes.length).toBe(4);
-		expect(s.players.Red!.runes.every((r) => r.hasRune)).toBe(true);
+		expect(s.players.Red!.mats.length).toBe(4);
+		expect(s.players.Red!.mats.every((r) => r.hasRune)).toBe(true);
 	});
 });

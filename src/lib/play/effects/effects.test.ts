@@ -19,13 +19,13 @@ function makePlayer(overrides: Partial<PrivatePlayerState> = {}): PrivatePlayerS
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],
-		runes: [],
+		mats: [],
 		handDraws: [],
 		pendingDraw: null,
 		pendingDrawQueue: [],
 		spawnedDice: [],
 		spawnedItems: [],
-		spiritRuneAttachments: [],
+		spiritAugmentAttachments: [],
 		pendingDestination: null,
 		attackDice: [],
 		initiative: 0,
@@ -186,7 +186,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 			]
 		});
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.runes.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(1);
+		expect(p.mats.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(1);
 		expect(p.maxTokens).toBe(4); // no Cultivator → no potential
 	});
 
@@ -230,7 +230,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 			]
 		});
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.runes.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(2);
+		expect(p.mats.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(2);
 	});
 
 	it('grants one rune PER origin (two Floral Patch + two Lantern Lights → one each)', () => {
@@ -244,8 +244,8 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 			]
 		});
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.runes.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(1);
-		expect(p.runes.filter((r) => r.name === 'Lantern Lights Rune')).toHaveLength(1);
+		expect(p.mats.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(1);
+		expect(p.mats.filter((r) => r.name === 'Lantern Lights Rune')).toHaveLength(1);
 	});
 
 	it('counts face-down (unawakened) spirits — origin is always active', () => {
@@ -257,7 +257,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 			]
 		});
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.runes.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(1);
+		expect(p.mats.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(1);
 	});
 
 	it('grants nothing for a lone spirit, or for an origin without a basic rune', () => {
@@ -270,7 +270,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 			]
 		});
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.runes).toHaveLength(0);
+		expect(p.mats).toHaveLength(0);
 		expect(p.maxTokens).toBe(4);
 	});
 });
@@ -618,7 +618,7 @@ describe('doubleRunes primitive (Cultivate yield)', () => {
 			]
 		});
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.runes.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(4); // floor(4/2)=2 → doubled
+		expect(p.mats.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(4); // floor(4/2)=2 → doubled
 	});
 });
 

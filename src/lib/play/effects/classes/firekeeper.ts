@@ -8,7 +8,7 @@ import type { ClassAbility, ClassDecisions } from './types';
 // Was an awakening gain (1 Arcane Attack) + onTakeDamage damage reduction; now a
 // single Awakening-phase opt-in. Implemented as a bespoke `run` handler on
 // `awakeningPhase` (fires once per active player at cleanup) so we can gate
-// precisely on the player HOLDING a relic — relics live as `player.runes` entries
+// precisely on the player HOLDING a relic — relics live as `player.mats` entries
 // with `type === 'relic'` & `hasRune`, which the declarative conditions can't read.
 // The colocated `firekeeperRelicTrade` resolver discards exactly one relic and
 // grants the chosen reward (3 potential OR 1 Arcane Attack).
@@ -17,7 +17,7 @@ export const ability: ClassAbility[] = [
 		on: 'awakeningPhase',
 		run(ctx) {
 			const { player, log, state } = ctx;
-			const hasRelic = player.runes.some((r) => r.type === 'relic' && r.hasRune);
+			const hasRelic = player.mats.some((r) => r.type === 'relic' && r.hasRune);
 			if (!hasRelic) {
 				// No-silent-no-op: a player holding no relic simply isn't offered the
 				// choice. The eligibility gate (offering only when a relic is held) is the
@@ -46,7 +46,7 @@ export const ability: ClassAbility[] = [
  *  flip the slot's `hasRune` off rather than removing the slot). */
 function discardOneRelic(ctx: EffectContextLike): boolean {
 	const { player, log } = ctx;
-	const slot = player.runes.find((r) => r.type === 'relic' && r.hasRune);
+	const slot = player.mats.find((r) => r.type === 'relic' && r.hasRune);
 	if (!slot) return false;
 	slot.hasRune = false;
 	if (player.relics > 0) player.relics -= 1;

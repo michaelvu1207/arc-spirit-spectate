@@ -8,7 +8,9 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
 	testDir: 'e2e',
-	timeout: 120_000,
+	// Generous: each fresh game client caches ~240 board-art images behind a loading
+	// screen on first paint (the real player pays this too) before the board renders.
+	timeout: 240_000,
 	expect: { timeout: 15_000 },
 	fullyParallel: false,
 	workers: 1,

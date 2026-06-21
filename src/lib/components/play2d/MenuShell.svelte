@@ -2,6 +2,8 @@
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
 	import SplatBackground from './SplatBackground.svelte';
+	import SplatQualityControl from './SplatQualityControl.svelte';
+	import { getGraphicsSettings } from '$lib/stores/graphicsSettings.svelte';
 	import {
 		armMenuAudio,
 		toggleMenuMute,
@@ -32,11 +34,14 @@
 	}: Props = $props();
 
 	const audio = getMenuAudio();
+	const graphics = getGraphicsSettings();
 
 	/** Whether the Fullscreen API exists on this device (iPhone Safari lacks it). */
 	let fullscreenSupported = $state(false);
 	/** Live fullscreen state, mirrored from the `fullscreenchange` event. */
 	let isFullscreen = $state(false);
+	/** Graphics-settings popover (splat quality) open state. */
+	let settingsOpen = $state(false);
 
 	onMount(() => {
 		armMenuAudio(audioSrc);
@@ -71,15 +76,19 @@
 </script>
 
 <div class="menu-shell">
-	<!-- Living world -->
-	<div class="bg"><SplatBackground src={splatSrc} blur={0} {push} /></div>
+	<!-- Living world (skipped entirely when the player sets Background to Off). -->
+	{#if graphics.splatEnabled}
+		<div class="bg"><SplatBackground src={splatSrc} blur={0} {push} /></div>
+	{/if}
 	<!-- Directional scrim so content stays legible over the splat -->
 	<div class="scrim"></div>
 	<!-- Slow aurora wash + fine grain for depth -->
 	<div class="aurora"></div>
 	<div class="grain"></div>
 
-	<!-- Persistent chrome -->
+	<!-- Persistent chrome. The brand sits in `.topbar`, which the immersive play
+	     routes hide globally (the landing renders its own wordmark); the controls
+	     live in a separate cluster so they stay reachable on those routes. -->
 	<header class="topbar">
 		{#if showBrand}
 			<a class="brand" href="/">
@@ -89,56 +98,21 @@
 		{:else}
 			<span></span>
 		{/if}
-		<div class="controls">
-			{#if fullscreenSupported}
-				<button
-					class="ctrl"
-					type="button"
-					onpointerenter={() => playMenuSfx('ui-hover', { volume: 0.45 })}
-					onclick={toggleFullscreen}
-					aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-					title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-				>
-					{#if isFullscreen}
-						<svg viewBox="0 0 24 24" aria-hidden="true"
-							><path
-								d="M9 4v3a2 2 0 01-2 2H4m16 0h-3a2 2 0 01-2-2V4M4 15h3a2 2 0 012 2v3m11-5h-3a2 2 0 00-2 2v3"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.7"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/></svg
-						>
-					{:else}
-						<svg viewBox="0 0 24 24" aria-hidden="true"
-							><path
-								d="M4 9V6a2 2 0 012-2h3m6 0h3a2 2 0 012 2v3M4 15v3a2 2 0 002 2h3m6 0h3a2 2 0 002-2v-3"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="1.7"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/></svg
-						>
-					{/if}
-				</button>
-			{/if}
+	</header>
+	<div class="menu-controls">
+		{#if fullscreenSupported}
 			<button
-				class="ctrl mute"
+				class="ctrl"
 				type="button"
 				onpointerenter={() => playMenuSfx('ui-hover', { volume: 0.45 })}
-				onclick={() => {
-					playMenuSfx('ui-click');
-					toggleMenuMute();
-				}}
-				aria-label={audio.muted ? 'Unmute menu music' : 'Mute menu music'}
-				title={audio.muted ? 'Unmute' : 'Mute'}
+				onclick={toggleFullscreen}
+				aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+				title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
 			>
-				{#if audio.muted}
+				{#if isFullscreen}
 					<svg viewBox="0 0 24 24" aria-hidden="true"
 						><path
-							d="M4 9v6h4l5 4V5L8 9H4zM17 9l4 4m0-4l-4 4"
+							d="M9 4v3a2 2 0 01-2 2H4m16 0h-3a2 2 0 01-2-2V4M4 15h3a2 2 0 012 2v3m11-5h-3a2 2 0 00-2 2v3"
 							fill="none"
 							stroke="currentColor"
 							stroke-width="1.7"
@@ -149,7 +123,7 @@
 				{:else}
 					<svg viewBox="0 0 24 24" aria-hidden="true"
 						><path
-							d="M4 9v6h4l5 4V5L8 9H4zM16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12"
+							d="M4 9V6a2 2 0 012-2h3m6 0h3a2 2 0 012 2v3M4 15v3a2 2 0 002 2h3m6 0h3a2 2 0 002-2v-3"
 							fill="none"
 							stroke="currentColor"
 							stroke-width="1.7"
@@ -159,8 +133,85 @@
 					>
 				{/if}
 			</button>
-		</div>
-	</header>
+		{/if}
+		<button
+			class="ctrl mute"
+			type="button"
+			onpointerenter={() => playMenuSfx('ui-hover', { volume: 0.45 })}
+			onclick={() => {
+				playMenuSfx('ui-click');
+				toggleMenuMute();
+			}}
+			aria-label={audio.muted ? 'Unmute menu music' : 'Mute menu music'}
+			title={audio.muted ? 'Unmute' : 'Mute'}
+		>
+			{#if audio.muted}
+				<svg viewBox="0 0 24 24" aria-hidden="true"
+					><path
+						d="M4 9v6h4l5 4V5L8 9H4zM17 9l4 4m0-4l-4 4"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.7"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/></svg
+				>
+			{:else}
+				<svg viewBox="0 0 24 24" aria-hidden="true"
+					><path
+						d="M4 9v6h4l5 4V5L8 9H4zM16 8.5a5 5 0 010 7M18.5 6a8.5 8.5 0 010 12"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.7"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/></svg
+				>
+			{/if}
+		</button>
+		<button
+			class="ctrl"
+			type="button"
+			data-testid="menu-settings"
+			aria-haspopup="menu"
+			aria-expanded={settingsOpen}
+			aria-label="Settings"
+			title="Settings"
+			onpointerenter={() => playMenuSfx('ui-hover', { volume: 0.45 })}
+			onclick={() => {
+				playMenuSfx('ui-click');
+				settingsOpen = !settingsOpen;
+			}}
+		>
+			<svg viewBox="0 0 24 24" aria-hidden="true"
+				><path
+					d="M4 7h8M16 7h4M4 12h4M12 12h8M4 17h11M19 17h1"
+					stroke="currentColor"
+					stroke-width="1.7"
+					stroke-linecap="round"
+				/><circle cx="14" cy="7" r="2.1" stroke="currentColor" stroke-width="1.7" /><circle
+					cx="10"
+					cy="12"
+					r="2.1"
+					stroke="currentColor"
+					stroke-width="1.7"
+				/><circle cx="17" cy="17" r="2.1" stroke="currentColor" stroke-width="1.7" /></svg
+			>
+		</button>
+
+		{#if settingsOpen}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<button
+				type="button"
+				class="settings-backdrop"
+				aria-label="Close settings"
+				onclick={() => (settingsOpen = false)}
+			></button>
+			<div class="settings-popover" role="menu" data-testid="menu-settings-panel">
+				<SplatQualityControl />
+			</div>
+		{/if}
+	</div>
 
 	<!-- Screen content -->
 	<div class="stage">
@@ -281,10 +332,57 @@
 		text-transform: uppercase;
 	}
 
-	.controls {
+	/* Control cluster — pinned top-right INDEPENDENTLY of `.topbar` so it survives the
+	   immersive routes' global `.topbar` hide (which is there to drop the duplicate brand). */
+	.menu-controls {
+		position: absolute;
+		top: 0;
+		right: 0;
+		z-index: 5;
 		display: inline-flex;
 		align-items: center;
 		gap: 10px;
+		padding: 22px 30px;
+		padding-top: calc(22px + env(safe-area-inset-top));
+		padding-right: calc(30px + env(safe-area-inset-right));
+	}
+
+	@media (max-width: 600px) {
+		.menu-controls {
+			padding: 14px 16px;
+			padding-top: calc(14px + env(safe-area-inset-top));
+			padding-right: calc(16px + env(safe-area-inset-right));
+		}
+	}
+
+	/* Invisible full-screen catch so an outside tap closes the popover. */
+	.settings-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 6;
+		border: 0;
+		padding: 0;
+		background: transparent;
+		cursor: default;
+	}
+
+	.settings-popover {
+		position: absolute;
+		top: calc(100% + 10px);
+		right: 0;
+		z-index: 7;
+		min-width: 220px;
+		padding: 16px;
+		border-radius: 14px;
+		border: 1px solid var(--color-mist, #2e1d52);
+		background: rgba(10, 7, 24, 0.92);
+		box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.8);
+		backdrop-filter: blur(10px);
+	}
+	@media (hover: none) and (pointer: coarse) {
+		.settings-popover {
+			background: rgba(10, 7, 24, 0.97);
+		}
 	}
 
 	.ctrl {

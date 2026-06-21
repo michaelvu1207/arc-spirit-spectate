@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { getGraphicsSettings } from '$lib/stores/graphicsSettings.svelte';
 	// Type-only import — erased at compile time; does NOT pull the runtime library
 	// into the initial bundle. The runtime is dynamically imported inside onMount
 	// so three + @sparkjsdev/spark land in their own lazy chunk (see vite.config.ts).
@@ -24,7 +25,14 @@
 		contained?: boolean;
 	}
 
-	let { src, blur = 0, push = 0, controls = false, onZoomSettled, contained = false }: Props = $props();
+	let {
+		src,
+		blur = 0,
+		push = 0,
+		controls = false,
+		onZoomSettled,
+		contained = false
+	}: Props = $props();
 
 	let canvas = $state<HTMLCanvasElement>();
 	let poseEl = $state<HTMLDivElement>(); // live pose readout in fly mode
@@ -51,6 +59,13 @@
 	const cb = { settled: null as null | (() => void) };
 	$effect(() => {
 		cb.settled = onZoomSettled ?? null;
+	});
+	// Player-chosen frame cap, bridged the same way so the render loop throttles live
+	// when the setting changes (30/60). 0 means Off — the loop idles without drawing
+	// (the parent normally unmounts us entirely when Off; this is the safe fallback).
+	const q = { fps: 60 };
+	$effect(() => {
+		q.fps = getGraphicsSettings().splatFps;
 	});
 
 	onMount(() => {
@@ -306,8 +321,18 @@
 			document.addEventListener('pointerlockchange', onLockChange);
 			el.addEventListener('click', onClick);
 
-			function frame() {
+			let lastFrameAt = 0;
+			function frame(now = 0) {
 				raf = requestAnimationFrame(frame);
+				// Pause all GPU work while the tab/app is backgrounded — a full splat scene
+				// drawn behind a hidden window is pure battery/thermal waste on mobile.
+				if (typeof document !== 'undefined' && document.hidden) return;
+				// Throttle to the player's chosen cap (30/60; 0 ⇒ Off, but a contained
+				// preview may still be mounted, so fall back to 30 rather than freezing).
+				// 0.5ms tolerance so a 60Hz display's ~16.6ms ticks aren't dropped at the 60 cap.
+				const fps = q.fps > 0 ? q.fps : 30;
+				if (now - lastFrameAt < 1000 / fps - 0.5) return;
+				lastFrameAt = now;
 				// Clamp the frame delta: after a tab refocus / GC stall / the first frame
 				// post-load, getDelta() can be multiple seconds, which would otherwise snap
 				// every dt-driven easing (dolly, crossfade, wander) instead of gliding.

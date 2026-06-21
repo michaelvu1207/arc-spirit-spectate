@@ -197,19 +197,19 @@
 				<h2 class="stats-panel-title">Stats</h2>
 				<p class="stats-panel-desc">Derived from verified games (and tags you add). Links support deep-linking to a round + player view.</p>
 			</div>
-			<a href="/stats" class="btn-primary">Open Stats</a>
+			<a href="/admin/stats" class="btn-primary">Open Stats</a>
 		</div>
 
 		<div class="stats-links">
-			<a href="/stats/tags" class="stats-link">
+			<a href="/admin/stats/tags" class="stats-link">
 				<div class="stats-link-name">Composition Tags</div>
 				<div class="stats-link-desc">Ranked by average VP / placement.</div>
 			</a>
-			<a href="/stats/characters" class="stats-link">
+			<a href="/admin/stats/characters" class="stats-link">
 				<div class="stats-link-name">Characters</div>
 				<div class="stats-link-desc">Average VP / placement by character.</div>
 			</a>
-			<a href="/stats/traits" class="stats-link">
+			<a href="/admin/stats/traits" class="stats-link">
 				<div class="stats-link-name">Trait Stats</div>
 				<div class="stats-link-desc">Exact class/origin counts (e.g. 4 Fighters).</div>
 			</a>
