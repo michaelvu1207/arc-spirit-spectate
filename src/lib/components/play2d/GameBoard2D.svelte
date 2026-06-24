@@ -41,6 +41,7 @@
 	import BagViewer from './BagViewer.svelte';
 	import DebugPanel from './DebugPanel.svelte';
 	import SummonFxLayer from './SummonFxLayer.svelte';
+	import PostGameView from './PostGameView.svelte';
 	import {
 		setMusic,
 		stopMusic,
@@ -570,10 +571,6 @@
 		pagerEl.scrollTo({ left: i * pagerEl.clientWidth, behavior: 'smooth' });
 	}
 
-	const winnerName = $derived.by(() => {
-		if (!room.winnerSeat) return null;
-		return room.seats[room.winnerSeat]?.displayName ?? room.winnerSeat;
-	});
 
 	async function runAction(label: string, work: () => Promise<unknown>) {
 		pendingAction = label;
@@ -627,7 +624,7 @@
 	// summon (which drives its own DrawTray view via pendingDraw — that branch
 	// takes UI precedence) or runes/potential/cultivate/rest (shown on the result
 	// card). We set `reward` either way; the pendingDraw branch wins when present.
-	async function resolveInteraction(rowIndex: number, choices: number[]) {
+	async function resolveInteraction(rowIndex: number, choices: number[], costChoices: number[] = []) {
 		if (busy) return;
 		// The interaction card flips IN PLACE to show its result (no full-stage result
 		// card) — we stay on the action grid to reduce friction. A summon row still
@@ -636,7 +633,7 @@
 		actionError = null;
 		try {
 			playSfx('ui-click');
-			await sendPlayCommand({ type: 'resolveLocationInteraction', rowIndex, choices });
+			await sendPlayCommand({ type: 'resolveLocationInteraction', rowIndex, choices, costChoices });
 			activeAction = null;
 		} catch (err) {
 			actionError = err instanceof Error ? err.message : 'Action failed.';
@@ -747,6 +744,12 @@
 			className
 		});
 	}
+	// Finish placing — forfeit any augments that can't (or won't) be placed so the
+	// optional placement step never blocks the turn.
+	function discardAugments() {
+		playSfx('ui-click');
+		send('discard-augments', { type: 'discardUnplacedAugments' });
+	}
 	// Cast this Evil player's vote to attack the Good players sharing the location.
 	// The group strike fires once every co-located Evil player has agreed (engine-side).
 	function attackGroup() {
@@ -758,11 +761,11 @@
 		playSfx('ui-click');
 		send('pass', { type: 'passEncounter' });
 	}
-	// Claim the Cursed Spirit Awakening-Phase rewards (Cleanup). `taintedPotential` =
+	// Claim the Cursed Spirit Awakening-Phase rewards (Cleanup). `taintedMaxBarrier` =
 	// units of the Tainted line taken as potential (the rest become Enchanted Attack).
-	function claimAwakenReward(taintedPotential: number, relicPicks: number[]) {
+	function claimAwakenReward(taintedMaxBarrier: number, relicPicks: number[]) {
 		playSfx('reward-pick');
-		send('awaken-reward', { type: 'resolveAwakenReward', taintedPotential, relicPicks });
+		send('awaken-reward', { type: 'resolveAwakenReward', taintedMaxBarrier, relicPicks });
 	}
 
 	// Held runes/relics over the carry limit must be discarded before cleanup can end.
@@ -1155,6 +1158,7 @@
 							onResolveDecision={resolveDecision}
 							onDismissManual={dismissManual}
 							onPlaceAugment={placeAugment}
+							onDiscardAugments={discardAugments}
 							onDiscardSpirit={discardSpirit}
 							{busy}
 						/>
@@ -1280,10 +1284,7 @@
 
 	{#if actionError}<div class="error">{actionError}</div>{/if}
 	{#if room.status === 'finished'}
-		<div class="winner" data-testid="winner-banner" style="--accent: {seatAccent(room.winnerSeat)}">
-			<span class="winner-eyebrow">Victory</span>
-			<span class="winner-name" data-testid="winner-name">{winnerName} wins!</span>
-		</div>
+		<PostGameView {room} {mySeat} {assets} {spiritImages} />
 	{/if}
 
 	<!-- Spirit/ability interactions (decision cards, corruption discard, Spirit Augment
@@ -1311,8 +1312,8 @@
 		/* ── Frame track widths ──────────────────────────────────────────────
 		   The left trait column and right players column are fixed grid tracks
 		   sized to roughly match the old floats; the stage takes the rest. */
-		--left-w: 336px; /* trait list (matches the old --hud-panel-w of 336px) */
-		--right-w: 280px; /* leaderboard (matches the old --hud-leaderboard-w of 272px) */
+		--left-w: max-content; /* left column hugs its content — trait list only as wide as the longest trait */
+		--right-w: 179px; /* leaderboard (280px base, slimmed ~36% to give the navigator more space) */
 	}
 
 	/* ── Bounded frame ─────────────────────────────────────────────────────
@@ -1562,14 +1563,21 @@
 		display: grid;
 		grid-template-columns: var(--left-w, 336px) minmax(0, 1fr) var(--right-w, 280px);
 		gap: 12px;
-		padding: 8px 12px;
+		/* Extra horizontal inset gives the columns' glow/aura bleed somewhere to land before
+		   the frame's overflow:hidden clips it. */
+		padding: 8px 18px;
 		align-items: stretch;
 	}
-	/* Left/right are scrollable columns over the live world (no panel chrome). */
+	/* Left/right are scrollable columns over the live world (no panel chrome). They scroll
+	   vertically, but overflow-y:auto would also clip horizontally — cutting the leaderboard
+	   sigil's glow and the row auras at the column edge. overflow-x:clip + a clip-margin keeps
+	   the vertical scroll while letting those decorations bleed a little past the edge. */
 	.trait-col,
 	.players-col {
 		min-height: 0;
 		overflow-y: auto;
+		overflow-x: clip;
+		overflow-clip-margin: 22px;
 		scrollbar-width: none;
 	}
 	.trait-col::-webkit-scrollbar,
@@ -1580,6 +1588,9 @@
 	.trait-col {
 		display: flex;
 		flex-direction: column;
+		/* Hug the content to the left so the trait list (and slot row) size to their own
+		   width instead of stretching across the column. */
+		align-items: flex-start;
 	}
 	/* Rune slots + trait list, centred vertically on the left as one group.
 	   margin-block:auto centres them when there's spare height yet collapses to 0
@@ -1603,7 +1614,9 @@
 		display: flex;
 	}
 	.trait-host :global(.traits) {
-		width: 100%;
+		/* Only as wide as the longest trait row; rows then stretch to that shared width. */
+		width: max-content;
+		max-width: 100%;
 	}
 
 	/* Leaderboard: vertically centred on the right side of the board. The column is
@@ -1805,35 +1818,6 @@
 		-webkit-backdrop-filter: blur(8px);
 	}
 
-	/* Victory banner — fixed overlay above the frame. */
-	.winner {
-		position: absolute;
-		top: 5rem;
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 45;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		padding: 1rem 2rem;
-		border: 1px solid var(--accent);
-		border-radius: 6px;
-		background: color-mix(in srgb, var(--accent) 16%, rgba(10, 7, 20, 0.96));
-		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-	}
-	.winner-eyebrow {
-		font-family: var(--font-display);
-		font-size: 0.8rem;
-		letter-spacing: 0.3em;
-		text-transform: uppercase;
-		color: var(--brand-amber, #ffba3d);
-	}
-	.winner-name {
-		font-family: var(--font-display);
-		font-size: 2rem;
-		text-transform: uppercase;
-		color: #fff;
-	}
 	.error {
 		position: absolute;
 		top: 56px;
@@ -1885,6 +1869,15 @@
 			overflow-y: auto;
 			-webkit-overflow-scrolling: touch;
 			padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+		}
+		/* On a phone the trait page is full-width — keep the cards full-width too rather
+		   than shrink-wrapped (the desktop behaviour). */
+		.trait-col {
+			align-items: stretch;
+		}
+		.trait-host :global(.traits) {
+			width: 100%;
+			max-width: none;
 		}
 		/* Stage page keeps clipping; its main scrolls internally if needed. */
 		.stage-cell {
@@ -1958,9 +1951,6 @@
 		.settings-item {
 			padding: 12px 14px;
 			min-height: 44px;
-		}
-		.winner {
-			top: calc(4rem + env(safe-area-inset-top));
 		}
 	}
 </style>

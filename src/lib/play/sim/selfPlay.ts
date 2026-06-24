@@ -39,8 +39,8 @@ export interface SelfPlayResult {
 	seatProfiles: Record<string, string>;
 	/** Final corruption status level per seat (0 Pure … 3 Fallen). */
 	finalStatus: Record<string, number>;
-	/** Final build per seat: dice by tier, awakened class counts, potential — build diagnostics. */
-	finalBuild: Record<string, { dice: Record<string, number>; classes: Record<string, number>; potential: number }>;
+	/** Final build per seat: dice by tier, awakened class counts, max barrier — build diagnostics. */
+	finalBuild: Record<string, { dice: Record<string, number>; classes: Record<string, number>; maxBarrier: number }>;
 	/** Total PvP (group-encounter) combats that occurred in the game. */
 	pvpCombats: number;
 	/** How many PvP combats each seat fought in on the Evil (aggressor) side. */
@@ -169,7 +169,9 @@ export function playOneGame(catalog: PlayCatalog, opts: SelfPlayOptions): SelfPl
 			if (!botSeatNeedsToAct(state, seat)) continue;
 			const commands = planBotPhaseActions(state, seat, catalog, botRng, profileBySeat[seat]);
 			for (const command of commands) {
-				const result = applyGameCommand(state, botActorFor(state, seat), command, catalog);
+				// Hot path: mutate in place (skip the defensive deep clone) — selfPlay discards the
+				// prior state each step. Parity-tested vs the cloning reducer (sim/_parity.test.ts).
+				const result = applyGameCommand(state, botActorFor(state, seat), command, catalog, { mutate: true });
 				if (!result.ok) break; // legality-threaded; a reject just ends this seat's turn
 				state = result.state;
 				progressed = true;
@@ -209,7 +211,7 @@ export function playOneGame(catalog: PlayCatalog, opts: SelfPlayOptions): SelfPl
 	const finalVP: Record<string, number> = {};
 	const finalDice: Record<string, number> = {};
 	const finalStatus: Record<string, number> = {};
-	const finalBuild: Record<string, { dice: Record<string, number>; classes: Record<string, number>; potential: number }> = {};
+	const finalBuild: Record<string, { dice: Record<string, number>; classes: Record<string, number>; maxBarrier: number }> = {};
 	for (const seat of seats) {
 		const p = state.players[seat];
 		finalVP[seat] = p?.victoryPoints ?? 0;
@@ -217,7 +219,7 @@ export function playOneGame(catalog: PlayCatalog, opts: SelfPlayOptions): SelfPl
 		finalStatus[seat] = p?.statusLevel ?? 0;
 		const dice: Record<string, number> = {};
 		for (const d of p?.attackDice ?? []) dice[d.tier] = (dice[d.tier] ?? 0) + 1;
-		finalBuild[seat] = { dice, classes: p ? awakenedClassCounts(p) : {}, potential: p?.maxTokens ?? 0 };
+		finalBuild[seat] = { dice, classes: p ? awakenedClassCounts(p) : {}, maxBarrier: p?.maxBarrier ?? 0 };
 	}
 
 	return {

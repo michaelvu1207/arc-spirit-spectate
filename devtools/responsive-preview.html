@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Responsive Preview — Arc Spirits</title>
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #0c0d12;
+				--panel: #16181f;
+				--border: #2a2d38;
+				--text: #e6e8ee;
+				--muted: #8a8f9c;
+				--accent: #6ea8fe;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				margin: 0;
+				height: 100%;
+				background: var(--bg);
+				color: var(--text);
+				font: 14px/1.4 system-ui, sans-serif;
+			}
+			header {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 12px;
+				align-items: center;
+				padding: 10px 16px;
+				border-bottom: 1px solid var(--border);
+				background: var(--panel);
+				position: sticky;
+				top: 0;
+				z-index: 10;
+			}
+			header h1 {
+				font-size: 14px;
+				margin: 0;
+				font-weight: 600;
+			}
+			header .spacer {
+				flex: 1;
+			}
+			label {
+				color: var(--muted);
+			}
+			input[type='text'] {
+				background: var(--bg);
+				border: 1px solid var(--border);
+				color: var(--text);
+				border-radius: 6px;
+				padding: 6px 10px;
+				width: 320px;
+				font: inherit;
+			}
+			button {
+				background: var(--bg);
+				border: 1px solid var(--border);
+				color: var(--text);
+				border-radius: 6px;
+				padding: 6px 12px;
+				cursor: pointer;
+				font: inherit;
+			}
+			button:hover {
+				border-color: var(--accent);
+			}
+			.stage {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 24px;
+				padding: 24px;
+				align-items: flex-start;
+				justify-content: center;
+			}
+			.device {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 8px;
+			}
+			.device .meta {
+				color: var(--muted);
+				font-size: 12px;
+			}
+			.frame-wrap {
+				border: 1px solid var(--border);
+				border-radius: 14px;
+				padding: 10px;
+				background: #000;
+				box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+			}
+			iframe {
+				border: 0;
+				border-radius: 6px;
+				background: #fff;
+				display: block;
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<h1>Arc Spirits — Responsive Preview</h1>
+			<label
+				>URL <input id="url" type="text" value="http://localhost:5173/" />
+			</label>
+			<button id="reload">Reload all</button>
+			<button id="rotate">Rotate ⟳</button>
+			<label>Scale <input id="scale" type="text" value="1" style="width:48px" /></label>
+			<div class="spacer"></div>
+			<span class="meta" id="status"></span>
+		</header>
+		<div class="stage" id="stage"></div>
+
+		<script>
+			// Edit this list to add/remove devices or custom aspect ratios.
+			// `lock: true` keeps a frame's orientation fixed when you hit "Rotate".
+			const DEVICES = [
+				{ name: 'iPhone 16', w: 393, h: 852 },
+				{ name: 'iPhone 16 Pro Max', w: 440, h: 956 },
+				{ name: 'Galaxy S24', w: 360, h: 780 },
+				{ name: 'iPad 11" (portrait)', w: 820, h: 1180 },
+				{ name: 'iPhone 16 (landscape)', w: 852, h: 393, lock: true },
+				{ name: 'Desktop 1440', w: 1440, h: 900, lock: true }
+			];
+
+			const stage = document.getElementById('stage');
+			const urlInput = document.getElementById('url');
+			const scaleInput = document.getElementById('scale');
+			let landscape = false;
+
+			function render() {
+				const url = urlInput.value;
+				const scale = parseFloat(scaleInput.value) || 1;
+				stage.innerHTML = '';
+				for (const d of DEVICES) {
+					// Locked frames (landscape phone, desktop) keep their orientation.
+					const flip = landscape && !d.lock;
+					const vw = flip ? d.h : d.w;
+					const vh = flip ? d.w : d.h;
+
+					const wrap = document.createElement('div');
+					wrap.className = 'device';
+					wrap.innerHTML = `
+						<div class="frame-wrap">
+							<iframe src="${url}" width="${vw}" height="${vh}"
+								style="width:${vw * scale}px;height:${vh * scale}px"></iframe>
+						</div>
+						<div class="meta">${d.name} — ${vw}×${vh} (AR ${(vw / vh).toFixed(2)})</div>`;
+					stage.appendChild(wrap);
+				}
+			}
+
+			document.getElementById('reload').onclick = render;
+			document.getElementById('rotate').onclick = () => {
+				landscape = !landscape;
+				render();
+			};
+			urlInput.onchange = render;
+			scaleInput.onchange = render;
+			render();
+		</script>
+	</body>
+</html>

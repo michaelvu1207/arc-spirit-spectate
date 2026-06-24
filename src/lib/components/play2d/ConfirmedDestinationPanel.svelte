@@ -56,7 +56,6 @@
 					{#if row.type === 'text'}
 						<span class="row-text">{row.text}</span>
 					{:else if row.type === 'gain'}
-						<span class="tag">Gain</span>
 						<span class="icons">
 							{#each row.gain_icon_ids as token, ti (ti)}
 								{#each tokenIcons(token) as ic, k (ic.id + k)}
@@ -69,6 +68,7 @@
 						<span class="icons">
 							{#each row.cost_icon_ids as token, ti (ti)}
 								{#each tokenIcons(token) as ic, k (ic.id + k)}
+									{#if k > 0}<span class="or">/</span>{/if}
 									<span class="ico">{#if ic.url}<img src={ic.url} alt="" loading="lazy" />{/if}</span>
 								{/each}
 							{/each}
@@ -77,6 +77,7 @@
 						<span class="icons">
 							{#each row.gain_icon_ids as token, ti (ti)}
 								{#each tokenIcons(token) as ic, k (ic.id + k)}
+									{#if k > 0}<span class="or">/</span>{/if}
 									<span class="ico">{#if ic.url}<img src={ic.url} alt="" loading="lazy" />{/if}</span>
 								{/each}
 							{/each}
@@ -138,7 +139,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
+		gap: 0;
 		width: 100%;
 	}
 	.row {
@@ -147,23 +148,15 @@
 		justify-content: center;
 		gap: 8px;
 		padding: 5px 10px;
-		border-radius: 6px;
-		background: rgba(0, 0, 0, 0.4);
 	}
-	.tag {
-		font-family: var(--font-display);
-		font-size: 0.8rem;
-		letter-spacing: 0.09em;
-		text-transform: uppercase;
-		padding: 2px 7px;
-		border-radius: 3px;
-		color: #05030c;
-		background: var(--brand-teal, #2fc7c7);
+	/* A thin divider between rows instead of a filled background per row. */
+	.row + .row {
+		border-top: 1px solid rgba(255, 255, 255, 0.14);
 	}
 	.icons {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
 	}
 	.ico {
 		width: 28px;
@@ -177,11 +170,15 @@
 		object-fit: contain;
 	}
 	.or {
-		color: var(--color-whisper, #6a6680);
+		margin: 0 -4px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: var(--color-whisper, #8d8aa1);
 	}
 	.arrow {
 		color: var(--brand-amber, #ffba3d);
 		font-size: 1.1rem;
+		margin: 0 -7px;
 	}
 	.row-text {
 		font-size: 0.88rem;

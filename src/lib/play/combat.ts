@@ -115,9 +115,9 @@ function rollTier(state: PublicGameState, tier: DiceTier): number {
 }
 
 /**
- * Apply `amount` damage to a player: flip barrier tokens to blood; if the damage
- * reduces the player's barrier to ZERO (all potential tokens flipped to the Arcane
- * Blood side / 0 health), the player Corrupts (status drops one step and all barriers
+ * Apply `amount` damage to a player: flip barrier tokens to broken barrier; if the damage
+ * reduces the player's barrier to ZERO (all tokens flipped to the broken barrier
+ * side / 0 barrier), the player Corrupts (status drops one step and all barriers
  * are restored). Returns whether corruption happened.
  */
 export function takeDamage(
@@ -159,10 +159,10 @@ export function takeDamage(
 	const barrierBefore = player.barrier;
 	const barrierLost = Math.min(barrierBefore, amount);
 	player.barrier = Math.max(0, barrierBefore - amount);
-	player.blood = Math.max(0, player.maxTokens - player.barrier);
+	player.brokenBarrier = Math.max(0, player.maxBarrier - player.barrier);
 
-	// Corruption fires when the hit empties the barrier — all potential tokens are now on the
-	// Arcane Blood side (0 health). NOT on "overkill" (damage strictly exceeding barrier): being
+	// Corruption fires when the hit empties the barrier — all tokens are now on the
+	// broken barrier side (0 barrier). NOT on "overkill" (damage strictly exceeding barrier): being
 	// ground down to EXACTLY zero must corrupt too, and a hit that only dents the barrier must not.
 	// `player.barrier` was just clamped on the line above, so this is the post-hit value.
 	const corrupted = player.barrier === 0;
@@ -170,13 +170,13 @@ export function takeDamage(
 		const oldStatus = player.statusLevel;
 		player.statusLevel = Math.min(STATUS_LADDER.length - 1, player.statusLevel + 1);
 		player.statusToken = STATUS_LADDER[player.statusLevel];
-		// Corruption INSTANTLY restores all health (flip arcane blood back to barrier) — then
+		// Corruption INSTANTLY restores all barrier (flip broken barrier back to barrier side) — then
 		// bills the escalating SACRIFICE: bump the corruption counter and owe that many forced
 		// spirit discards (1st corruption sheds 1, 2nd 2, 3rd 3, …; accumulates across one
 		// exchange). The owner picks which spirits to shed; the deadline drain auto-resolves any
 		// remainder. This is the single corruption site for combat.
-		player.barrier = player.maxTokens;
-		player.blood = 0;
+		player.barrier = player.maxBarrier;
+		player.brokenBarrier = 0;
 		player.corruptionCount = (player.corruptionCount ?? 0) + 1;
 		setCorruptionDiscardObligation(player);
 		// onStatusChange: record the crossed thresholds + fire the trigger (only when

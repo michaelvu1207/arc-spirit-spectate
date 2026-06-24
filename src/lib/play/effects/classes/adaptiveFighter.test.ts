@@ -39,24 +39,24 @@ function fireKill(
 
 describe('Adaptive Fighter', () => {
 	it('overkill by 2: gains 1 potential', () => {
-		const before = makePlayer().maxTokens; // 4
+		const before = makePlayer().maxBarrier; // 4
 		const { player, log } = fireKill({ dealt: 10, overkill: 2, killed: true });
 
-		expect(player.maxTokens).toBe(before + 1);
+		expect(player.maxBarrier).toBe(before + 1);
 		// Surfaces to the player as an attributed log line (no silent no-op).
-		expect(log.some((l) => l.includes('Adaptive Fighter: Gained 1 potential.'))).toBe(true);
+		expect(log.some((l) => l.includes('Adaptive Fighter: Gained 1 max barrier.'))).toBe(true);
 		// Did NOT take the "not killed" branch.
 		expect(player.attackDice.length).toBe(0);
 	});
 
 	it('overkill of exactly 2 is the threshold (>= 2)', () => {
 		const { player } = fireKill({ dealt: 12, overkill: 4, killed: true });
-		expect(player.maxTokens).toBe(makePlayer().maxTokens + 1);
+		expect(player.maxBarrier).toBe(makePlayer().maxBarrier + 1);
 	});
 
 	it('overkill by only 1: no potential gained', () => {
 		const { player, log } = fireKill({ dealt: 9, overkill: 1, killed: true });
-		expect(player.maxTokens).toBe(makePlayer().maxTokens);
+		expect(player.maxBarrier).toBe(makePlayer().maxBarrier);
 		expect(log.some((l) => l.includes('potential'))).toBe(false);
 		// Killed, so no enchanted die either.
 		expect(player.attackDice.length).toBe(0);
@@ -70,12 +70,12 @@ describe('Adaptive Fighter', () => {
 		// Surfaces to the player as an attributed log line (no silent no-op).
 		expect(log.some((l) => l.includes('Adaptive Fighter: Gained 1 enchanted attack dice.'))).toBe(true);
 		// Did NOT take the overkill branch.
-		expect(player.maxTokens).toBe(makePlayer().maxTokens);
+		expect(player.maxBarrier).toBe(makePlayer().maxBarrier);
 	});
 
 	it('exact kill (killed, zero overkill): no potential, no enchanted die', () => {
 		const { player, log } = fireKill({ dealt: 8, overkill: 0, killed: true });
-		expect(player.maxTokens).toBe(makePlayer().maxTokens);
+		expect(player.maxBarrier).toBe(makePlayer().maxBarrier);
 		expect(player.attackDice.length).toBe(0);
 		// Neither breakpoint branch fired -> no Adaptive Fighter log lines.
 		expect(log.some((l) => l.startsWith('Adaptive Fighter:'))).toBe(false);
@@ -87,6 +87,6 @@ describe('Adaptive Fighter', () => {
 			{ spirits: [spirit(1, { 'Adaptive Fighter': 1 }, { faceDown: true })] }
 		);
 		expect(player.attackDice.length).toBe(0);
-		expect(player.maxTokens).toBe(makePlayer().maxTokens);
+		expect(player.maxBarrier).toBe(makePlayer().maxBarrier);
 	});
 });

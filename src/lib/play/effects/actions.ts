@@ -14,7 +14,7 @@ import { nextId } from '../rng';
 import type { EffectAction, EffectCondition } from './registry';
 import type { EffectContext } from './context';
 
-/** The attack-dice pool is capped at a flat 10 for every player (no longer tied to potential). */
+/** The attack-dice pool is capped at a flat 10 for every player (no longer tied to max barrier). */
 function diceCap(): number {
 	return MAX_ATTACK_DICE;
 }
@@ -71,7 +71,7 @@ function upgradeDice(
 	if (upgraded > 0) log.push(`Upgraded ${upgraded} attack dice to a higher tier.`);
 }
 
-/** Restore one player's barrier (capped at potential); keeps blood consistent. */
+/** Restore one player's barrier (capped at max barrier); keeps broken barrier consistent. */
 function restoreOne(
 	player: PrivatePlayerState,
 	amount: number,
@@ -79,8 +79,8 @@ function restoreOne(
 	who?: string
 ): void {
 	const before = player.barrier;
-	player.barrier = Math.min(player.maxTokens, player.barrier + amount);
-	player.blood = Math.max(0, player.maxTokens - player.barrier);
+	player.barrier = Math.min(player.maxBarrier, player.barrier + amount);
+	player.brokenBarrier = Math.max(0, player.maxBarrier - player.barrier);
 	const restored = player.barrier - before;
 	if (restored > 0) {
 		log.push(who ? `${who} restored ${restored} barrier.` : `Restored ${restored} barrier.`);
@@ -139,16 +139,16 @@ export function runAction(ctx: EffectContext, action: EffectAction, multiplier =
 			else log.push(`Attack-dice pool is already at the cap (${cap}).`);
 			break;
 		}
-		case 'gainPotential': {
+		case 'gainMaxBarrier': {
 			const amount = scaled(action.amount);
-			const oldMax = player.maxTokens;
-			player.maxTokens = Math.min(10, player.maxTokens + amount);
-			// New capacity arrives as fresh health tokens — grow barrier ONLY by the
-			// actual capacity gained (capped at 10), so it never launders arcane blood.
-			const grew = player.maxTokens - oldMax;
-			player.barrier = Math.min(player.maxTokens, player.barrier + grew);
-			player.blood = Math.max(0, player.maxTokens - player.barrier);
-			log.push(`Gained ${grew} potential.`);
+			const oldMax = player.maxBarrier;
+			player.maxBarrier = Math.min(10, player.maxBarrier + amount);
+			// New capacity arrives as fresh barrier tokens — grow barrier ONLY by the
+			// actual capacity gained (capped at 10), so it never launders broken barrier.
+			const grew = player.maxBarrier - oldMax;
+			player.barrier = Math.min(player.maxBarrier, player.barrier + grew);
+			player.brokenBarrier = Math.max(0, player.maxBarrier - player.barrier);
+			log.push(`Gained ${grew} max barrier.`);
 			break;
 		}
 		case 'upgradeDice':
@@ -207,13 +207,13 @@ export function runAction(ctx: EffectContext, action: EffectAction, multiplier =
 			break;
 		}
 		case 'combatBonusFromArcaneBlood': {
-			// Live-pool bonus: +1 damage per Arcane Blood, capped at `max` (Blood Hunter).
-			// Arcane blood is the corrupted side of the potential pool (maxTokens − barrier).
-			const arcaneBlood = player.maxTokens - player.barrier;
+			// Live-pool bonus: +1 damage per broken barrier, capped at `max` (Blood Hunter).
+			// Broken barrier is the corrupted side of the max barrier pool (maxBarrier − barrier).
+			const arcaneBlood = player.maxBarrier - player.barrier;
 			const amount = Math.min(arcaneBlood, action.max);
 			if (amount > 0) {
 				player.combatDamageBonus += amount;
-				log.push(`Gained +${amount} combat damage from arcane blood.`);
+				log.push(`Gained +${amount} combat damage from broken barrier.`);
 			}
 			break;
 		}
@@ -255,17 +255,17 @@ export function runAction(ctx: EffectContext, action: EffectAction, multiplier =
 			break;
 		}
 		case 'purifyArcaneBlood': {
-			// Purify: flip arcane-blood tokens back to the health side (a heal).
-			const arcaneBlood = player.maxTokens - player.barrier;
+			// Purify: flip broken barrier tokens back to the barrier side (restore barrier).
+			const arcaneBlood = player.maxBarrier - player.barrier;
 			const amount =
 				action.fraction === 'halfRoundUp'
 					? Math.ceil(arcaneBlood / 2)
 					: scaled(action.amount ?? 0);
 			const before = player.barrier;
-			player.barrier = Math.min(player.maxTokens, player.barrier + amount);
-			player.blood = player.maxTokens - player.barrier;
+			player.barrier = Math.min(player.maxBarrier, player.barrier + amount);
+			player.brokenBarrier = player.maxBarrier - player.barrier;
 			const removed = player.barrier - before;
-			if (removed > 0) log.push(`Purified ${removed} arcane blood.`);
+			if (removed > 0) log.push(`Purified ${removed} broken barrier.`);
 			break;
 		}
 		case 'setStunImmune':

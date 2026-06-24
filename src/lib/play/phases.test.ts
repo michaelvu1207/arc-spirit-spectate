@@ -285,7 +285,7 @@ describe('P5 Awakening-Phase VP win-cons at cleanup', () => {
 		state = lockBoth(state);
 		state.players.Red!.victoryPoints = 24; // Good (status 0)
 		state = toCleanup(state);
-		state = apply(state, RED, { type: 'resolveAwakenReward', taintedPotential: 0, relicPicks: [] });
+		state = apply(state, RED, { type: 'resolveAwakenReward', taintedMaxBarrier: 0, relicPicks: [] });
 		expect(state.players.Red!.victoryPoints).toBe(30);
 	});
 
@@ -295,7 +295,7 @@ describe('P5 Awakening-Phase VP win-cons at cleanup', () => {
 		state = lockBoth(state);
 		state.players.Red!.statusLevel = 3; // Evil (Fallen) → must discard
 		state = toCleanup(state);
-		state = apply(state, RED, { type: 'resolveAwakenReward', taintedPotential: 0, relicPicks: [] });
+		state = apply(state, RED, { type: 'resolveAwakenReward', taintedMaxBarrier: 0, relicPicks: [] });
 		expect(state.players.Red!.victoryPoints).toBe(1);
 		expect(state.players.Red!.spirits).toHaveLength(0); // discarded on claim while Evil
 	});
@@ -305,7 +305,7 @@ describe('P5 Awakening-Phase VP win-cons at cleanup', () => {
 		giveSpirit(state, 'Red', { 'Golden Ruler': 1 });
 		state = lockBoth(state);
 		state = toCleanup(state);
-		state = apply(state, RED, { type: 'resolveAwakenReward', taintedPotential: 0, relicPicks: [] });
+		state = apply(state, RED, { type: 'resolveAwakenReward', taintedMaxBarrier: 0, relicPicks: [] });
 		expect(state.players.Red!.victoryPoints).toBe(1);
 		expect(state.players.Red!.spirits).toHaveLength(1); // kept (Good)
 	});
@@ -318,7 +318,7 @@ describe('P5 Awakening-Phase VP win-cons at cleanup', () => {
 		// commitCleanup is blocked until claimed, so the VP lands before findWinner runs.
 		state.players.Red!.victoryPoints = 24;
 		state = toCleanup(state);
-		state = apply(state, RED, { type: 'resolveAwakenReward', taintedPotential: 0, relicPicks: [] });
+		state = apply(state, RED, { type: 'resolveAwakenReward', taintedMaxBarrier: 0, relicPicks: [] });
 		expect(state.players.Red!.victoryPoints).toBe(30);
 		// Both seats walk benefits → awakening → cleanup; findWinner runs AFTER the reward is claimed.
 		state = finishRound(state);

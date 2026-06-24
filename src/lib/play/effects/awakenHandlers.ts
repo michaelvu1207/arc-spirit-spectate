@@ -111,9 +111,9 @@ export const AWAKEN_PROGRESS_KEYS = {
 	cosmicGuardian: 'awaken:cosmicGuardian',
 	/** Shadowtaker: cultivated with no other summoned spirit. */
 	shadowtaker: 'awaken:shadowtaker',
-	/** Arcane Huntress: cultivated while Fallen with ≥10 potential. */
+	/** Arcane Huntress: cultivated while Fallen with ≥10 max barrier. */
 	arcaneHuntress: 'awaken:arcaneHuntress',
-	/** Meteor Shower: rested while holding ≥10 potential. */
+	/** Meteor Shower: rested while holding ≥10 max barrier. */
 	meteorShower: 'awaken:meteorShower',
 	/** Hollow Eyes: dealt >3 damage to another player. */
 	hollowEyes: 'awaken:hollowEyes'
@@ -443,10 +443,10 @@ export const AWAKEN_HANDLERS: Record<string, AwakenHandler> = {
 	[IDS.cosmicGuardian]: progressFlagHandler(KEYS.cosmicGuardian, 'cultivate_while_good_required'),
 	// "Cultivate with no summoned spirits other than this spirit."
 	[IDS.shadowtaker]: progressFlagHandler(KEYS.shadowtaker, 'cultivate_alone_required'),
-	// "Cultivate with 10 potential, with status Fallen."
-	[IDS.arcaneHuntress]: progressFlagHandler(KEYS.arcaneHuntress, 'cultivate_fallen_10_potential_required'),
-	// "Rest with 10 Potential."
-	[IDS.meteorShower]: progressFlagHandler(KEYS.meteorShower, 'rest_10_potential_required'),
+	// "Cultivate with 10 max barrier, with status Fallen."
+	[IDS.arcaneHuntress]: progressFlagHandler(KEYS.arcaneHuntress, 'cultivate_fallen_10_max_barrier_required'),
+	// "Rest with 10 Max Barrier."
+	[IDS.meteorShower]: progressFlagHandler(KEYS.meteorShower, 'rest_10_max_barrier_required'),
 
 	// ── Category 3: combat / pvp event ────────────────────────────────────────
 	// "Deal more than 3 damage to another player."
@@ -501,22 +501,22 @@ export function recordCultivateAwakenProgress(
 	if (holds(IDS.shadowtaker) && player.spirits.length === 1) {
 		player.awakenProgress[KEYS.shadowtaker] = true;
 	}
-	// Arcane Huntress: "Cultivate with 10 potential, with status Fallen."
-	if (holds(IDS.arcaneHuntress) && selfFallen && player.maxTokens >= 10) {
+	// Arcane Huntress: "Cultivate with 10 max barrier, with status Fallen."
+	if (holds(IDS.arcaneHuntress) && selfFallen && player.maxBarrier >= 10) {
 		player.awakenProgress[KEYS.arcaneHuntress] = true;
 	}
 }
 
 /**
  * Record rest-time awakening progress. Mirrors {@link recordCultivateAwakenProgress}
- * for the Rest action: Meteor Shower awakens by "Rest with 10 Potential." Called from
+ * for the Rest action: Meteor Shower awakens by "Rest with 10 Max Barrier." Called from
  * the runtime when a player resolves a Rest. Only sets the flag when the player holds
  * the relevant face-down spirit, so it never grants progress they can't use.
  */
 export function recordRestAwakenProgress(player: PrivatePlayerState): void {
 	player.awakenProgress ??= {};
 	const holds = (spiritId: string) => player.spirits.some((s) => s.id === spiritId && s.isFaceDown);
-	if (holds(IDS.meteorShower) && player.maxTokens >= 10) {
+	if (holds(IDS.meteorShower) && player.maxBarrier >= 10) {
 		player.awakenProgress[KEYS.meteorShower] = true;
 	}
 }

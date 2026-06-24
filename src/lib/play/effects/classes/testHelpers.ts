@@ -4,7 +4,7 @@
  * Keeps each class's test isolated to its own file while reusing one player/state
  * builder and a `fire()` convenience that runs a single trigger through the real
  * dispatcher (`applyTrigger`) against a player carrying the class. Tests assert on
- * the resulting player (dice, potential, initiative, VP, decisions, prompts, log).
+ * the resulting player (dice, max barrier, initiative, VP, decisions, prompts, log).
  */
 
 import { applyTrigger } from '../apply';
@@ -25,10 +25,10 @@ export function makePlayer(overrides: Partial<PrivatePlayerState> = {}): Private
 		displayName: 'Tester',
 		selectedGuardian: 'Myrtle',
 		navigationDestination: null,
-		blood: 0,
+		brokenBarrier: 0,
 		victoryPoints: 0,
 		barrier: 4,
-		maxTokens: 4,
+		maxBarrier: 4,
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],

@@ -166,8 +166,25 @@
 		}
 	});
 	function optionIcon(option: AwakenDiscardOption): string | null {
-		if (!option.runeId) return null;
-		return storageUrl(assets.matAssets.get(option.runeId)?.icon_path ?? null);
+		// Spirit candidates show their face-down art; rune/relic candidates resolve their
+		// icon the same way held mats do on the board — by id, then name, with the Fairy
+		// relic fallback — so even the starting relics (no catalog id) display their art.
+		if (option.ref.kind === 'spirit') {
+			const slotIndex = option.ref.slotIndex;
+			const id = myPlayer?.spirits.find((s) => s.slotIndex === slotIndex)?.id;
+			return id ? spiritBackImageUrl(id) : null;
+		}
+		if (option.ref.kind === 'rune') {
+			const slotIndex = option.ref.slotIndex;
+			return runeIconUrl(assets, {
+				slotIndex,
+				hasRune: true,
+				id: option.runeId,
+				name: option.label,
+				type: /relic/i.test(option.label) ? 'relic' : 'rune'
+			});
+		}
+		return null;
 	}
 	function clickOffer(offer: Extract<AbilityInteraction, { kind: 'awaken' }>) {
 		// Open the picker whenever the cost lists selectable items — even when the count
@@ -253,7 +270,7 @@
 	</header>
 
 	{#if myReady}
-		<div class="waiting" data-testid="stage-waiting">Ready ✓ — waiting for other players…</div>
+		<div class="waiting" data-testid="stage-waiting">Waiting for other players…</div>
 	{:else if room.phase === 'benefits'}
 		<!-- Step 1 · Benefits — claim Awakening-Phase class grants ───────────── -->
 		{#if recap.length > 0}
@@ -1064,33 +1081,54 @@
 		display: grid;
 		grid-template-rows: 1fr auto;
 		place-items: center;
-		gap: 0.3rem;
-		width: 5rem;
-		min-height: 5.5rem;
-		padding: 0.45rem;
-		border-radius: 10px;
-		border: 1px solid color-mix(in srgb, var(--brand-violet, #5a2bff) 45%, transparent);
-		background: color-mix(in srgb, var(--brand-violet, #5a2bff) 12%, transparent);
+		gap: 0.4rem;
+		width: 5.4rem;
+		min-height: 6rem;
+		padding: 0.5rem;
+		border-radius: 12px;
+		border: 1px solid color-mix(in srgb, var(--brand-violet, #5a2bff) 40%, transparent);
+		background: color-mix(in srgb, var(--brand-violet, #5a2bff) 10%, rgba(0, 0, 0, 0.25));
 		color: inherit;
 		font: inherit;
 		cursor: pointer;
-		transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+		opacity: 0.9;
+		transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+	}
+	.pick-opt:not(:disabled):hover {
+		transform: translateY(-3px);
+		opacity: 1;
+		border-color: color-mix(in srgb, var(--brand-violet, #5a2bff) 65%, #fff 10%);
 	}
 	.pick-opt.selected {
-		border-color: var(--brand-violet, #5a2bff);
-		box-shadow: 0 0 0 2px var(--brand-violet, #5a2bff);
+		opacity: 1;
+		border-color: var(--brand-magenta, #ff2bc7);
+		box-shadow: 0 0 0 2px var(--brand-magenta, #ff2bc7), 0 6px 18px rgba(255, 43, 199, 0.3);
+	}
+	/* A check badge makes "this is the one you'll discard" unmistakable. */
+	.pick-opt.selected::after {
+		content: '';
+		position: absolute;
+		top: -7px;
+		right: -7px;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: var(--brand-magenta, #ff2bc7)
+			url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 13l4 4L19 7' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+			center / 11px no-repeat;
+		box-shadow: 0 0 0 2px rgba(8, 5, 16, 0.9);
 	}
 	.pick-opt:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
 	.pick-opt img {
-		width: 3rem;
-		height: 3rem;
+		width: 3.4rem;
+		height: 3.4rem;
 		object-fit: contain;
 	}
 	.pick-label {
-		font-size: 0.7rem;
+		font-size: 0.72rem;
 		line-height: 1.1;
 		text-align: center;
 		opacity: 0.9;

@@ -14,7 +14,6 @@
 import { rate, rating } from 'openskill';
 import { getSupabaseAdmin } from '$lib/server/supabaseAdmin';
 import type { PublicGameState, SeatColor } from '../types';
-import { isBotDisplayName } from './botSim';
 
 // Mirrors the play-table schema/names in service.ts; kept local so ranked.ts has
 // no import cycle with service.ts (service imports this module).
@@ -44,6 +43,7 @@ interface MemberInfo {
 	id: string;
 	user_id: string | null;
 	display_name: string | null;
+	is_bot: boolean | null;
 }
 
 /** One seat's final standing, assembled before placement is computed. */
@@ -117,7 +117,7 @@ export async function finalizeMatch(
 		// Resolve session members so we can map memberId → user_id / display_name.
 		const membersRes = await admin
 			.from(TABLES.MEMBERS)
-			.select('id, user_id, display_name')
+			.select('id, user_id, display_name, is_bot')
 			.eq('session_id', session.id);
 		if (membersRes.error) {
 			console.error('[ranked] finalizeMatch member load failed:', membersRes.error.message);
@@ -139,9 +139,11 @@ export async function finalizeMatch(
 				memberId,
 				userId: member?.user_id ?? null,
 				displayName,
-				// Bots are marked by their 🤖 display-name convention (botSim). As a
-				// fallback, a missing user_id is the practical "not a real human" signal.
-				isBot: isBotDisplayName(displayName) || member?.user_id == null,
+				// Bots are marked by the explicit `is_bot` column (a matchmaking bot now
+				// carries a real user_id + human name, so the old name/null-user heuristic
+				// is wrong). A missing user_id is still treated as a bot as a safety net for
+				// guest/unattributable seats.
+				isBot: member?.is_bot === true || member?.user_id == null,
 				victoryPoints: finalState.players[seatColor]?.victoryPoints ?? 0,
 				placement: 0
 			});

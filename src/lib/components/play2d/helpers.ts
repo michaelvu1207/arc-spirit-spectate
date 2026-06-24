@@ -79,7 +79,9 @@ export function augmentIconForClass(
 ): string | null {
 	if (!className) return null;
 	for (const cls of assets.classTraits.values()) {
-		if (cls.name === className) return storageUrl(cls.icon_png ?? null);
+		// Prefer the dedicated hexagon Spirit-Augment token art; fall back to the plain
+		// class icon if a class has no augment token.
+		if (cls.name === className) return storageUrl(cls.augment_token_path ?? cls.icon_png ?? null);
 	}
 	return null;
 }

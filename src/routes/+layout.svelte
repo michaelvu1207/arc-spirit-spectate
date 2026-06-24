@@ -40,11 +40,45 @@
 	$effect(() => {
 		if (!$page.url.pathname.startsWith('/play')) stopMenu();
 	});
+
+	// ── Social embeds (Open Graph + Twitter/X cards) ─────────────────────────────
+	// Shown when the site is shared on Discord, X, Slack, iMessage, etc. Absolute URLs
+	// are derived from the live request origin, so the embeds keep working unchanged on
+	// any domain (the current *.vercel.app, a preview deploy, or a future custom domain).
+	const SITE_NAME = 'Arc Spirits';
+	const SITE_TITLE = 'Arc Spirits — Spirit-Summoning Strategy';
+	const SITE_DESC =
+		'Summon spirits, awaken their classes, and outwit the Arcane Abyss in a competitive spirit-summoning strategy game.';
+	const canonicalUrl = $derived(`${$page.url.origin}${$page.url.pathname}`);
+	const ogImageUrl = $derived(`${$page.url.origin}/og-image.png`);
 </script>
 
 <svelte:head>
+	<!-- No <title> here on purpose: each route sets its own (browsers would otherwise
+	     favour this generic one over the page-specific title). Embeds read og:title below. -->
+	<meta name="description" content={SITE_DESC} />
+	<link rel="canonical" href={canonicalUrl} />
 	<link rel="icon" href="/favicon.png" type="image/png" />
 	<meta name="theme-color" content="#050310" />
+
+	<!-- Open Graph: Discord, Facebook, Slack, iMessage, LinkedIn… -->
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content={SITE_NAME} />
+	<meta property="og:title" content={SITE_TITLE} />
+	<meta property="og:description" content={SITE_DESC} />
+	<meta property="og:url" content={canonicalUrl} />
+	<meta property="og:image" content={ogImageUrl} />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="Arc Spirits — Fight for the Arcane Abyss" />
+
+	<!-- Twitter / X card -->
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content={SITE_TITLE} />
+	<meta name="twitter:description" content={SITE_DESC} />
+	<meta name="twitter:image" content={ogImageUrl} />
+	<meta name="twitter:image:alt" content="Arc Spirits — Fight for the Arcane Abyss" />
 </svelte:head>
 
 <div class="app haunted-bg">

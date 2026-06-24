@@ -1,0 +1,17 @@
+{
+  "seats": 4,
+  "gamesPer": 4,
+  "results": [
+    {
+      "opponent": "medium",
+      "games": 4,
+      "winRate": 0,
+      "avgPlace": 4,
+      "avgVP": 0,
+      "avgOppVP": 9,
+      "avgRounds": 71,
+      "vpPerTurn": 0,
+      "finishedRate": 0
+    }
+  ]
+}

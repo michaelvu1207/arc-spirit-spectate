@@ -17,6 +17,7 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:e2e": "playwright test",
+		"seed:bots": "node --env-file=.env scripts/seed-bots.mjs",
 		"format": "prettier --write .",
 		"lint": "prettier --check ."
 	},

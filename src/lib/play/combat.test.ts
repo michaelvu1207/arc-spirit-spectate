@@ -29,10 +29,10 @@ function makePlayer(overrides: Partial<PrivatePlayerState> = {}): PrivatePlayerS
 		displayName: 'Tester',
 		selectedGuardian: 'Myrtle',
 		navigationDestination: 'Arcane Abyss',
-		blood: 0,
+		brokenBarrier: 0,
 		victoryPoints: 0,
 		barrier: 4,
-		maxTokens: 4,
+		maxBarrier: 4,
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],
@@ -113,17 +113,23 @@ function makeMonster(overrides: Partial<MonsterState> = {}): MonsterState {
 
 describe('takeDamage', () => {
 	it('flips barrier to blood without corrupting when absorbed', () => {
-		const p = makePlayer({ barrier: 4, maxTokens: 4 });
+		const p = makePlayer({ barrier: 4, maxBarrier: 4 });
 		const r = takeDamage(p, 2);
 		expect(r.corrupted).toBe(false);
 		expect(p.barrier).toBe(2);
-		expect(p.blood).toBe(2);
+		expect(p.brokenBarrier).toBe(2);
 	});
 
 	it('corrupts when the hit empties the barrier EXACTLY (0 health), not just on overkill', () => {
 		// barrier 3, take exactly 3 → barrier hits 0 (all potential tokens on the Arcane Blood
 		// side). Under the old overkill rule (amount > barrier) this did NOT corrupt; now it must.
-		const p = makePlayer({ barrier: 3, maxTokens: 4, statusLevel: 0, statusToken: 'Pure' });
+		const p = makePlayer({
+			barrier: 3,
+			maxBarrier: 4,
+			statusLevel: 0,
+			statusToken: 'Pure',
+			spirits: [spirit(1, {}), spirit(2, {})]
+		});
 		const r = takeDamage(p, 3);
 		expect(r.corrupted).toBe(true);
 		expect(p.statusLevel).toBe(1); // status dropped one step
@@ -133,15 +139,21 @@ describe('takeDamage', () => {
 	});
 
 	it('does NOT corrupt when the hit leaves any barrier (one short of zero)', () => {
-		const p = makePlayer({ barrier: 3, maxTokens: 4 });
+		const p = makePlayer({ barrier: 3, maxBarrier: 4 });
 		const r = takeDamage(p, 2); // barrier 3 → 1, still has health
 		expect(r.corrupted).toBe(false);
 		expect(p.barrier).toBe(1);
-		expect(p.blood).toBe(3);
+		expect(p.brokenBarrier).toBe(3);
 	});
 
 	it('corrupts when damage exceeds barrier: status drops, barrier INSTANTLY heals to full, owes 1 discard', () => {
-		const p = makePlayer({ barrier: 3, maxTokens: 4, statusLevel: 0, statusToken: 'Pure' });
+		const p = makePlayer({
+			barrier: 3,
+			maxBarrier: 4,
+			statusLevel: 0,
+			statusToken: 'Pure',
+			spirits: [spirit(1, {}), spirit(2, {})]
+		});
 		const r = takeDamage(p, 5);
 		expect(r.corrupted).toBe(true);
 		expect(p.statusLevel).toBe(1);
@@ -149,9 +161,34 @@ describe('takeDamage', () => {
 		// Corruption now INSTANTLY restores all health (arcane blood flips back to barrier),
 		// then bills the escalating sacrifice in forced spirit discards.
 		expect(p.barrier).toBe(4); // healed to maxTokens
-		expect(p.blood).toBe(0);
+		expect(p.brokenBarrier).toBe(0);
 		expect(p.corruptionCount).toBe(1); // first corruption
 		// 1st corruption owes 1 forced discard. No slot-limit/overflow logic any more.
+		expect(p.pendingCorruptionDiscard).toEqual({ count: 1, reason: undefined });
+	});
+
+	it('corrupting with NO spirits skips the discard obligation (nothing to sacrifice)', () => {
+		const p = makePlayer({ barrier: 3, maxBarrier: 4, statusLevel: 0, statusToken: 'Pure', spirits: [] });
+		const r = takeDamage(p, 5);
+		expect(r.corrupted).toBe(true);
+		expect(p.corruptionCount).toBe(1);
+		// No spirits to shed → the obligation is never set, so Cleanup is never blocked.
+		expect(p.pendingCorruptionDiscard).toBeNull();
+	});
+
+	it('corrupting with fewer spirits than owed caps the obligation at the spirit count', () => {
+		// 2nd corruption owes 2, but the player holds only 1 spirit → owe just that 1.
+		const p = makePlayer({
+			barrier: 3,
+			maxBarrier: 4,
+			statusLevel: 1,
+			statusToken: 'Tainted',
+			spirits: [spirit(1, {})],
+			corruptionCount: 1
+		});
+		const r = takeDamage(p, 5);
+		expect(r.corrupted).toBe(true);
+		expect(p.corruptionCount).toBe(2);
 		expect(p.pendingCorruptionDiscard).toEqual({ count: 1, reason: undefined });
 	});
 
@@ -166,14 +203,14 @@ describe('takeDamage', () => {
 			origins: {},
 			isFaceDown: false
 		}));
-		const p = makePlayer({ barrier: 0, maxTokens: 4, statusLevel: 3, statusToken: 'Fallen', spirits });
+		const p = makePlayer({ barrier: 0, maxBarrier: 4, statusLevel: 3, statusToken: 'Fallen', spirits });
 		const r = takeDamage(p, 1);
 		expect(r.corrupted).toBe(true);
 		expect(p.statusLevel).toBe(3); // can't drop past the last status
 		expect(p.statusToken).toBe('Fallen');
 		// Instant heal to full.
 		expect(p.barrier).toBe(4);
-		expect(p.blood).toBe(0);
+		expect(p.brokenBarrier).toBe(0);
 		// Spirits are NOT auto-trimmed — the player chooses which to shed via discardSpirit.
 		expect(r.discarded).toBe(0);
 		expect(p.spirits).toHaveLength(3);
@@ -192,7 +229,7 @@ describe('takeDamage', () => {
 			origins: {},
 			isFaceDown: false
 		}));
-		const p = makePlayer({ barrier: 0, maxTokens: 4, statusLevel: 1, statusToken: 'Tainted', spirits, corruptionCount: 1 });
+		const p = makePlayer({ barrier: 0, maxBarrier: 4, statusLevel: 1, statusToken: 'Tainted', spirits, corruptionCount: 1 });
 		const r = takeDamage(p, 1);
 		expect(r.corrupted).toBe(true);
 		expect(r.discarded).toBe(0); // no auto-trim
@@ -212,7 +249,7 @@ describe('takeDamage', () => {
 			origins: {},
 			isFaceDown: false
 		}));
-		const p = makePlayer({ barrier: 0, maxTokens: 4, statusLevel: 1, statusToken: 'Tainted', spirits });
+		const p = makePlayer({ barrier: 0, maxBarrier: 4, statusLevel: 1, statusToken: 'Tainted', spirits });
 		const r = takeDamage(p, 1);
 		expect(r.corrupted).toBe(true);
 		expect(p.statusLevel).toBe(2);
@@ -233,7 +270,7 @@ describe('takeDamage', () => {
 			origins: {},
 			isFaceDown: false
 		}));
-		const p = makePlayer({ barrier: 0, maxTokens: 4, statusLevel: 0, statusToken: 'Pure', spirits });
+		const p = makePlayer({ barrier: 0, maxBarrier: 4, statusLevel: 0, statusToken: 'Pure', spirits });
 		// 1st corruption: heals to full, corruptionCount 1, owes 1.
 		takeDamage(p, 1);
 		expect(p.statusLevel).toBe(1);
@@ -434,7 +471,7 @@ describe('Spirit Animal (inCombat)', () => {
 
 describe('Golem of Wishes (inCombat)', () => {
 	it('deflects 4 damage so a 4-damage hit is fully absorbed', () => {
-		const p = makePlayer({ barrier: 4, maxTokens: 4, attackDice: [], spirits: [spirit(1, { 'Golem of Wishes': 1 })] });
+		const p = makePlayer({ barrier: 4, maxBarrier: 4, attackDice: [], spirits: [spirit(1, { 'Golem of Wishes': 1 })] });
 		const monster = makeMonster({ hp: 10, maxHp: 10, damage: 4 });
 		const result = fightMonster(makeState(p, monster, 1), 'Red');
 		expect(result!.barrierLost).toBe(0); // 4 − 4 deflect = 0
@@ -446,7 +483,7 @@ describe('Golem of Wishes (inCombat)', () => {
 describe('Blood Hunter (inCombat)', () => {
 	it('deals +1 damage per Arcane Blood, capped at 4', () => {
 		// Arcane blood = maxTokens − barrier ⇒ 10 − 4 = 6.
-		const p = makePlayer({ barrier: 4, maxTokens: 10, attackDice: [], spirits: [spirit(1, { 'Blood Hunter': 1 })] });
+		const p = makePlayer({ barrier: 4, maxBarrier: 10, attackDice: [], spirits: [spirit(1, { 'Blood Hunter': 1 })] });
 		const monster = makeMonster({ hp: 20, maxHp: 20, damage: 0 });
 		const result = fightMonster(makeState(p, monster, 1), 'Red');
 		expect(result!.playerDamage).toBe(4); // min(6, 4)
@@ -454,7 +491,7 @@ describe('Blood Hunter (inCombat)', () => {
 
 	it('scales below the cap', () => {
 		// Arcane blood = maxTokens − barrier ⇒ 6 − 4 = 2.
-		const p = makePlayer({ barrier: 4, maxTokens: 6, attackDice: [], spirits: [spirit(1, { 'Blood Hunter': 1 })] });
+		const p = makePlayer({ barrier: 4, maxBarrier: 6, attackDice: [], spirits: [spirit(1, { 'Blood Hunter': 1 })] });
 		const monster = makeMonster({ hp: 20, maxHp: 20, damage: 0 });
 		const result = fightMonster(makeState(p, monster, 1), 'Red');
 		expect(result!.playerDamage).toBe(2); // min(2, 4)
@@ -463,7 +500,7 @@ describe('Blood Hunter (inCombat)', () => {
 
 describe('Aquamaiden (onTakeDamage)', () => {
 	it('takes 3 less damage when hit', () => {
-		const p = makePlayer({ barrier: 4, maxTokens: 4, attackDice: [], spirits: [spirit(1, { Aquamaiden: 1 })] });
+		const p = makePlayer({ barrier: 4, maxBarrier: 4, attackDice: [], spirits: [spirit(1, { Aquamaiden: 1 })] });
 		const monster = makeMonster({ hp: 10, maxHp: 10, damage: 4 });
 		const result = fightMonster(makeState(p, monster, 1), 'Red');
 		expect(result!.barrierLost).toBe(1); // 4 − 3 reduction = 1
@@ -507,7 +544,7 @@ describe('Disruptor (onTakeDamage, HANDLER)', () => {
 	}
 
 	it('halves incoming damage (rounding up) when the opponent has higher initiative', () => {
-		const defender = makePlayer({ playerColor: 'Blue', barrier: 10, maxTokens: 10, initiative: 1, spirits: [spirit(1, { Disruptor: 1 })] });
+		const defender = makePlayer({ playerColor: 'Blue', barrier: 10, maxBarrier: 10, initiative: 1, spirits: [spirit(1, { Disruptor: 1 })] });
 		const attacker = makePlayer({ playerColor: 'Red', initiative: 5 });
 		const state = twoSeatState(attacker, defender);
 		const r = takeDamage(defender, 5, { state, seat: 'Blue', opponent: 'Red' });
@@ -516,7 +553,7 @@ describe('Disruptor (onTakeDamage, HANDLER)', () => {
 	});
 
 	it('does NOT halve when the opponent has lower (or equal) initiative', () => {
-		const defender = makePlayer({ playerColor: 'Blue', barrier: 10, maxTokens: 10, initiative: 5, spirits: [spirit(1, { Disruptor: 1 })] });
+		const defender = makePlayer({ playerColor: 'Blue', barrier: 10, maxBarrier: 10, initiative: 5, spirits: [spirit(1, { Disruptor: 1 })] });
 		const attacker = makePlayer({ playerColor: 'Red', initiative: 1 });
 		const state = twoSeatState(attacker, defender);
 		const r = takeDamage(defender, 5, { state, seat: 'Blue', opponent: 'Red' });
@@ -544,7 +581,7 @@ describe('per-combat flags reset between combats', () => {
 	});
 
 	it('Golem deflect does not leak into a later combat without Golem', () => {
-		const p = makePlayer({ barrier: 6, maxTokens: 6, attackDice: [], spirits: [spirit(1, { 'Golem of Wishes': 1 })] });
+		const p = makePlayer({ barrier: 6, maxBarrier: 6, attackDice: [], spirits: [spirit(1, { 'Golem of Wishes': 1 })] });
 		const monster = makeMonster({ hp: 100, maxHp: 100, damage: 4 });
 		const state = makeState(p, monster, 1);
 

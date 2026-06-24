@@ -76,9 +76,9 @@ describe('Firekeeper (awakeningPhase relic trade)', () => {
 			const player = makePlayer({
 				mats: [relic(1)],
 				relics: 1,
-				maxTokens: 4,
+				maxBarrier: 4,
 				barrier: 4,
-				blood: 0
+				brokenBarrier: 0
 			});
 			const ctx = ctxFor(player, { trigger: 'awakeningPhase' });
 			decisions.firekeeperRelicTrade(ctx, 'potential');
@@ -87,9 +87,9 @@ describe('Firekeeper (awakeningPhase relic trade)', () => {
 			expect(player.mats[0].hasRune).toBe(false);
 			expect(player.relics).toBe(0);
 			// +3 potential (capped at 10).
-			expect(player.maxTokens).toBe(7);
+			expect(player.maxBarrier).toBe(7);
 			expect(ctx.log.some((line) => line.includes('Discarded relic'))).toBe(true);
-			expect(ctx.log.some((line) => line.includes('potential'))).toBe(true);
+			expect(ctx.log.some((line) => line.includes('max barrier'))).toBe(true);
 		});
 
 		it('discards one relic and grants 1 Arcane Attack on "arcane"', () => {
@@ -115,23 +115,23 @@ describe('Firekeeper (awakeningPhase relic trade)', () => {
 		});
 
 		it('does nothing on "no"', () => {
-			const player = makePlayer({ mats: [relic(1)], relics: 1, maxTokens: 4, attackDice: [] });
+			const player = makePlayer({ mats: [relic(1)], relics: 1, maxBarrier: 4, attackDice: [] });
 			const ctx = ctxFor(player, { trigger: 'awakeningPhase' });
 			decisions.firekeeperRelicTrade(ctx, 'no');
 
 			expect(player.mats[0].hasRune).toBe(true);
 			expect(player.relics).toBe(1);
-			expect(player.maxTokens).toBe(4);
+			expect(player.maxBarrier).toBe(4);
 			expect(player.attackDice).toEqual([]);
 		});
 
 		it('does not grant a reward (or pay) when no relic is actually held', () => {
-			const player = makePlayer({ mats: [rune(1)], relics: 0, maxTokens: 4, attackDice: [] });
+			const player = makePlayer({ mats: [rune(1)], relics: 0, maxBarrier: 4, attackDice: [] });
 			const ctx = ctxFor(player, { trigger: 'awakeningPhase' });
 			decisions.firekeeperRelicTrade(ctx, 'potential');
 
 			// Stale-card guard: no relic => no payment, no reward.
-			expect(player.maxTokens).toBe(4);
+			expect(player.maxBarrier).toBe(4);
 			expect(player.attackDice).toEqual([]);
 		});
 	});

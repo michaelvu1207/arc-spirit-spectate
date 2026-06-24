@@ -97,12 +97,15 @@ export function isRoomOpen(input: RoomLiveness, nowMs: number): boolean {
 
 /**
  * Project member rows to the human-only `last_seen_at` timestamps (epoch ms) that
- * {@link roomCloseReason} consumes, dropping bots by their {@link BOT_NAME_PREFIX}.
+ * {@link roomCloseReason} consumes, dropping bots. A bot is identified by the explicit
+ * `isBot` flag (the `is_bot` column — authoritative, and the only way to detect a
+ * human-NAMED matchmaking bot), with the legacy {@link BOT_NAME_PREFIX} kept as a
+ * fallback so a row that predates the column (no `isBot`) is still excluded.
  */
 export function humanLastSeen(
-	members: { displayName: string | null | undefined; lastSeenAtMs: number }[]
+	members: { displayName: string | null | undefined; lastSeenAtMs: number; isBot?: boolean }[]
 ): number[] {
 	return members
-		.filter((m) => !(m.displayName ?? '').startsWith(BOT_NAME_PREFIX))
+		.filter((m) => !(m.isBot === true || (m.displayName ?? '').startsWith(BOT_NAME_PREFIX)))
 		.map((m) => m.lastSeenAtMs);
 }

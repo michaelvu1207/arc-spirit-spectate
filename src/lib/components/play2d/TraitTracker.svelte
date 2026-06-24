@@ -465,7 +465,9 @@
 	}
 	/* Dim & desaturate dormant emblems so they read as "not yet active". */
 	.state.unawakened .emblem img {
-		filter: grayscale(0.55) brightness(0.92);
+		/* White silhouette, but faded to read as dormant. */
+		filter: brightness(0) invert(1);
+		opacity: 0.4;
 	}
 	.group {
 		display: flex;
@@ -513,6 +515,8 @@
 		width: 33px;
 		height: 33px;
 		object-fit: contain;
+		/* Class icons read as a flat white silhouette. */
+		filter: brightness(0) invert(1);
 	}
 	.emblem span:not(.count) {
 		font-family: var(--font-display);
@@ -619,6 +623,7 @@
 		width: 34px;
 		height: 34px;
 		object-fit: contain;
+		filter: brightness(0) invert(1);
 	}
 	.tip-emblem span {
 		font-family: var(--font-display);

@@ -191,19 +191,6 @@
 			<span class="sm:hidden">PDF</span>
 		</a>
 
-		<div class="hidden items-center gap-2 lg:flex">
-			{#if isLive}
-				<div class="status-badge status-live">
-					<span class="live-chip-dot"></span>
-					<span class="status-live-text">Live</span>
-				</div>
-			{:else}
-				<div class="status-badge status-paused">
-					<span class="h-2.5 w-2.5 rounded-full" style="background: var(--color-whisper);"></span>
-					<span class="status-paused-text">Paused</span>
-				</div>
-			{/if}
-		</div>
 	</div>
 </header>
 

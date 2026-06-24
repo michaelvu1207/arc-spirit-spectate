@@ -205,28 +205,35 @@
 	{#if augments.length > 0}
 		<g class="augment-badge" transform={`translate(${augX} ${augY})`}>
 			<title>{augmentNames}</title>
-			<defs>
-				<clipPath id={`aug-clip-${slotIndex}`}>
-					<circle cx="0" cy="0" r={augR} />
-				</clipPath>
-			</defs>
-			<circle cx="0" cy="0" r={augR} class="aug-bg" />
 			{#if augments[0].icon}
+				<defs>
+					<!-- A black outline tracing the augment hexagon's OWN shape: dilate the token's
+					     alpha, flood it black, then lay the token back on top. No disc, no ring. -->
+					<filter id={`aug-outline-${slotIndex}`} x="-30%" y="-30%" width="160%" height="160%">
+						<feMorphology in="SourceAlpha" operator="dilate" radius={Math.max(0.4, augR * 0.05)} result="dil" />
+						<feFlood flood-color="#3a3a3a" flood-opacity="0.95" result="blk" />
+						<feComposite in="blk" in2="dil" operator="in" result="outline" />
+						<feMerge>
+							<feMergeNode in="outline" />
+							<feMergeNode in="SourceGraphic" />
+						</feMerge>
+					</filter>
+				</defs>
 				<image
 					href={augments[0].icon}
 					x={-augR}
 					y={-augR}
 					width={augR * 2}
 					height={augR * 2}
-					preserveAspectRatio="xMidYMid slice"
-					clip-path={`url(#aug-clip-${slotIndex})`}
+					preserveAspectRatio="xMidYMid meet"
+					filter={`url(#aug-outline-${slotIndex})`}
 				/>
 			{:else}
+				<circle cx="0" cy="0" r={augR} class="aug-bg" />
 				<text x="0" y="0" text-anchor="middle" dominant-baseline="central" class="aug-initial"
 					>{augments[0].name.slice(0, 1)}</text
 				>
 			{/if}
-			<circle cx="0" cy="0" r={augR} class="aug-ring" />
 			{#if augments.length > 1}
 				<circle cx={augR * 0.85} cy={-augR * 0.85} r={augR * 0.62} class="aug-count-bg" />
 				<text
@@ -381,12 +388,6 @@
 	}
 	.aug-bg {
 		fill: #140a24;
-	}
-	.aug-ring {
-		fill: none;
-		stroke: #d6b24a;
-		stroke-width: 2;
-		filter: drop-shadow(0 0 4px rgba(214, 178, 74, 0.6));
 	}
 	.aug-initial {
 		fill: #ffe8a3;

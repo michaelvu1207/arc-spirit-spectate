@@ -90,7 +90,7 @@ function instrumentedSolo(
 			mdmg: m?.damage ?? 0,
 			mhp: m?.hp ?? 0,
 			barrier: p.barrier,
-			pot: p.maxTokens,
+			pot: p.maxBarrier,
 			dice: p.attackDice.length,
 			tiers: Object.entries(t).map(([k, v]) => `${v}${k[0]}`).join('+') || '—',
 			vp: p.victoryPoints,
@@ -106,7 +106,7 @@ function instrumentedSolo(
 			lastRound = state.round;
 		}
 		maxLadder = Math.max(maxLadder, state.monster?.ladderIndex ?? 0);
-		maxPot = Math.max(maxPot, state.players[seat]?.maxTokens ?? 0);
+		maxPot = Math.max(maxPot, state.players[seat]?.maxBarrier ?? 0);
 		let progressed = false;
 		for (const s of state.activeSeats) {
 			if (!botSeatNeedsToAct(state, s)) continue;
@@ -135,7 +135,7 @@ function instrumentedSolo(
 		rounds: state.round,
 		vp: p.victoryPoints,
 		dice: p.attackDice.length,
-		pot: p.maxTokens,
+		pot: p.maxBarrier,
 		maxLadder,
 		maxPot,
 		status: p.statusLevel
@@ -192,11 +192,11 @@ describe.skipIf(!RUN_SIM)('diagnose solo stall', () => {
 			originFocus: false
 		};
 		const profiles: Record<string, BotProfile> = {
-			pot7: { ...base, potentialTarget: 7 },
-			pot6_safe: { ...base, potentialTarget: 6 },
+			pot7: { ...base, maxBarrierTarget: 7 },
+			pot6_safe: { ...base, maxBarrierTarget: 6 },
 			corruption: BOT_PROFILES['corruption'],
-			sim6: { ...base, ...simClasses, potentialTarget: 6, pursueCorruption: true },
-			sim5: { ...base, ...simClasses, potentialTarget: 5, pursueCorruption: true }
+			sim6: { ...base, ...simClasses, maxBarrierTarget: 6, pursueCorruption: true },
+			sim5: { ...base, ...simClasses, maxBarrierTarget: 5, pursueCorruption: true }
 		};
 		const NSEED = 24;
 		const out: string[] = [`Ladder: ${(catalog.monsters ?? []).map((m, i) => `${i}(hp${m.barrier}/dmg${m.damage})`).join(' ')}`];
@@ -228,7 +228,7 @@ describe.skipIf(!RUN_SIM)('diagnose solo stall', () => {
 		// is mandatory ⇒ the game forces it (low build diversity).
 		const ablations: Record<string, BotProfile> = {
 			'FULL build (baseline)': M,
-			'– potential (cap stays 4)': { ...M, potentialTarget: 4 },
+			'– potential (cap stays 4)': { ...M, maxBarrierTarget: 4 },
 			'– flat damage (no Spirit Animal)': {
 				...M,
 				damageClasses: [],

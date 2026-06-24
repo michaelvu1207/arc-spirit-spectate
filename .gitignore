@@ -36,3 +36,10 @@ playwright-report/
 # Local scratch (QA dumps, ad-hoc snapshots)
 /classes-*.yaml
 /classes-page*.png
+
+# Python (ML training pipeline lives in ml/ — source is tracked, env/caches are not)
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo

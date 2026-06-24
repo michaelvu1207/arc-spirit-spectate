@@ -6,6 +6,7 @@
 {#if !$page.url.pathname.endsWith('/export')}
 	{@const pathname = $page.url.pathname}
 	{@const isImmersivePlay = /^\/play\/[^/]+$/.test(pathname)}
+	{@const isAccount = pathname === '/account'}
 	{@const isPlay = pathname.startsWith('/play')}
 	{@const isAdmin = pathname.startsWith('/admin')}
 	{@const isRecords = pathname.startsWith('/admin/records')}
@@ -14,7 +15,7 @@
 		pathname.startsWith('/admin/stats') && !pathname.startsWith('/admin/stats-analysis')}
 	{@const isGamesAdmin = pathname.startsWith('/admin/games')}
 
-	{#if !isImmersivePlay}
+	{#if !isImmersivePlay && !isAccount}
 	<header class="screen-only topbar">
 		<div class="spectrum-line"></div>
 		<div class="topbar-inner">

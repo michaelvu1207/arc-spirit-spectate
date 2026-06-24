@@ -54,10 +54,10 @@ function makePlayer(overrides: Partial<PrivatePlayerState> = {}): PrivatePlayerS
 		displayName: 'Tester',
 		selectedGuardian: 'Myrtle',
 		navigationDestination: null,
-		blood: 0,
+		brokenBarrier: 0,
 		victoryPoints: 0,
 		barrier: 4,
-		maxTokens: 4,
+		maxBarrier: 4,
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],
@@ -660,7 +660,7 @@ describe('runtime awakenSpirit gate', () => {
 		const state = startedGame(catalog);
 		const red = state.players.Red!;
 		red.spirits = [{ ...spirit(1, 'sleeper', 'Sleeper'), classes: { SynthAwaken: 1 } }];
-		red.maxTokens = 10;
+		red.maxBarrier = 10;
 		red.attackDice = [];
 
 		const result = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'awakenSpirit', slotIndex: 1 }, catalog);
@@ -1024,7 +1024,7 @@ describe('AWAKEN_HANDLERS alignment + cultivate (Contessa)', () => {
 
 	it('Arcane Huntress: cultivating while Fallen with ≥10 potential sets the flag', () => {
 		const huntress = spirit(1, IDS.arcaneHuntress, 'Arcane Huntress');
-		const actor = makePlayer({ playerColor: 'Red', statusLevel: 3, maxTokens: 10, spirits: [huntress] });
+		const actor = makePlayer({ playerColor: 'Red', statusLevel: 3, maxBarrier: 10, spirits: [huntress] });
 		const state = {
 			rng: createRng(1),
 			players: { Red: actor },
@@ -1036,9 +1036,9 @@ describe('AWAKEN_HANDLERS alignment + cultivate (Contessa)', () => {
 	});
 
 	it('Arcane Huntress: NOT Fallen, or <10 potential, does NOT set the flag', () => {
-		const mk = (statusLevel: number, maxTokens: number) => {
+		const mk = (statusLevel: number, maxBarrier: number) => {
 			const huntress = spirit(1, IDS.arcaneHuntress, 'Arcane Huntress');
-			const actor = makePlayer({ playerColor: 'Red', statusLevel, maxTokens, spirits: [huntress] });
+			const actor = makePlayer({ playerColor: 'Red', statusLevel, maxBarrier, spirits: [huntress] });
 			const state = {
 				rng: createRng(1),
 				players: { Red: actor },
@@ -1055,7 +1055,7 @@ describe('AWAKEN_HANDLERS alignment + cultivate (Contessa)', () => {
 describe('AWAKEN_HANDLERS rest progress (Meteor Shower)', () => {
 	it('Meteor Shower: resting with ≥10 potential sets the flag → satisfiable', () => {
 		const meteor = spirit(1, IDS.meteorShower, 'Meteor Shower');
-		const actor = makePlayer({ playerColor: 'Red', maxTokens: 10, spirits: [meteor] });
+		const actor = makePlayer({ playerColor: 'Red', maxBarrier: 10, spirits: [meteor] });
 		expect(AWAKEN_HANDLERS[IDS.meteorShower].check(handlerCtx(actor, meteor)).ok).toBe(false);
 		recordRestAwakenProgress(actor);
 		expect(actor.awakenProgress[AWAKEN_PROGRESS_KEYS.meteorShower]).toBe(true);
@@ -1064,7 +1064,7 @@ describe('AWAKEN_HANDLERS rest progress (Meteor Shower)', () => {
 
 	it('Meteor Shower: resting with <10 potential does NOT set the flag', () => {
 		const meteor = spirit(1, IDS.meteorShower, 'Meteor Shower');
-		const actor = makePlayer({ playerColor: 'Red', maxTokens: 9, spirits: [meteor] });
+		const actor = makePlayer({ playerColor: 'Red', maxBarrier: 9, spirits: [meteor] });
 		recordRestAwakenProgress(actor);
 		expect(actor.awakenProgress[AWAKEN_PROGRESS_KEYS.meteorShower]).toBeFalsy();
 	});
@@ -1144,7 +1144,7 @@ describe('combat-event awaken progress (Hollow Eyes)', () => {
 		expect(state.phase).toBe('encounter');
 		// Give the attacker a big arcane dice pool so the roll exceeds 3 deterministically.
 		const red = state.players.Red!;
-		red.maxTokens = 10;
+		red.maxBarrier = 10;
 		red.attackDice = Array.from({ length: 10 }, (_, i) => ({ instanceId: `d${i}`, tier: 'arcane' as const }));
 		red.spirits = [spirit(1, IDS.hollowEyes, 'Hollow Eyes')];
 
@@ -1164,7 +1164,7 @@ describe('combat-event awaken progress (Hollow Eyes)', () => {
 			let state = startedPvpGame(999);
 			state = intoEncounter(state, pvpCatalog);
 			const red = state.players.Red!;
-			red.maxTokens = 10;
+			red.maxBarrier = 10;
 			red.attackDice = Array.from({ length: 6 }, (_, i) => ({ instanceId: `d${i}`, tier: 'basic' as const }));
 			red.spirits = [spirit(1, IDS.hollowEyes, 'Hollow Eyes')];
 			const res = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'initiatePvp' }, pvpCatalog);

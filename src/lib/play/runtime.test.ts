@@ -287,6 +287,27 @@ describe('play runtime', () => {
 		expect(secondClaim.error.code).toBe('seat_taken');
 	});
 
+	test('discardUnplacedAugments clears the pouch so placement can never soft-lock', () => {
+		const lobby = withLobbySelections();
+		const started = applyGameCommand(lobby, { ...HOST, seatColor: 'Red' }, { type: 'startGame' }, CATALOG);
+		expect(started.ok).toBe(true);
+		if (!started.ok) return;
+		// A player granted more augments than they have host spirits for (all spirits full).
+		started.state.players.Red!.unplacedAugments = [
+			{ runeId: 'a', name: 'Spirit Augment' },
+			{ runeId: 'b', name: 'Spirit Augment' }
+		];
+		const done = applyGameCommand(
+			started.state,
+			{ ...HOST, seatColor: 'Red' },
+			{ type: 'discardUnplacedAugments' },
+			CATALOG
+		);
+		expect(done.ok).toBe(true);
+		if (!done.ok) return;
+		expect(done.state.players.Red?.unplacedAugments ?? []).toEqual([]);
+	});
+
 	test('starts a game with initialized players and seeded market slots', () => {
 		const lobby = withLobbySelections();
 
@@ -847,9 +868,9 @@ describe('play runtime', () => {
 		const red = state.players.Red!;
 		// Corruption already healed the player instantly in takeDamage; the remaining cost is the
 		// owed spirit discard, which blocks cleanup until paid. Owe one and pay it with a spirit.
-		red.maxTokens = 4;
+		red.maxBarrier = 4;
 		red.barrier = 4; // already healed to full when corruption landed
-		red.blood = 0;
+		red.brokenBarrier = 0;
 		red.pendingCorruptionDiscard = { count: 1, reason: 'corruption' };
 
 		const blocked = applyGameCommand(
@@ -889,9 +910,9 @@ describe('play runtime', () => {
 		const red = state.players.Red!;
 		// Corruption already healed the player to full when it landed in takeDamage; the drain
 		// only resolves the leftover owed spirit discards (it does NOT heal).
-		red.maxTokens = 5;
+		red.maxBarrier = 5;
 		red.barrier = 5;
-		red.blood = 0;
+		red.brokenBarrier = 0;
 		// Give Red a known tableau and owe two discards.
 		red.spirits = [1, 2, 3, 4, 5].map((slotIndex) => ({
 			slotIndex,
@@ -910,7 +931,7 @@ describe('play runtime', () => {
 		// Obligation cleared and the two HIGHEST slots auto-discarded (health was already full).
 		expect(after.pendingCorruptionDiscard ?? null).toBeNull();
 		expect(after.barrier).toBe(5);
-		expect(after.blood).toBe(0);
+		expect(after.brokenBarrier).toBe(0);
 		expect(after.spirits.map((s) => s.slotIndex).sort((a, b) => a - b)).toEqual([1, 2, 3]);
 	});
 
@@ -1107,7 +1128,7 @@ describe('play runtime', () => {
 		expect(replaced.state.players.Red!.spiritAugmentAttachments).toHaveLength(0);
 	});
 
-	test('adjustBarrier / adjustBlood keep arcane blood === maxTokens − barrier', () => {
+	test('adjustBarrier / adjustBrokenBarrier keep arcane blood === maxTokens − barrier', () => {
 		const lobby = withLobbySelections();
 		const started = applyGameCommand(lobby, { ...HOST, seatColor: 'Red' }, { type: 'startGame' }, CATALOG);
 		if (!started.ok) throw new Error(started.error.message);
@@ -1122,15 +1143,15 @@ describe('play runtime', () => {
 		expect(s.ok).toBe(true);
 		if (!s.ok) return;
 		let p = s.state.players.Red!;
-		expect(p.blood).toBe(p.maxTokens - p.barrier);
-		expect(p.blood).toBeGreaterThan(0);
+		expect(p.brokenBarrier).toBe(p.maxBarrier - p.barrier);
+		expect(p.brokenBarrier).toBeGreaterThan(0);
 
 		// Bump arcane blood directly → the health side re-derives, invariant still holds.
-		s = applyGameCommand(s.state, { ...HOST, seatColor: 'Red' }, { type: 'adjustBlood', amount: 1 }, CATALOG);
+		s = applyGameCommand(s.state, { ...HOST, seatColor: 'Red' }, { type: 'adjustBrokenBarrier', amount: 1 }, CATALOG);
 		expect(s.ok).toBe(true);
 		if (!s.ok) return;
 		p = s.state.players.Red!;
-		expect(p.blood).toBe(p.maxTokens - p.barrier);
+		expect(p.brokenBarrier).toBe(p.maxBarrier - p.barrier);
 	});
 
 	test('hides private hand draws from spectators and other seats', () => {
@@ -1239,25 +1260,54 @@ describe('P5 onSpiritSummon wiring', () => {
 		return r.state;
 	};
 
-	test('spawnHandSpirit fires onSpiritSummon (Sharpshooter stun-immunity)', () => {
+	// A Sharpshooter-class spirit to summon (the base CATALOG has none). onSpiritSummon now
+	// fires scoped to the JUST-SUMMONED spirit's classes, so the summoned spirit must itself
+	// be the Sharpshooter for the grant to land.
+	const SHARP = { id: 'spirit-sharp', name: 'Sniper', cost: 2, classes: { Sharpshooter: 1 }, origins: {} };
+	const sharpCatalog: PlayCatalog = { ...CATALOG, spirits: [...CATALOG.spirits, SHARP] };
+
+	test('spawnHandSpirit fires onSpiritSummon scoped to the summoned spirit (Sharpshooter)', () => {
 		const lobby = withLobbySelections();
-		const started = applyGameCommand(lobby, { ...HOST, seatColor: 'Red' }, { type: 'startGame' }, CATALOG);
+		const started = applyGameCommand(lobby, { ...HOST, seatColor: 'Red' }, { type: 'startGame' }, sharpCatalog);
 		if (!started.ok) throw new Error(started.error.message);
 		// Drive to the Location phase at Tidal Cove (free Spirit World Summon at row 0).
 		let state = locationPhase(started.state, 'Tidal Cove');
+		expect(state.players.Red!.stunImmune).toBe(false);
 
-		// Sharpshooter's onSpiritSummon hook sets stunImmune — an observable proof the
-		// summon fired onSpiritSummon.
+		// Open the draw, then point the first drawn card at the Sharpshooter and summon it.
+		// Sharpshooter's onSpiritSummon hook sets stunImmune — observable proof the summon
+		// fired the trigger for THIS spirit's classes.
+		const open = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'resolveLocationInteraction', rowIndex: 0, choices: [] }, sharpCatalog);
+		if (!open.ok) throw new Error(open.error.message);
+		state = open.state;
+		state.players.Red!.handDraws[0]!.id = SHARP.id;
+		const guid = state.players.Red!.handDraws[0]!.guid;
+		const summoned = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'spawnHandSpirit', guid }, sharpCatalog);
+		if (!summoned.ok) throw new Error(summoned.error.message);
+		state = summoned.state;
+
+		expect(state.players.Red!.stunImmune).toBe(true);
+	});
+
+	test('summoning a NON-Sharpshooter does not fire the Sharpshooter grant (per-spirit scope)', () => {
+		const lobby = withLobbySelections();
+		const started = applyGameCommand(lobby, { ...HOST, seatColor: 'Red' }, { type: 'startGame' }, sharpCatalog);
+		if (!started.ok) throw new Error(started.error.message);
+		let state = locationPhase(started.state, 'Tidal Cove');
+		// A Sharpshooter sits in the tableau, but the spirit being summoned is NOT one —
+		// under per-spirit scoping the grant must NOT fire just because a Sharpshooter is in play.
 		state.players.Red!.spirits = [
 			{ slotIndex: 6, id: 'ss', name: 'Sharp', cost: 2, classes: { Sharpshooter: 1 }, origins: {}, isFaceDown: false }
 		];
+		state.players.Red!.stunImmune = false;
+		const open = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'resolveLocationInteraction', rowIndex: 0, choices: [] }, sharpCatalog);
+		if (!open.ok) throw new Error(open.error.message);
+		state = open.state;
+		const guid = state.players.Red!.handDraws[0]!.guid; // a random non-Sharpshooter draw
+		const summoned = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'spawnHandSpirit', guid }, sharpCatalog);
+		if (!summoned.ok) throw new Error(summoned.error.message);
+		state = summoned.state;
 		expect(state.players.Red!.stunImmune).toBe(false);
-
-		state = apply(state, 'Red', { type: 'resolveLocationInteraction', rowIndex: 0, choices: [] });
-		const guid = state.players.Red!.handDraws[0]!.guid;
-		state = apply(state, 'Red', { type: 'spawnHandSpirit', guid });
-
-		expect(state.players.Red!.stunImmune).toBe(true);
 	});
 
 	test('Soul Weaver: opening a summon draw arms a redraw; redrawHandDraws refreshes the hand', () => {
@@ -1330,19 +1380,20 @@ describe('P5 onSpiritSummon wiring', () => {
 		expect(r.ok).toBe(false);
 	});
 
-	test('takeSpirit fires onSpiritSummon (Sharpshooter stun-immunity)', () => {
+	test('takeSpirit fires onSpiritSummon scoped to the taken spirit (Sharpshooter)', () => {
 		const lobby = withLobbySelections();
-		const started = applyGameCommand(lobby, { ...HOST, seatColor: 'Red' }, { type: 'startGame' }, CATALOG);
+		const started = applyGameCommand(lobby, { ...HOST, seatColor: 'Red' }, { type: 'startGame' }, sharpCatalog);
 		if (!started.ok) throw new Error(started.error.message);
 		let state = started.state;
 
-		// Sharpshooter's onSpiritSummon ("gain 1 Enchanted Attack; stun-immune") sets
-		// stunImmune — observable proof that takeSpirit fires the onSpiritSummon trigger.
-		state.players.Red!.spirits = [
-			{ slotIndex: 6, id: 'ss', name: 'Sharp', cost: 2, classes: { Sharpshooter: 1 }, origins: {}, isFaceDown: false }
-		];
+		// Taking the Sharpshooter from the market is a summon — its onSpiritSummon grant
+		// ("gain 1 Enchanted Attack; stun-immune") sets stunImmune, proving takeSpirit fires
+		// the trigger scoped to the taken spirit's classes.
+		state.market[0]!.spiritId = SHARP.id;
 		state.players.Red!.stunImmune = false;
-		state = apply(state, 'Red', { type: 'takeSpirit', marketIndex: 0 });
+		const taken = applyGameCommand(state, { ...HOST, seatColor: 'Red' }, { type: 'takeSpirit', marketIndex: 0 }, sharpCatalog);
+		if (!taken.ok) throw new Error(taken.error.message);
+		state = taken.state;
 
 		expect(state.players.Red!.stunImmune).toBe(true);
 	});
@@ -1391,7 +1442,7 @@ describe('P5 onStatusChange wiring (adjustStatus corrupts a player)', () => {
 
 		// Seed a strategistTrade decision card + the dice it can trade.
 		const red = started.state.players.Red!;
-		red.maxTokens = 10;
+		red.maxBarrier = 10;
 		red.attackDice = [
 			{ instanceId: 'd0', tier: 'basic' },
 			{ instanceId: 'd1', tier: 'basic' },
@@ -1457,11 +1508,11 @@ describe('Cursed Spirit cleanup claim flow', () => {
 		origins: {},
 		isFaceDown: false
 	});
-	const claim = (state: PublicGameState, taintedPotential?: number, relicPicks?: number[]) =>
+	const claim = (state: PublicGameState, taintedMaxBarrier?: number, relicPicks?: number[]) =>
 		applyGameCommand(
 			state,
 			{ ...HOST, seatColor: 'Red' },
-			{ type: 'resolveAwakenReward', taintedPotential, relicPicks },
+			{ type: 'resolveAwakenReward', taintedMaxBarrier, relicPicks },
 			CATALOG
 		);
 	const classSpirit = (cls: string, n = 1, slotIndex = 5) => ({
@@ -1511,17 +1562,17 @@ describe('Cursed Spirit cleanup claim flow', () => {
 
 	test('resolveAwakenReward applies the Tainted split (potential + Enchanted) and clears the claim', () => {
 		const state = started();
-		state.players.Red!.maxTokens = 4;
+		state.players.Red!.maxBarrier = 4;
 		state.players.Red!.attackDice = [];
 		state.players.Red!.spirits = [cursedSpirit(3)];
 		state.players.Red!.becameTaintedThisRound = true;
 		enterBenefits(state, CATALOG);
-		const beforeMax = state.players.Red!.maxTokens;
+		const beforeMax = state.players.Red!.maxBarrier;
 		const r = claim(state, 1); // 1 → potential, remaining 2 → Enchanted Attack
 		if (!r.ok) throw new Error(r.error.message);
 		const p = r.state.players.Red!;
 		expect(p.pendingAwakenReward).toBeNull();
-		expect(p.maxTokens).toBe(beforeMax + 1);
+		expect(p.maxBarrier).toBe(beforeMax + 1);
 		expect(p.attackDice.filter((d) => d.tier === 'enchanted')).toHaveLength(2);
 	});
 

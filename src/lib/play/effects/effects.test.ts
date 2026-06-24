@@ -12,10 +12,10 @@ function makePlayer(overrides: Partial<PrivatePlayerState> = {}): PrivatePlayerS
 		displayName: 'Tester',
 		selectedGuardian: 'Myrtle',
 		navigationDestination: null,
-		blood: 0,
+		brokenBarrier: 0,
 		victoryPoints: 0,
 		barrier: 4,
-		maxTokens: 4,
+		maxBarrier: 4,
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],
@@ -107,7 +107,7 @@ describe('awakenedClassCounts', () => {
 describe('Rest effects', () => {
 	it('Fighter grants basic attack dice', () => {
 		// Super-linear ladder: 4 Fighters → +5 basic dice (below the 10-cap).
-		const p = makePlayer({ maxTokens: 10, spirits: [spirit(1, 'A', { Fighter: 4 }, {})] });
+		const p = makePlayer({ maxBarrier: 10, spirits: [spirit(1, 'A', { Fighter: 4 }, {})] });
 		applyTrigger(makeState(p), 'Red', 'onRest', []);
 		expect(p.attackDice).toHaveLength(5);
 		expect(p.attackDice.every((d) => d.tier === 'basic')).toBe(true);
@@ -115,13 +115,13 @@ describe('Rest effects', () => {
 
 	it('attack dice are capped at the flat 10, no longer by potential', () => {
 		// Low potential no longer limits dice: Fighter 4+ grants +10 (caps the pool) from empty.
-		const p = makePlayer({ maxTokens: 2, spirits: [spirit(1, 'A', { Fighter: 5 }, {})] });
+		const p = makePlayer({ maxBarrier: 2, spirits: [spirit(1, 'A', { Fighter: 5 }, {})] });
 		applyTrigger(makeState(p), 'Red', 'onRest', []);
 		expect(p.attackDice).toHaveLength(10); // not capped at maxTokens=2; tops out at the flat 10
 
 		// The hard cap is 10: starting near it, a big grant tops out at 10.
 		const q = makePlayer({
-			maxTokens: 2,
+			maxBarrier: 2,
 			attackDice: Array.from({ length: 8 }, (_, i) => ({ instanceId: `d${i}`, tier: 'basic' as const })),
 			spirits: [spirit(1, 'A', { Fighter: 5 }, {})]
 		});
@@ -131,7 +131,7 @@ describe('Rest effects', () => {
 
 	it('Elementalist upgrades a die to the next tier (count 2 → first breakpoint)', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			attackDice: [{ instanceId: 'd0', tier: 'basic' }],
 			spirits: [spirit(1, 'A', { Elementalist: 2 }, {})]
 		});
@@ -141,7 +141,7 @@ describe('Rest effects', () => {
 
 	it('a lone Elementalist (count 1) upgrades nothing on the super-linear curve', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			attackDice: [{ instanceId: 'd0', tier: 'basic' }],
 			spirits: [spirit(1, 'A', { Elementalist: 1 }, {})]
 		});
@@ -151,7 +151,7 @@ describe('Rest effects', () => {
 
 	it('Elementalist upgrades cap at exalted — never reach arcane', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			// An exalted die plus a basic one, with plenty of upgrade steps.
 			attackDice: [
 				{ instanceId: 'd0', tier: 'exalted' },
@@ -169,7 +169,7 @@ describe('Rest effects', () => {
 		const p = makePlayer({ spirits: [spirit(1, 'A', { Rogue: 3 }, {})] });
 		applyTrigger(makeState(p), 'Red', 'onRest', []);
 		expect(p.attackDice).toHaveLength(0);
-		expect(p.maxTokens).toBe(4);
+		expect(p.maxBarrier).toBe(4);
 	});
 });
 
@@ -179,7 +179,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 	// resolved slot name is "<Origin> Rune" → "Floral Patch Rune".
 	it('grants 1 origin rune for every two spirits of that origin (no class needed)', () => {
 		const p = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [
 				spirit(1, 'A', {}, { 'Floral Patch': 1 }),
 				spirit(2, 'B', {}, { 'Floral Patch': 1 })
@@ -187,41 +187,41 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 		});
 		applyCultivate(makeState(p), 'Red', []);
 		expect(p.mats.filter((r) => r.name === 'Floral Patch Rune')).toHaveLength(1);
-		expect(p.maxTokens).toBe(4); // no Cultivator → no potential
+		expect(p.maxBarrier).toBe(4); // no Cultivator → no potential
 	});
 
 	it('the Cultivate action grants ZERO potential without Cultivators (potential is Cultivator-only)', () => {
 		// A player with other classes — but NO Cultivator — and even a lone Cultivator
 		// (count 1, which grants nothing) gains 0 potential from the Cultivate action.
 		const noCultivator = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			barrier: 4,
 			spirits: [spirit(1, 'A', { Fighter: 2 }, { 'Floral Patch': 1 }), spirit(2, 'B', { Healer: 1 }, {})]
 		});
 		applyCultivate(makeState(noCultivator), 'Red', []);
-		expect(noCultivator.maxTokens).toBe(4); // unchanged — no potential
+		expect(noCultivator.maxBarrier).toBe(4); // unchanged — no potential
 
 		const loneCultivator = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [spirit(1, 'A', { Cultivator: 1 }, {})]
 		});
 		applyCultivate(makeState(loneCultivator), 'Red', []);
-		expect(loneCultivator.maxTokens).toBe(4); // a single Cultivator (count 1) grants nothing
+		expect(loneCultivator.maxBarrier).toBe(4); // a single Cultivator (count 1) grants nothing
 
 		// Sanity: a Cultivator POOL (count ≥2) is the only thing that yields potential.
 		const pool = makePlayer({
-			maxTokens: 0,
+			maxBarrier: 0,
 			barrier: 0,
-			blood: 0,
+			brokenBarrier: 0,
 			spirits: [spirit(1, 'A', { Cultivator: 2 }, {})]
 		});
 		applyCultivate(makeState(pool), 'Red', []);
-		expect(pool.maxTokens).toBe(1); // count 2 → +1 potential
+		expect(pool.maxBarrier).toBe(1); // count 2 → +1 potential
 	});
 
 	it('scales: four same-origin spirits → two runes', () => {
 		const p = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [
 				spirit(1, 'A', {}, { 'Floral Patch': 1 }),
 				spirit(2, 'B', {}, { 'Floral Patch': 1 }),
@@ -235,7 +235,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 
 	it('grants one rune PER origin (two Floral Patch + two Lantern Lights → one each)', () => {
 		const p = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [
 				spirit(1, 'A', {}, { 'Floral Patch': 1 }),
 				spirit(2, 'B', {}, { 'Floral Patch': 1 }),
@@ -250,7 +250,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 
 	it('counts face-down (unawakened) spirits — origin is always active', () => {
 		const p = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [
 				spirit(1, 'A', {}, { 'Floral Patch': 1 }, true), // face-down still counts
 				spirit(2, 'B', {}, { 'Floral Patch': 1 })
@@ -262,7 +262,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 
 	it('grants nothing for a lone spirit, or for an origin without a basic rune', () => {
 		const p = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [
 				spirit(1, 'Solo', {}, { 'Floral Patch': 1 }), // only one of the origin → 0
 				spirit(2, 'Royal A', {}, { 'Royal Family': 1 }), // Royal Family has no basic rune
@@ -271,7 +271,7 @@ describe('Cultivate action (intrinsic origin-rune yield)', () => {
 		});
 		applyCultivate(makeState(p), 'Red', []);
 		expect(p.mats).toHaveLength(0);
-		expect(p.maxTokens).toBe(4);
+		expect(p.maxBarrier).toBe(4);
 	});
 });
 
@@ -280,36 +280,36 @@ describe('Cultivator (onCultivate → potential by awakened count)', () => {
 		spirit(slot, name, { Cultivator: 1 }, { 'Floral Patch': 1 }, faceDown);
 
 	it('two awakened Cultivators → +1 potential', () => {
-		const p = makePlayer({ maxTokens: 4, spirits: [cult(1, 'C1'), cult(2, 'C2')] });
+		const p = makePlayer({ maxBarrier: 4, spirits: [cult(1, 'C1'), cult(2, 'C2')] });
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.maxTokens).toBe(5);
+		expect(p.maxBarrier).toBe(5);
 	});
 
 	it('three awakened Cultivators → +2 potential', () => {
-		const p = makePlayer({ maxTokens: 4, spirits: [cult(1, 'C1'), cult(2, 'C2'), cult(3, 'C3')] });
+		const p = makePlayer({ maxBarrier: 4, spirits: [cult(1, 'C1'), cult(2, 'C2'), cult(3, 'C3')] });
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.maxTokens).toBe(6);
+		expect(p.maxBarrier).toBe(6);
 	});
 
 	it('a lone Cultivator grants no potential (the ladder starts at 2)', () => {
-		const p = makePlayer({ maxTokens: 4, spirits: [cult(1, 'C1')] });
+		const p = makePlayer({ maxBarrier: 4, spirits: [cult(1, 'C1')] });
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.maxTokens).toBe(4);
+		expect(p.maxBarrier).toBe(4);
 	});
 
 	it('only AWAKENED Cultivators count (face-down are inactive)', () => {
-		const p = makePlayer({ maxTokens: 4, spirits: [cult(1, 'C1'), cult(2, 'C2', true)] });
+		const p = makePlayer({ maxBarrier: 4, spirits: [cult(1, 'C1'), cult(2, 'C2', true)] });
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.maxTokens).toBe(4); // one awakened → below the count-2 breakpoint
+		expect(p.maxBarrier).toBe(4); // one awakened → below the count-2 breakpoint
 	});
 
 	it('potential is capped at 10', () => {
 		const p = makePlayer({
-			maxTokens: 9,
+			maxBarrier: 9,
 			spirits: [cult(1, 'C1'), cult(2, 'C2'), cult(3, 'C3'), cult(4, 'C4')] // count 4 → +3
 		});
 		applyCultivate(makeState(p), 'Red', []);
-		expect(p.maxTokens).toBe(10);
+		expect(p.maxBarrier).toBe(10);
 	});
 });
 
@@ -324,8 +324,8 @@ describe('Soul Weaver (onRest)', () => {
 	it('sets stun immunity at 2 traits without restoring health', () => {
 		const p = makePlayer({
 			barrier: 2,
-			maxTokens: 4,
-			blood: 2,
+			maxBarrier: 4,
+			brokenBarrier: 2,
 			spirits: [spirit(1, 'A', { 'Soul Weaver': 2 }, {})]
 		});
 		applyTrigger(makeState(p), 'Red', 'onRest', []);
@@ -336,14 +336,14 @@ describe('Soul Weaver (onRest)', () => {
 	it('at 3 traits sets stun immunity AND restores 2 health', () => {
 		const p = makePlayer({
 			barrier: 1,
-			maxTokens: 4,
-			blood: 3,
+			maxBarrier: 4,
+			brokenBarrier: 3,
 			spirits: [spirit(1, 'A', { 'Soul Weaver': 3 }, {})]
 		});
 		applyTrigger(makeState(p), 'Red', 'onRest', []);
 		expect(p.stunImmune).toBe(true);
 		expect(p.barrier).toBe(3); // +2 health
-		expect(p.blood).toBe(1);
+		expect(p.brokenBarrier).toBe(1);
 	});
 });
 
@@ -353,7 +353,7 @@ describe('Soul Weaver (onRest)', () => {
 describe('Strategist (onRest)', () => {
 	it('enqueues ONE decision card (no immediate discard) when it has ≥3 dice', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			attackDice: [
 				attackDie('d0', 'basic'),
 				attackDie('d1', 'basic'),
@@ -372,7 +372,7 @@ describe('Strategist (onRest)', () => {
 
 	it("resolving 'yes' discards 3 dice and grants the augment; 'no' does nothing", () => {
 		const yes = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			attackDice: [
 				attackDie('d0', 'basic'),
 				attackDie('d1', 'basic'),
@@ -385,7 +385,7 @@ describe('Strategist (onRest)', () => {
 		expect(yes.unplacedAugments?.length ?? 0).toBe(1);
 
 		const no = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			attackDice: [
 				attackDie('d0', 'basic'),
 				attackDie('d1', 'basic'),
@@ -400,7 +400,7 @@ describe('Strategist (onRest)', () => {
 
 	it('enqueues no decision (no discard, no augment) with fewer than 3 dice', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			attackDice: [attackDie('d0', 'basic'), attackDie('d1', 'basic')],
 			spirits: [spirit(1, 'A', { Strategist: 1 }, {})]
 		});
@@ -441,35 +441,35 @@ describe('Captain (onCultivate)', () => {
 
 describe('Adaptive Fighter (onMonsterKill)', () => {
 	it('gains 1 potential when overkilling by ≥2 on a kill', () => {
-		const p = makePlayer({ maxTokens: 4, spirits: [spirit(1, 'A', { 'Adaptive Fighter': 1 }, {})] });
+		const p = makePlayer({ maxBarrier: 4, spirits: [spirit(1, 'A', { 'Adaptive Fighter': 1 }, {})] });
 		applyTrigger(makeState(p), 'Red', 'onMonsterKill', [], {
 			combat: { dealt: 7, overkill: 3, killed: true }
 		});
-		expect(p.maxTokens).toBe(5); // +1 potential
+		expect(p.maxBarrier).toBe(5); // +1 potential
 		expect(p.attackDice).toHaveLength(0); // no enchanted die (it killed)
 	});
 
 	it('does NOT gain potential when overkill is below 2', () => {
-		const p = makePlayer({ maxTokens: 4, spirits: [spirit(1, 'A', { 'Adaptive Fighter': 1 }, {})] });
+		const p = makePlayer({ maxBarrier: 4, spirits: [spirit(1, 'A', { 'Adaptive Fighter': 1 }, {})] });
 		applyTrigger(makeState(p), 'Red', 'onMonsterKill', [], {
 			combat: { dealt: 5, overkill: 1, killed: true }
 		});
-		expect(p.maxTokens).toBe(4);
+		expect(p.maxBarrier).toBe(4);
 	});
 
 	it('gains 1 Enchanted attack die when it does NOT kill', () => {
-		const p = makePlayer({ maxTokens: 10, spirits: [spirit(1, 'A', { 'Adaptive Fighter': 1 }, {})] });
+		const p = makePlayer({ maxBarrier: 10, spirits: [spirit(1, 'A', { 'Adaptive Fighter': 1 }, {})] });
 		applyTrigger(makeState(p), 'Red', 'onMonsterKill', [], {
 			combat: { dealt: 2, overkill: 0, killed: false }
 		});
 		expect(p.attackDice).toHaveLength(1);
 		expect(p.attackDice[0].tier).toBe('enchanted');
-		expect(p.maxTokens).toBe(10); // no potential (no overkill)
+		expect(p.maxBarrier).toBe(10); // no potential (no overkill)
 	});
 
 	it('activates per fighter — two Adaptive Fighters grant two Enchanted dice on a no-kill', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			spirits: [
 				spirit(1, 'A', { 'Adaptive Fighter': 1 }, {}),
 				spirit(2, 'B', { 'Adaptive Fighter': 1 }, {})
@@ -484,7 +484,7 @@ describe('Adaptive Fighter (onMonsterKill)', () => {
 
 	it('activates per fighter — two Adaptive Fighters grant two potential on an overkill', () => {
 		const p = makePlayer({
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [
 				spirit(1, 'A', { 'Adaptive Fighter': 1 }, {}),
 				spirit(2, 'B', { 'Adaptive Fighter': 1 }, {})
@@ -493,7 +493,7 @@ describe('Adaptive Fighter (onMonsterKill)', () => {
 		applyTrigger(makeState(p), 'Red', 'onMonsterKill', [], {
 			combat: { dealt: 7, overkill: 3, killed: true }
 		});
-		expect(p.maxTokens).toBe(6); // +1 potential × 2 fighters
+		expect(p.maxBarrier).toBe(6); // +1 potential × 2 fighters
 		expect(p.attackDice).toHaveLength(0); // killed → no enchanted die
 	});
 });
@@ -501,7 +501,7 @@ describe('Adaptive Fighter (onMonsterKill)', () => {
 describe('Fairy (awakening)', () => {
 	it('on awakening, grants 1 exalted die per origin-matching spirit + 3 initiative', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			spirits: [
 				spirit(1, 'F', { Fairy: 1 }, { Forest: 1 }),
 				spirit(2, 'B', {}, { Forest: 1 }),
@@ -516,7 +516,7 @@ describe('Fairy (awakening)', () => {
 
 	it('does not fire when the spirit that awakened is not a Fairy', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			spirits: [
 				spirit(1, 'F', { Fairy: 1 }, { Forest: 1 }),
 				spirit(2, 'X', { Fighter: 1 }, { Forest: 1 })
@@ -531,7 +531,7 @@ describe('Fairy (awakening)', () => {
 
 describe('Dragon Warrior (awakening)', () => {
 	it('gains 3 Arcane attack dice on the awakening trigger', () => {
-		const p = makePlayer({ maxTokens: 10, spirits: [spirit(1, 'A', { 'Dragon Warrior': 1 }, {})] });
+		const p = makePlayer({ maxBarrier: 10, spirits: [spirit(1, 'A', { 'Dragon Warrior': 1 }, {})] });
 		applyTrigger(makeState(p), 'Red', 'awakening', []);
 		expect(p.attackDice).toHaveLength(3);
 		expect(p.attackDice.every((d) => d.tier === 'arcane')).toBe(true);
@@ -609,7 +609,7 @@ describe('doubleRunes primitive (Cultivate yield)', () => {
 	it('doubled runes apply to the Cultivate origin-rune yield', () => {
 		const p = makePlayer({
 			doubleRunes: true,
-			maxTokens: 4,
+			maxBarrier: 4,
 			spirits: [
 				spirit(1, 'A', {}, { 'Floral Patch': 1 }),
 				spirit(2, 'B', {}, { 'Floral Patch': 1 }),
@@ -632,7 +632,7 @@ describe('Cursed Spirit (cleanup claim — no longer an awakeningPhase auto-gran
 	// runtime/phases tests.
 	it('grants nothing via the awakeningPhase trigger, even across all three thresholds', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			becameTaintedThisRound: true,
 			becameCorruptThisRound: true,
 			becameFallenThisRound: true,
@@ -654,7 +654,7 @@ describe('The Corruptor (inCombat; Awakening grant is a Cleanup claim)', () => {
 
 	it('does NOT auto-grant an Arcane die on the awakeningPhase trigger (now a Cleanup claim)', () => {
 		const p = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			corruptedThisRound: true,
 			spirits: [spirit(1, 'A', { 'The Corruptor': 1 }, {})]
 		});

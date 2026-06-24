@@ -3,15 +3,16 @@ import { test, expect } from '@playwright/test';
 /**
  * Smoke coverage for the mobile-perf pass: confirms the play surface still loads
  * and runs cleanly after dropping unused deps (pixi/mathjs/tiptap/svelte-chartjs),
- * switching to the in-place room reconcile, and the global touch CSS. Drives
- * Quick Play into a real room so the store hydrate/reconcile path is exercised.
+ * switching to the in-place room reconcile, and the global touch CSS. All matches
+ * are ranked now: the primary CTA opens the ranked matchmaking view (queue timer +
+ * player list) rather than instant-joining a room.
  *
  * The full multiplayer P0/full specs are currently red due to PRE-EXISTING UI
- * drift (the landing page was reworked to Quick Play + Browse Servers, so the
+ * drift (the landing page was reworked to Play Ranked + Custom Lobby, so the
  * create-open/join-open helpers no longer match) — unrelated to this change.
  */
 test.describe('mobile-perf smoke', () => {
-	test('play landing loads clean, touch CSS applied, Quick Play enters a room', async ({
+	test('play landing loads clean, touch CSS applied, primary CTA opens ranked search', async ({
 		page
 	}) => {
 		const errors: string[] = [];
@@ -31,11 +32,11 @@ test.describe('mobile-perf smoke', () => {
 		const touchAction = await quick.evaluate((el) => getComputedStyle(el).touchAction);
 		expect(touchAction).toBe('manipulation');
 
-		// Quick Play creates/joins a room and routes into the game shell; the room
-		// view then hydrates through setRoomView → reconcile.
+		// Primary CTA swaps the menu for the dedicated ranked matchmaking view (it no
+		// longer instant-joins a room — all play is ranked queue now). We stay on /play.
 		await quick.click();
-		await page.waitForURL(/\/play\/[A-Z0-9]+$/, { timeout: 30_000 });
-		await expect(page).toHaveURL(/\/play\/[A-Z0-9]+$/);
+		await expect(page.getByTestId('ranked-view')).toBeVisible({ timeout: 30_000 });
+		await expect(page).toHaveURL(/\/play\/?$/);
 
 		// No uncaught runtime errors from the dep removal or store change. Filter
 		// environment noise (audio autoplay policy, missing PWA extras in headless).

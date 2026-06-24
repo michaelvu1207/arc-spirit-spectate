@@ -32,10 +32,10 @@ function makePlayer(overrides: Partial<PrivatePlayerState> = {}): PrivatePlayerS
 		displayName: 'Tester',
 		selectedGuardian: 'Myrtle',
 		navigationDestination: null,
-		blood: 0,
+		brokenBarrier: 0,
 		victoryPoints: 0,
 		barrier: 4,
-		maxTokens: 4,
+		maxBarrier: 4,
 		statusLevel: 0,
 		statusToken: 'Pure',
 		spirits: [],
@@ -173,7 +173,7 @@ describe('new EffectAction kinds (via applyTrigger)', () => {
 		withSynthClass('SynthDR', [
 			{ trigger: 'onRest', breakpoints: [{ count: 1, actions: [{ kind: 'reduceIncomingDamage', amount: 2 }] }] }
 		]);
-		const p = fireRest('SynthDR', 1, { barrier: 4, maxTokens: 4 });
+		const p = fireRest('SynthDR', 1, { barrier: 4, maxBarrier: 4 });
 		expect(p.damageReduction).toBe(2);
 		// 5 incoming − 2 reduction = 3 → barrier 4-3 = 1, no corruption.
 		const r = takeDamage(p, 5);
@@ -185,7 +185,7 @@ describe('new EffectAction kinds (via applyTrigger)', () => {
 		withSynthClass('SynthDeflect', [
 			{ trigger: 'onRest', breakpoints: [{ count: 1, actions: [{ kind: 'deflect', amount: 3 }] }] }
 		]);
-		const p = fireRest('SynthDeflect', 1, { barrier: 4, maxTokens: 4 });
+		const p = fireRest('SynthDeflect', 1, { barrier: 4, maxBarrier: 4 });
 		expect(p.deflect).toBe(3);
 		// 3 incoming fully deflected → no barrier loss.
 		const r = takeDamage(p, 3);
@@ -253,7 +253,7 @@ describe('new EffectAction kinds (via applyTrigger)', () => {
 				]
 			}
 		]);
-		const p = fireRest('SynthSpecials', 1, { barrier: 4, maxTokens: 4 });
+		const p = fireRest('SynthSpecials', 1, { barrier: 4, maxBarrier: 4 });
 		expect(p.unplacedAugments?.length ?? 0).toBe(2);
 		expect(p.relics).toBe(1);
 	});
@@ -263,8 +263,8 @@ describe('new EffectAction kinds (via applyTrigger)', () => {
 			{ trigger: 'onRest', breakpoints: [{ count: 1, actions: [{ kind: 'purifyArcaneBlood', amount: 5 }] }] }
 		]);
 		// Start corrupted (arcane blood 2: maxTokens 6 − barrier 4); purify ≥2 ⇒ 0.
-		const p = fireRest('SynthPurify', 1, { maxTokens: 6, barrier: 4 });
-		expect(p.maxTokens - p.barrier).toBe(0);
+		const p = fireRest('SynthPurify', 1, { maxBarrier: 6, barrier: 4 });
+		expect(p.maxBarrier - p.barrier).toBe(0);
 	});
 
 	it('extraAction accumulates into extraActions by key', () => {
@@ -461,7 +461,7 @@ describe('full-runtime smoke (startGame → rest)', () => {
 		const red = state.players.Red!;
 		// Control the tableau: a single face-up Fighter ×5 spirit, capacity for the dice.
 		red.spirits = [spirit(1, 'Duelist', { Fighter: 5 })];
-		red.maxTokens = 10;
+		red.maxBarrier = 10;
 		red.attackDice = [];
 		// Drive the phase machine to the Location phase.
 		let s: PublicGameState = state;
@@ -474,7 +474,7 @@ describe('full-runtime smoke (startGame → rest)', () => {
 		expect(s.players.Red!.navigationDestination).toBe('Floral Patch');
 		// forceAdvancePhase rebuilds players from a clone — re-assert the controlled tableau.
 		s.players.Red!.spirits = [spirit(1, 'Duelist', { Fighter: 5 })];
-		s.players.Red!.maxTokens = 10;
+		s.players.Red!.maxBarrier = 10;
 		s.players.Red!.attackDice = [];
 		s.players.Red!.actionsUsedThisRound = s.players.Red!.actionsUsedThisRound.filter((a) => a !== 'row:0');
 

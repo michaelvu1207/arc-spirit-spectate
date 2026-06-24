@@ -3,7 +3,13 @@
 	import type { PlayerProjection } from '$lib/play/types';
 	import { launchSummonFx } from '$lib/stores/summonFx.svelte';
 	import { playSfx } from '$lib/stores/gameAudio.svelte';
+	import { getSpiritAsset } from '$lib/stores/assetStore.svelte';
 	import { spiritBackImageUrl } from './helpers';
+
+	// Heroes are the Human Enclave faction (origin always active — see captain.ts).
+	function isHero(id: string): boolean {
+		return !!getSpiritAsset(id)?.traits.origins.some((o) => o.name === 'Human Enclave');
+	}
 
 	interface Props {
 		player: PlayerProjection | null;
@@ -47,7 +53,8 @@
 	function preview(draw: { id?: string; sourceBag?: string }): string | null {
 		if (!draw.id) return null;
 		// Arcane Abyss spirits enter unawakened (face-down) — show their back face.
-		if (draw.sourceBag === 'Arcane Abyss Bag') {
+		// Hero (Human Enclave) spirits are likewise drawn face-down — show their back.
+		if (draw.sourceBag === 'Arcane Abyss Bag' || isHero(draw.id)) {
 			return spiritBackImageUrl(draw.id);
 		}
 		return spiritImages.get(draw.id) ?? `${STORAGE_BASE_URL}/hex_spirits/${draw.id}_game_print.png`;

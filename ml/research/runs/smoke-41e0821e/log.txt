@@ -1,0 +1,67 @@
+=== experiment smoke-41e0821e ===
+config: {"name": "smoke", "objective": {"metric": "avgVP", "opponent": "medium"}, "cold_start": {"games_per_shard": 3, "shards": 2, "record_profile": "pvphunter", "max_rounds": 60}, "iterations": 1, "datagen": {"games_per_shard": 4, "shards": 2, "selection": "value", "sample": true, "temperature": 1.0, "max_rounds": 70, "seats": 4}, "shaping": "balanced", "gamma": 0.99, "train": {"epochs": 4, "beta": 2.0}, "eval": {"games": 4, "opponents": ["medium"], "max_rounds": 70, "selection": "hybrid"}}
+
+--- cold-start (heuristic champion BC) ---
+
+$ bash ml/run_gen.sh heur 3 2 cold
+  env: {'GEN_MAXROUNDS': 60, 'GEN_SEATS': 4, 'GEN_SELECTION': 'value', 'GEN_SAMPLE': '1', 'GEN_TEMP': 1.0, 'GEN_SHAPING': 'balanced', 'GEN_GAMMA': 0.99, 'GEN_RECORD_PROFILE': 'pvphunter'}
+launched 2 shards: 13304 13305
+ALL_SHARDS_DONE total_samples=393
+[gen] DONE mode=heur games=3 samples=249 finished=67% in 4.3s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/cold_0.jsonl
+[gen] DONE mode=heur games=3 samples=144 finished=67% in 3.5s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/cold_1.jsonl
+[gen] DONE mode=heur games=60 samples=32650 finished=57% in 369.2s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/cold_2.jsonl
+[gen] DONE mode=heur games=60 samples=32526 finished=57% in 369.2s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/cold_3.jsonl
+[gen] DONE mode=heur games=60 samples=32860 finished=55% in 371.9s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/cold_4.jsonl
+[gen] DONE mode=heur games=60 samples=32148 finished=57% in 372.5s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/cold_5.jsonl
+
+$ /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/.venv/bin/python ml/train.py --data ml/data --out /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/weights/policy.json --epochs 4 --beta 2.0
+  env: {}
+Device: mps
+Loaded 393 samples from 2 file(s)
+Baseline return (mean ret): 0.4500
+obs_dim=48, act_dim=40
+Epoch 1/4 | policy_loss=3.0422 | value_loss=0.2109 | top1_acc=0.209
+Epoch 2/4 | policy_loss=3.0183 | value_loss=0.1706 | top1_acc=0.384
+Epoch 3/4 | policy_loss=2.9950 | value_loss=0.1393 | top1_acc=0.417
+Epoch 4/4 | policy_loss=2.9660 | value_loss=0.1135 | top1_acc=0.468
+
+Weights exported to: /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/weights/policy.json
+
+--- iteration 1 ---
+
+$ bash ml/run_gen.sh neural 4 2 it1
+  env: {'GEN_MAXROUNDS': 70, 'GEN_SEATS': 4, 'GEN_SELECTION': 'value', 'GEN_SAMPLE': '1', 'GEN_TEMP': 1.0, 'GEN_SHAPING': 'balanced', 'GEN_GAMMA': 0.99}
+launched 2 shards: 13483 13484
+ALL_SHARDS_DONE total_samples=2622
+[gen] DONE mode=neural games=4 samples=1270 finished=25% neuralWinRate=0.0% in 5.7s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/it1_0.jsonl
+[gen] DONE mode=neural games=4 samples=1352 finished=25% neuralWinRate=25.0% in 6.9s → /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/data/it1_1.jsonl
+
+$ /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/.venv/bin/python ml/train.py --data ml/data --out /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/weights/policy.json --epochs 4 --beta 2.0
+  env: {}
+Device: mps
+Loaded 3015 samples from 4 file(s)
+Baseline return (mean ret): 0.1327
+obs_dim=48, act_dim=40
+Epoch 1/4 | policy_loss=2.1227 | value_loss=0.0340 | top1_acc=0.277
+Epoch 2/4 | policy_loss=2.0580 | value_loss=0.0266 | top1_acc=0.314
+Epoch 3/4 | policy_loss=1.9670 | value_loss=0.0221 | top1_acc=0.326
+Epoch 4/4 | policy_loss=1.9115 | value_loss=0.0194 | top1_acc=0.334
+
+Weights exported to: /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate/ml/weights/policy.json
+
+$ npx vitest run src/lib/play/ml/_eval.test.ts --disable-console-intercept
+  env: {'EVAL': '1', 'EVAL_GAMES': 4, 'EVAL_OPPONENTS': 'medium', 'EVAL_MAXROUNDS': 70, 'EVAL_SELECTION': 'hybrid'}
+
+ RUN  v4.1.5 /Users/maikyon/Documents/Programming/ArcSpiritsPlan2/arc-spirits-spectate
+
+[eval] neural vs medium: win=0.0% (fair=25%) avgPlace=4.00 avgVP=0.0 oppVP=9.0 finished=0%
+[eval] DONE → ml/eval_result.json
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  13:00:15
+   Duration  3.69s (transform 474ms, setup 0ms, import 614ms, tests 2.99s, environment 1ms)
+
+iteration 1: objective=0.000
+
+=== DONE: best objective 0.000 at iter 1 ===

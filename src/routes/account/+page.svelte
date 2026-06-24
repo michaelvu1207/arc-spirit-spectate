@@ -39,11 +39,11 @@
 		try {
 			if (mode === 'signin') {
 				await auth.signInEmail(email, password);
-				await goto('/');
+				await goto('/play');
 			} else {
 				const result = await auth.signUpEmail(email, password, displayName || 'Nameless Spirit');
 				if (result.session) {
-					await goto('/');
+					await goto('/play');
 				} else {
 					notice = `Account created. Check ${email} for a confirmation link to finish.`;
 				}
@@ -191,33 +191,37 @@
 			// Step-up: a borrowed live session can't delete without the password.
 			await auth.reauthenticate(currentPassword);
 			await auth.deleteAccount();
-			await goto('/');
+			await goto('/play');
 		} catch (e) {
 			fail(e);
 			busy = false;
 		}
 	}
+
+	const initial = $derived((auth.displayName ?? '?').slice(0, 1).toUpperCase());
 </script>
 
 <svelte:head><title>Account | Arc Spirits</title></svelte:head>
 
-<main class="account">
-	<header class="head">
-		<a href="/" class="back">← Home</a>
-		<h1>Account</h1>
-	</header>
+<main class="auth">
+	<a class="back" href="/play">← Play</a>
 
-	{#if error}<p class="msg error" role="alert" data-testid="auth-error">{error}</p>{/if}
-	{#if notice}<p class="msg notice" data-testid="auth-notice">{notice}</p>{/if}
+	<div class="shell">
+		<header class="brand">
+			<div class="eyebrow">Arc Spirits</div>
+			<h1 class="title brand-flame-text">{auth.isSignedIn ? 'Profile' : 'Account'}</h1>
+		</header>
 
-	{#if auth.isSignedIn}
-		<!-- ───────────── Signed in ───────────── -->
-		<section class="card" data-testid="account-signed-in">
-			<div class="who">
-				<span class="who-avatar">{(auth.displayName ?? '?').slice(0, 1).toUpperCase()}</span>
-				<div>
-					<div class="who-name" data-testid="account-displayname">{auth.displayName ?? 'Nameless Spirit'}</div>
-					<div class="who-sub">
+		{#if error}<p class="msg error" role="alert" data-testid="auth-error">{error}</p>{/if}
+		{#if notice}<p class="msg notice" data-testid="auth-notice">{notice}</p>{/if}
+
+		{#if auth.isSignedIn}
+			<!-- ───────────── Signed in ───────────── -->
+			<section class="card" data-testid="account-signed-in">
+				<div class="who">
+					<span class="avatar">{initial}</span>
+					<div class="who-text">
+						<div class="who-name" data-testid="account-displayname">{auth.displayName ?? 'Nameless Spirit'}</div>
 						{#if auth.isAnonymous}
 							<span class="badge guest">Guest account</span>
 						{:else}
@@ -225,250 +229,456 @@
 						{/if}
 					</div>
 				</div>
-			</div>
 
-			<form class="row" onsubmit={saveName}>
-				<label class="field">
-					<span>Display name</span>
+				<form class="row" onsubmit={saveName}>
 					<input
+						class="input"
 						bind:value={displayName}
 						maxlength="40"
-						placeholder="Nameless Spirit"
+						placeholder="Display name"
+						aria-label="Display name"
 						data-testid="displayname-input"
 					/>
-				</label>
-				<button class="btn" type="submit" disabled={busy} data-testid="displayname-save">Save</button>
-			</form>
-		</section>
-
-		{#if auth.isPermanent}
-			<!-- Manage a permanent account: password, email, sessions, deletion. -->
-			<section class="card" data-testid="manage-card">
-				<h2>Manage account</h2>
-				<label class="field" style="margin-bottom:12px">
-					<span>Current password <small>(required for changes below)</small></span>
-					<input bind:value={currentPassword} type="password" placeholder="••••••••" autocomplete="current-password" data-testid="current-password" />
-				</label>
-				<form class="row" onsubmit={changePassword}>
-					<label class="field">
-						<span>New password</span>
-						<input bind:value={newPassword} type="password" placeholder="At least 8 characters" autocomplete="new-password" minlength="8" data-testid="new-password" />
-					</label>
-					<button class="btn" type="submit" disabled={busy || newPassword.length < 8 || !currentPassword} data-testid="change-password">Update</button>
+					<button class="btn-ghost" type="submit" disabled={busy} data-testid="displayname-save">Save</button>
 				</form>
-				<form class="row" onsubmit={changeEmail}>
-					<label class="field">
-						<span>Change email</span>
-						<input bind:value={newEmail} type="email" placeholder="new@email.com" autocomplete="email" data-testid="new-email" />
-					</label>
-					<button class="btn" type="submit" disabled={busy || !newEmail} data-testid="change-email">Send</button>
-				</form>
-				<div class="manage-actions">
-					<button class="link" type="button" onclick={signOutEverywhere} disabled={busy} data-testid="signout-everywhere">Sign out everywhere</button>
-					<button class="link danger" type="button" onclick={deleteAccount} disabled={busy} data-testid="delete-account">Delete account</button>
-				</div>
 			</section>
-		{/if}
 
-		{#if auth.isAnonymous}
-			<!-- Claim flow: attach a real identity to the same uid → keep all progress. -->
-			<section class="card" data-testid="claim-card">
-				<h2>Claim your account</h2>
-				<p class="lead">You're playing as a guest. Add an email + password (or a provider) to make it permanent and keep your stats across devices.</p>
-				<form class="stack" onsubmit={claimAccount}>
-					<input bind:value={email} type="email" placeholder="you@email.com" autocomplete="email" data-testid="claim-email" required />
-					<input bind:value={password} type="password" placeholder="Password (min 8 chars)" autocomplete="new-password" minlength="8" data-testid="claim-password" required />
-					<button class="btn primary" type="submit" disabled={busy} data-testid="claim-submit">{busy ? 'Linking…' : 'Claim account'}</button>
-				</form>
-				<div class="oauth">
-					<button class="oauth-btn" type="button" onclick={() => oauth('google')} data-testid="oauth-google">Continue with Google</button>
-					<button class="oauth-btn" type="button" onclick={() => oauth('apple')} data-testid="oauth-apple">Continue with Apple</button>
-					<button class="oauth-btn" type="button" onclick={() => oauth('discord')} data-testid="oauth-discord">Continue with Discord</button>
-				</div>
-			</section>
-		{/if}
-
-		<button class="signout-link" type="button" onclick={doSignOut} disabled={busy} data-testid="signout">Sign out</button>
-	{:else}
-		<!-- ───────────── Signed out ───────────── -->
-		<section class="card">
-			<div class="tabs">
-				<button class="tab" class:active={mode === 'signin'} type="button" onclick={() => (mode = 'signin')} data-testid="tab-signin">Sign in</button>
-				<button class="tab" class:active={mode === 'signup'} type="button" onclick={() => (mode = 'signup')} data-testid="tab-signup">Create account</button>
-			</div>
-
-			<form class="stack" onsubmit={submitCredentials}>
-				{#if mode === 'signup'}
-					<input bind:value={displayName} maxlength="40" placeholder="Display name" autocomplete="nickname" data-testid="signup-name" />
-				{/if}
-				<input bind:value={email} type="email" placeholder="you@email.com" autocomplete="email" data-testid="auth-email" required />
-				<input
-					bind:value={password}
-					type="password"
-					placeholder="Password"
-					autocomplete={mode === 'signup' ? 'new-password' : 'current-password'}
-					minlength="8"
-					data-testid="auth-password"
-					required
-				/>
-				<button class="btn primary" type="submit" disabled={busy} data-testid="auth-submit">
-					{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
-				</button>
-			</form>
-
-			{#if mode === 'signin'}
-				<button class="link" type="button" onclick={resetPassword} data-testid="forgot">Forgot password?</button>
+			{#if auth.isAnonymous}
+				<!-- Claim flow: attach a real identity to the same uid → keep all progress. -->
+				<section class="card" data-testid="claim-card">
+					<h2>Claim your account</h2>
+					<p class="lead">Add an email + password (or a provider) to make your guest account permanent and keep your stats across devices.</p>
+					<form class="stack" onsubmit={claimAccount}>
+						<input class="input" bind:value={email} type="email" placeholder="you@email.com" autocomplete="email" data-testid="claim-email" required />
+						<input class="input" bind:value={password} type="password" placeholder="Password (min 8 chars)" autocomplete="new-password" minlength="8" data-testid="claim-password" required />
+						<button class="btn-primary" type="submit" disabled={busy} data-testid="claim-submit">{busy ? 'Linking…' : 'Claim account'}</button>
+					</form>
+					<div class="oauth">
+						<button class="oauth-btn" type="button" onclick={() => oauth('google')} data-testid="oauth-google">Google</button>
+						<button class="oauth-btn" type="button" onclick={() => oauth('apple')} data-testid="oauth-apple">Apple</button>
+						<button class="oauth-btn" type="button" onclick={() => oauth('discord')} data-testid="oauth-discord">Discord</button>
+					</div>
+				</section>
 			{/if}
 
-			<div class="divider"><span>or</span></div>
+			{#if auth.isPermanent}
+				<!-- Advanced security tucked into a disclosure so the page stays simple. -->
+				<details class="manage" data-testid="manage-card">
+					<summary>Manage account</summary>
+					<div class="manage-body">
+						<input class="input" bind:value={currentPassword} type="password" placeholder="Current password (required below)" autocomplete="current-password" data-testid="current-password" />
+						<form class="row" onsubmit={changePassword}>
+							<input class="input" bind:value={newPassword} type="password" placeholder="New password" autocomplete="new-password" minlength="8" data-testid="new-password" />
+							<button class="btn-ghost" type="submit" disabled={busy || newPassword.length < 8 || !currentPassword} data-testid="change-password">Update</button>
+						</form>
+						<form class="row" onsubmit={changeEmail}>
+							<input class="input" bind:value={newEmail} type="email" placeholder="New email" autocomplete="email" data-testid="new-email" />
+							<button class="btn-ghost" type="submit" disabled={busy || !newEmail} data-testid="change-email">Send</button>
+						</form>
+						<div class="manage-actions">
+							<button class="link" type="button" onclick={signOutEverywhere} disabled={busy} data-testid="signout-everywhere">Sign out everywhere</button>
+							<button class="link danger" type="button" onclick={deleteAccount} disabled={busy} data-testid="delete-account">Delete account</button>
+						</div>
+					</div>
+				</details>
+			{/if}
 
-			<div class="oauth">
-				<button class="oauth-btn" type="button" onclick={() => oauth('google')} data-testid="oauth-google">Continue with Google</button>
-				<button class="oauth-btn" type="button" onclick={() => oauth('apple')} data-testid="oauth-apple">Continue with Apple</button>
-				<button class="oauth-btn" type="button" onclick={() => oauth('discord')} data-testid="oauth-discord">Continue with Discord</button>
-			</div>
+			<button class="btn-primary block" type="button" onclick={doSignOut} disabled={busy} data-testid="signout">Sign out</button>
+		{:else}
+			<!-- ───────────── Signed out ───────────── -->
+			<section class="card">
+				<div class="seg" role="tablist">
+					<button class="seg-btn" class:active={mode === 'signin'} role="tab" aria-selected={mode === 'signin'} type="button" onclick={() => (mode = 'signin')} data-testid="tab-signin">Sign in</button>
+					<button class="seg-btn" class:active={mode === 'signup'} role="tab" aria-selected={mode === 'signup'} type="button" onclick={() => (mode = 'signup')} data-testid="tab-signup">Create account</button>
+				</div>
 
-			<p class="lead small">No account needed to play — head to <a href="/play">Play</a> and jump in as a guest. Create an account anytime to save your stats.</p>
-		</section>
-	{/if}
+				<form class="stack" onsubmit={submitCredentials}>
+					{#if mode === 'signup'}
+						<input class="input" bind:value={displayName} maxlength="40" placeholder="Display name" autocomplete="nickname" data-testid="signup-name" />
+					{/if}
+					<input class="input" bind:value={email} type="email" placeholder="you@email.com" autocomplete="email" data-testid="auth-email" required />
+					<input
+						class="input"
+						bind:value={password}
+						type="password"
+						placeholder="Password"
+						autocomplete={mode === 'signup' ? 'new-password' : 'current-password'}
+						minlength="8"
+						data-testid="auth-password"
+						required
+					/>
+					<button class="btn-primary" type="submit" disabled={busy} data-testid="auth-submit">
+						{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+					</button>
+				</form>
+
+				{#if mode === 'signin'}
+					<button class="link" type="button" onclick={resetPassword} data-testid="forgot">Forgot password?</button>
+				{/if}
+
+				<div class="divider"><span>or</span></div>
+
+				<div class="oauth">
+					<button class="oauth-btn" type="button" onclick={() => oauth('google')} data-testid="oauth-google">Google</button>
+					<button class="oauth-btn" type="button" onclick={() => oauth('apple')} data-testid="oauth-apple">Apple</button>
+					<button class="oauth-btn" type="button" onclick={() => oauth('discord')} data-testid="oauth-discord">Discord</button>
+				</div>
+			</section>
+
+			<p class="foot">No account needed to play — head to <a href="/play">Play</a> and jump in as a guest. Create an account anytime to save your stats.</p>
+		{/if}
+	</div>
 </main>
 
 <style>
-	.account {
-		max-width: 460px;
-		margin: 0 auto;
-		padding: clamp(24px, 5vh, 56px) 20px 80px;
-	}
-	.head {
+	.auth {
+		min-height: 100vh;
+		min-height: 100dvh;
 		display: flex;
-		align-items: baseline;
-		gap: 16px;
-		margin-bottom: 22px;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: clamp(56px, 9vh, 96px) 20px clamp(40px, 7vh, 72px);
+		position: relative;
 	}
+
 	.back {
-		font-family: var(--font-mono, monospace);
-		font-size: 0.8rem;
+		position: absolute;
+		top: clamp(18px, 4vh, 32px);
+		left: clamp(16px, 4vw, 36px);
+		font-family: var(--font-display);
+		font-size: 0.78rem;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
 		color: var(--color-fog);
 		text-decoration: none;
+		transition:
+			color 180ms ease,
+			transform 180ms ease;
 	}
-	.back:hover { color: var(--color-bone); }
-	h1 {
+	.back:hover {
+		color: var(--color-bone);
+		transform: translateX(-3px);
+	}
+
+	.shell {
+		width: 100%;
+		max-width: 400px;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	/* ── Brand header ─────────────────────────────────────── */
+	.brand {
+		text-align: center;
+		margin-bottom: 4px;
+	}
+	.eyebrow {
 		font-family: var(--font-display);
-		font-size: clamp(1.8rem, 5vw, 2.4rem);
-		letter-spacing: 0.04em;
+		font-size: 0.66rem;
+		letter-spacing: 0.34em;
+		text-transform: uppercase;
+		color: var(--brand-cyan);
+		margin-bottom: 8px;
+	}
+	.title {
+		font-family: var(--font-display);
+		font-size: clamp(2.2rem, 8vw, 3rem);
+		line-height: 0.9;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		margin: 0;
+		filter: drop-shadow(0 6px 30px rgba(123, 29, 255, 0.45));
+	}
+
+	/* ── Card ─────────────────────────────────────────────── */
+	.card {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		padding: 22px;
+		border-radius: 16px;
+		border: 1px solid var(--color-aether);
+		background: linear-gradient(180deg, rgba(20, 12, 36, 0.92), rgba(10, 6, 20, 0.94));
+		box-shadow: 0 30px 80px -32px rgba(0, 0, 0, 0.85);
+	}
+	h2 {
+		font-family: var(--font-display);
+		font-size: 1rem;
+		letter-spacing: 0.08em;
 		text-transform: uppercase;
 		color: var(--color-bone);
 		margin: 0;
 	}
-	.card {
-		background: linear-gradient(180deg, rgba(20, 12, 36, 0.7), rgba(10, 6, 20, 0.7));
-		border: 1px solid var(--color-mist);
-		border-radius: 14px;
-		padding: 22px;
-		margin-bottom: 18px;
+	.lead {
+		color: var(--color-fog);
+		font-size: 0.84rem;
+		line-height: 1.55;
+		margin: 0;
 	}
-	h2 {
-		font-family: var(--font-display);
-		font-size: 1.1rem;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--color-bone);
-		margin: 0 0 8px;
-	}
-	.lead { color: var(--color-fog); font-size: 0.86rem; line-height: 1.5; margin: 0 0 14px; }
-	.lead.small { margin-top: 16px; text-align: center; }
-	.lead a { color: var(--brand-magenta-soft, #ff5dd1); }
 
-	.tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--color-mist); }
-	.tab {
+	/* ── Segmented mode toggle ────────────────────────────── */
+	.seg {
+		display: flex;
+		gap: 4px;
+		padding: 4px;
+		border-radius: 11px;
+		border: 1px solid var(--color-mist);
+		background: rgba(8, 5, 16, 0.6);
+	}
+	.seg-btn {
 		flex: 1;
-		padding: 10px;
-		background: none;
+		padding: 9px 8px;
 		border: none;
-		border-bottom: 2px solid transparent;
+		border-radius: 8px;
+		background: transparent;
 		color: var(--color-fog);
 		font-family: var(--font-display);
-		font-size: 0.84rem;
-		letter-spacing: 0.1em;
+		font-size: 0.74rem;
+		letter-spacing: 0.12em;
 		text-transform: uppercase;
 		cursor: pointer;
+		transition:
+			color 160ms ease,
+			background 160ms ease;
 	}
-	.tab.active { color: var(--color-bone); border-bottom-color: var(--brand-magenta); }
+	.seg-btn.active {
+		background: var(--gradient-flame);
+		color: #fff;
+	}
 
-	.stack { display: flex; flex-direction: column; gap: 10px; }
-	.row { display: flex; align-items: flex-end; gap: 10px; }
-	.field { display: flex; flex-direction: column; gap: 5px; flex: 1; }
-	.field span { font-family: var(--font-display); font-size: 0.74rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--color-fog); }
-	input {
+	/* ── Inputs & rows ────────────────────────────────────── */
+	.stack {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+	.row {
+		display: flex;
+		gap: 10px;
+	}
+	.row .input {
+		flex: 1;
+	}
+	.input {
 		width: 100%;
-		padding: 11px 13px;
-		border-radius: 8px;
+		padding: 12px 14px;
+		border-radius: 10px;
 		border: 1px solid var(--color-mist);
-		background: rgba(8, 5, 16, 0.7);
+		background: rgba(8, 5, 16, 0.6);
 		color: var(--color-bone);
 		font: inherit;
 		font-size: 0.92rem;
+		transition: border-color 160ms ease;
 	}
-	input:focus { outline: none; border-color: var(--brand-magenta); }
+	.input::placeholder {
+		color: var(--color-whisper);
+	}
+	.input:focus {
+		outline: none;
+		border-color: var(--brand-magenta);
+	}
 
-	.btn {
-		padding: 11px 18px;
-		border-radius: 8px;
-		border: 1px solid var(--color-mist);
-		background: rgba(20, 12, 36, 0.6);
-		color: var(--color-bone);
-		font-family: var(--font-display);
-		font-size: 0.82rem;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		cursor: pointer;
+	/* Global .btn-primary / .btn-ghost are used directly; these add layout helpers. */
+	.btn-ghost {
+		flex: none;
 		white-space: nowrap;
 	}
-	.btn.primary { border: none; background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff)); color: #fff; }
-	.btn:disabled { opacity: 0.55; cursor: progress; }
+	.block {
+		width: 100%;
+		justify-content: center;
+	}
 
-	.divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--color-fog); font-size: 0.74rem; }
-	.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--color-mist); }
-
-	.oauth { display: flex; flex-direction: column; gap: 8px; }
+	/* ── Divider + OAuth ──────────────────────────────────── */
+	.divider {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		color: var(--color-whisper);
+		font-size: 0.72rem;
+		letter-spacing: 0.2em;
+		text-transform: uppercase;
+	}
+	.divider::before,
+	.divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: var(--color-mist);
+	}
+	.oauth {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 8px;
+	}
 	.oauth-btn {
-		padding: 11px;
-		border-radius: 8px;
+		padding: 11px 6px;
+		border-radius: 9px;
 		border: 1px solid var(--color-mist);
-		background: rgba(8, 5, 16, 0.5);
+		background: rgba(8, 5, 16, 0.4);
+		color: var(--color-parchment);
+		font-family: var(--font-display);
+		font-size: 0.74rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		cursor: pointer;
+		transition:
+			border-color 160ms ease,
+			color 160ms ease;
+	}
+	.oauth-btn:hover {
+		border-color: var(--brand-magenta);
+		color: var(--brand-magenta-soft);
+	}
+
+	/* ── Who (signed in) ──────────────────────────────────── */
+	.who {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+	}
+	.avatar {
+		display: grid;
+		place-items: center;
+		width: 52px;
+		height: 52px;
+		flex: none;
+		border-radius: 50%;
+		background: var(--gradient-flame);
+		color: #fff;
+		font-family: var(--font-display);
+		font-size: 1.4rem;
+		box-shadow: 0 0 16px -2px rgba(255, 43, 199, 0.55);
+	}
+	.who-text {
+		min-width: 0;
+	}
+	.who-name {
+		font-family: var(--font-display);
+		font-size: 1.3rem;
+		letter-spacing: 0.02em;
 		color: var(--color-bone);
+		line-height: 1.1;
+	}
+	.badge {
+		display: inline-block;
+		margin-top: 6px;
+		font-family: var(--font-mono);
+		font-size: 0.72rem;
+		padding: 2px 8px;
+		border-radius: 4px;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.badge.guest {
+		background: rgba(36, 212, 255, 0.16);
+		color: var(--brand-cyan);
+	}
+	.badge.real {
+		background: rgba(32, 224, 193, 0.14);
+		color: var(--brand-teal);
+	}
+
+	/* ── Manage disclosure ────────────────────────────────── */
+	.manage {
+		border-radius: 16px;
+		border: 1px solid var(--color-mist);
+		background: rgba(10, 6, 20, 0.5);
+		overflow: hidden;
+	}
+	.manage summary {
+		list-style: none;
+		cursor: pointer;
+		padding: 15px 20px;
 		font-family: var(--font-display);
 		font-size: 0.8rem;
-		letter-spacing: 0.06em;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--color-fog);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		transition: color 160ms ease;
+	}
+	.manage summary::-webkit-details-marker {
+		display: none;
+	}
+	.manage summary::after {
+		content: '+';
+		font-size: 1.1rem;
+		color: var(--brand-magenta-soft);
+	}
+	.manage[open] summary::after {
+		content: '−';
+	}
+	.manage summary:hover {
+		color: var(--color-bone);
+	}
+	.manage-body {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 4px 20px 20px;
+	}
+	.manage-actions {
+		display: flex;
+		justify-content: space-between;
+		gap: 12px;
+		margin-top: 6px;
+		padding-top: 12px;
+		border-top: 1px solid var(--color-mist);
+	}
+
+	/* ── Links & messages ─────────────────────────────────── */
+	.link {
+		align-self: flex-start;
+		background: none;
+		border: none;
+		padding: 0;
+		color: var(--brand-magenta-soft);
+		font-family: var(--font-body);
+		font-size: 0.82rem;
 		cursor: pointer;
-		transition: border-color 150ms ease;
 	}
-	.oauth-btn:hover { border-color: var(--brand-magenta); }
-
-	.link { background: none; border: none; color: var(--brand-magenta-soft, #ff5dd1); font-size: 0.82rem; cursor: pointer; padding: 8px 0 0; align-self: flex-start; }
-	.link:disabled { opacity: 0.5; cursor: progress; }
-	.link.danger { color: var(--color-blood, #c41a3d); }
-	.manage-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--color-mist); }
-	.manage-actions .link { padding: 0; }
-	.row + .row { margin-top: 12px; }
-
-	.who { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
-	.who-avatar {
-		display: grid; place-items: center;
-		width: 48px; height: 48px; flex: none;
-		border-radius: 50%;
-		background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff));
-		color: #fff; font-family: var(--font-display); font-size: 1.3rem;
+	.link:hover {
+		color: var(--brand-magenta);
 	}
-	.who-name { font-family: var(--font-display); font-size: 1.3rem; color: var(--color-bone); }
-	.badge { font-family: var(--font-mono, monospace); font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; }
-	.badge.guest { background: rgba(36, 212, 255, 0.16); color: var(--brand-cyan, #24d4ff); }
-	.badge.real { background: rgba(32, 224, 193, 0.14); color: var(--brand-teal, #20e0c1); }
+	.link.danger {
+		color: var(--color-blood, #c41a3d);
+	}
+	.link:disabled {
+		opacity: 0.5;
+		cursor: progress;
+	}
 
-	.signout-link { display: block; margin: 8px auto 0; background: none; border: none; color: var(--color-fog); font-size: 0.84rem; cursor: pointer; text-decoration: underline; }
-	.signout-link:hover { color: var(--color-bone); }
+	.foot {
+		text-align: center;
+		color: var(--color-fog);
+		font-size: 0.82rem;
+		line-height: 1.55;
+		margin: 0;
+	}
+	.foot a {
+		color: var(--brand-magenta-soft);
+	}
 
-	.msg { padding: 11px 14px; border-radius: 8px; font-size: 0.85rem; margin-bottom: 16px; }
-	.msg.error { border-left: 3px solid var(--color-blood, #c41a3d); background: rgba(196, 26, 61, 0.18); color: var(--color-bone); }
-	.msg.notice { border-left: 3px solid var(--brand-teal, #20e0c1); background: rgba(32, 224, 193, 0.12); color: var(--color-bone); }
+	.msg {
+		padding: 11px 14px;
+		border-radius: 10px;
+		font-size: 0.85rem;
+		margin: 0;
+	}
+	.msg.error {
+		border-left: 3px solid var(--color-blood, #c41a3d);
+		background: rgba(196, 26, 61, 0.18);
+		color: var(--color-bone);
+	}
+	.msg.notice {
+		border-left: 3px solid var(--brand-teal);
+		background: rgba(32, 224, 193, 0.12);
+		color: var(--color-bone);
+	}
 </style>

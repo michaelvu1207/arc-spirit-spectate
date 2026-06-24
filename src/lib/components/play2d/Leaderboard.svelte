@@ -2,7 +2,8 @@
 	import type { getAssetState } from '$lib/stores/assetStore.svelte';
 	import type { PrivatePlayerState, SeatColor, SpectatorProjection } from '$lib/play/types';
 	import { expectedAttack } from '$lib/play/combat';
-	import { statusAccent, storageUrl, iconPoolUrl, RESOURCE_ICON_IDS } from './helpers';
+	import { buildMonsterRewards } from '$lib/play/monsterRewards';
+	import { statusAccent, seatAccent, storageUrl, iconPoolUrl, RESOURCE_ICON_IDS } from './helpers';
 
 	interface Props {
 		room: SpectatorProjection;
@@ -17,8 +18,8 @@
 	let { room, mySeat, assets, activeSeat = null, onSelectSeat }: Props = $props();
 
 	const vpIcon = $derived(iconPoolUrl(assets.iconPool, RESOURCE_ICON_IDS.vp));
-	const potentialIcon = $derived(iconPoolUrl(assets.iconPool, RESOURCE_ICON_IDS.barrier));
-	const arcaneBloodIcon = $derived(iconPoolUrl(assets.iconPool, RESOURCE_ICON_IDS.blood));
+	const barrierIcon = $derived(iconPoolUrl(assets.iconPool, RESOURCE_ICON_IDS.barrier));
+	const brokenBarrierIcon = $derived(iconPoolUrl(assets.iconPool, RESOURCE_ICON_IDS.blood));
 
 	const rows = $derived(
 		room.activeSeats
@@ -36,8 +37,8 @@
 					// Resting average attack of a roll (dice-tier averages + Spirit Animal
 					// bonus) — same number as the scout dice-pool readout.
 					atk: player ? expectedAttack(player as unknown as PrivatePlayerState) : 0,
-					potentialFull: Math.max(0, player?.barrier ?? 0),
-					potentialMax: Math.max(Math.max(0, player?.barrier ?? 0), player?.maxTokens ?? 0),
+					barrierFull: Math.max(0, player?.barrier ?? 0),
+					barrierMax: Math.max(Math.max(0, player?.barrier ?? 0), player?.maxBarrier ?? 0),
 					icon: storageUrl(assets.guardianAssets.get(guardian)?.icon_image_path ?? null),
 					ring: statusAccent(statusToken),
 					ready:
@@ -51,9 +52,61 @@
 				(a, b) => b.vp - a.vp || room.activeSeats.indexOf(a.seat) - room.activeSeats.indexOf(b.seat)
 			)
 	);
+
+	// The Arcane Abyss monster rides the leaderboard as a boss "competitor" — pinned at the
+	// top, purple, and styled apart from the human players. Its art, stats (HP / DMG), lives,
+	// and kill rewards all come from the live monster state + asset map.
+	const monster = $derived(room.monster);
+	const monsterRewards = $derived(
+		monster
+			? buildMonsterRewards(monster.rewardTrack)
+					.map((opt) => ({ index: opt.index, label: opt.label, url: iconPoolUrl(assets.iconPool, opt.token) }))
+					.filter((r) => r.url)
+			: []
+	);
 </script>
 
 <aside class="leaderboard" data-testid="leaderboard">
+	{#if monster}
+		<!-- The Arcane Abyss monster sits at the apex of the standings in the SAME row grammar
+		     as the players (meta-left, avatar-right, threaded on the spine) — but it's the
+		     shared antagonist, not a rival: a hexagonal abyssal sigil instead of a soul circle,
+		     stat chips for its threat, a bounty for the payoff, and a blood badge counting the
+		     kills still needed to bring it down. -->
+		<div class="boss" data-testid="lb-monster">
+			<span class="meta">
+				<span class="boss-name" title="The Arcane Abyss monster">Monster</span>
+				<span class="meta-row">
+					<span class="chip dmg" title="Damage it deals to you">
+						<span class="chip-g" aria-hidden="true">⚔️</span>{monster.damage}
+					</span>
+					<span class="chip hp" title="Health — damage to defeat it once">
+						{#if barrierIcon}<img class="chip-ic" src={barrierIcon} alt="" />{:else}<span class="chip-g" aria-hidden="true">❤</span>{/if}{monster.maxHp}
+					</span>
+				</span>
+				{#if monsterRewards.length > 0}
+					<span class="bounty" title="Defeat it to claim {monster.chooseAmount}">
+						<span class="bounty-label">Bounty</span>
+						<span class="bounty-icons">
+							{#each monsterRewards as r (r.index)}
+								<span class="bounty-ic"><img src={r.url} alt={r.label} title={r.label} loading="lazy" /></span>
+							{/each}
+						</span>
+					</span>
+				{/if}
+			</span>
+
+			<span
+				class="boss-av"
+				title="{monster.livesRemaining} of {monster.livesTotal} {monster.livesTotal === 1 ? 'kill' : 'kills'} left to defeat it"
+			>
+				<span class="sigil" aria-hidden="true"></span>
+				{#if monster.livesRemaining > 0}
+					<span class="lives" aria-label="{monster.livesRemaining} kills remaining">×{monster.livesRemaining}</span>
+				{/if}
+			</span>
+		</div>
+	{/if}
 	{#each rows as row (row.seat)}
 		<button
 			type="button"
@@ -65,8 +118,8 @@
 			onclick={() => onSelectSeat?.(row.seat)}
 		>
 			<span class="meta">
+				{#if row.seat !== mySeat}<span class="name" style="color: {seatAccent(row.seat)}" title={row.name}>{row.name}</span>{/if}
 				<span class="meta-row">
-					{#if row.seat !== mySeat}<span class="name" title={row.name}>{row.name}</span>{/if}
 					<span class="pts" data-testid="lb-vp-{row.seat}">
 						{#if vpIcon}<img class="vp-ic" src={vpIcon} alt="VP" />{/if}<span class="pts-num"
 							>{row.vp}</span
@@ -74,7 +127,7 @@
 					</span>
 					{#if row.atk > 0}
 						<span class="atk" data-testid="lb-atk-{row.seat}" title="Avg attack: {row.atk.toFixed(1)}">
-							<span class="atk-glyph" aria-hidden="true">⚔</span><span class="atk-num">{row.atk.toFixed(1)}</span>
+							<span class="atk-glyph" aria-hidden="true">⚔️</span><span class="atk-num">{row.atk.toFixed(1)}</span>
 						</span>
 					{/if}
 					{#if row.init > 0}
@@ -83,18 +136,18 @@
 						</span>
 					{/if}
 				</span>
-				{#if row.potentialMax > 0}
-					<span class="potential" title="Potential">
-						{#each Array.from({ length: row.potentialMax }) as _, i (i)}
-							{@const healthSide = i < row.potentialFull}
-							{@const icon = healthSide ? potentialIcon : arcaneBloodIcon}
+				{#if row.barrierMax > 0}
+					<span class="potential" title="Max Barrier">
+						{#each Array.from({ length: row.barrierMax }) as _, i (i)}
+							{@const barrierSide = i < row.barrierFull}
+							{@const icon = barrierSide ? barrierIcon : brokenBarrierIcon}
 							{#if icon}<img
 									class="pot"
-									class:arcane={!healthSide}
+									class:arcane={!barrierSide}
 									src={icon}
-									alt={healthSide ? 'Health' : 'Arcane blood'}
-									title={healthSide ? 'Health' : 'Arcane blood (corrupted)'}
-								/>{:else}<span class="pot dot" class:arcane={!healthSide}></span>{/if}
+									alt={barrierSide ? 'Barrier' : 'Broken barrier'}
+									title={barrierSide ? 'Barrier' : 'Broken barrier'}
+								/>{:else}<span class="pot dot" class:arcane={!barrierSide}></span>{/if}
 						{/each}
 					</span>
 				{/if}
@@ -122,6 +175,194 @@
 		/* Rows are scout buttons — stay clickable even if the float lets clicks pass. */
 		pointer-events: auto;
 	}
+
+	/* ── The Arcane Abyss monster — pinned at the apex of the standings in the SAME row
+	   grammar as the players (meta-left, sigil-right, threaded on the spine), so it reads as
+	   the thing everyone is racing against rather than a bolted-on banner. Its identity is the
+	   hexagonal abyssal sigil (see .sigil); a faint always-on aura sets the row apart without a
+	   hard card. */
+	.boss {
+		--mon: #a855f7;
+		align-self: flex-end;
+		position: relative;
+		isolation: isolate;
+		z-index: 2;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		padding: 2px 0;
+	}
+	.boss::before {
+		content: '';
+		position: absolute;
+		inset: -6px -6px -6px -18px;
+		z-index: -1;
+		border-radius: 999px;
+		background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--mon) 24%, transparent) 80%);
+		box-shadow:
+			inset 0 0 0 1px color-mix(in srgb, var(--mon) 32%, transparent),
+			0 0 14px color-mix(in srgb, var(--mon) 20%, transparent);
+	}
+	.boss-name {
+		font-family: var(--font-display);
+		font-size: 0.95rem;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: color-mix(in srgb, var(--mon) 22%, #fff);
+		line-height: 1.05;
+		text-shadow: 0 0 12px color-mix(in srgb, var(--mon) 70%, transparent);
+	}
+	/* Threat read-out — small filled chips (a touch more menacing than the players' bare
+	   numbers): amber damage it deals, purple health to fell it once. */
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 1px 7px;
+		border-radius: 999px;
+		font-family: var(--font-display);
+		font-size: 0.82rem;
+		line-height: 1.3;
+		font-variant-numeric: tabular-nums;
+		background: rgba(0, 0, 0, 0.34);
+		border: 1px solid color-mix(in srgb, var(--mon) 34%, transparent);
+	}
+	.chip.dmg {
+		color: var(--brand-amber, #ffba3d);
+	}
+	.chip.hp {
+		color: color-mix(in srgb, var(--mon) 28%, #fff);
+	}
+	.chip-g {
+		font-size: 0.78em;
+	}
+	.chip-ic {
+		width: 0.95em;
+		height: 0.95em;
+		object-fit: contain;
+	}
+	/* Bounty — the payoff for the kill, sitting where a player's barrier pips sit. */
+	.bounty {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.bounty-label {
+		font-size: 0.54rem;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		color: color-mix(in srgb, var(--mon) 38%, #fff 50%);
+	}
+	.bounty-icons {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.bounty-ic {
+		width: 21px;
+		height: 21px;
+		display: grid;
+		place-items: center;
+	}
+	.bounty-ic img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+
+	/* ── Signature: the abyssal sigil. Where players are circular souls, the monster is a
+	   hexagon holding a slow void vortex with a vertical slit eye — pulsing, ringed in abyss
+	   purple. The blood badge counts the kills still needed to bring it down. ───────────── */
+	.boss-av {
+		position: relative;
+		flex: 0 0 auto;
+		width: 56px;
+		height: 56px;
+		margin-right: 2px; /* centre the sigil on the spine lane (≈30px from the right) */
+		display: grid;
+		place-items: center;
+	}
+	.sigil {
+		position: absolute;
+		inset: 0;
+		clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+		background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--mon) 70%, #fff) 0%, #1a0b2e 48%, #07040f 100%);
+		box-shadow:
+			0 0 0 2px color-mix(in srgb, var(--mon) 72%, transparent),
+			0 0 13px color-mix(in srgb, var(--mon) 45%, transparent),
+			inset 0 0 18px rgba(0, 0, 0, 0.72);
+	}
+	/* Slow swirl of the void (clip-path on .sigil also clips these pseudo-elements). */
+	.sigil::before {
+		content: '';
+		position: absolute;
+		inset: -25%;
+		background: conic-gradient(
+			from 0deg,
+			transparent 0deg,
+			color-mix(in srgb, var(--mon) 60%, transparent) 55deg,
+			transparent 130deg,
+			color-mix(in srgb, var(--mon) 38%, transparent) 210deg,
+			transparent 300deg
+		);
+		opacity: 0.7;
+		animation: abyss-spin 7s linear infinite;
+	}
+	/* The eye: a vertical slit pupil that breathes. */
+	.sigil::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: 42%;
+		width: 6px;
+		height: 21px;
+		border-radius: 50%;
+		transform: translate(-50%, -50%);
+		background: radial-gradient(circle, #fff 0%, color-mix(in srgb, var(--mon) 80%, #fff) 42%, color-mix(in srgb, var(--mon) 92%, #000) 100%);
+		box-shadow: 0 0 10px color-mix(in srgb, var(--mon) 85%, transparent);
+		animation: abyss-blink 2.6s ease-in-out infinite;
+	}
+	@keyframes abyss-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+	@keyframes abyss-blink {
+		0%,
+		100% {
+			opacity: 0.85;
+			transform: translate(-50%, -50%) scaleY(1);
+		}
+		50% {
+			opacity: 1;
+			transform: translate(-50%, -50%) scaleY(1.16);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.sigil::before,
+		.sigil::after {
+			animation: none;
+		}
+	}
+	.lives {
+		position: absolute;
+		right: -3px;
+		bottom: -3px;
+		min-width: 19px;
+		height: 19px;
+		padding: 0 4px;
+		border-radius: 10px;
+		background: var(--color-blood, #b1304a);
+		color: #fff;
+		font-family: var(--font-display);
+		font-size: 0.72rem;
+		font-variant-numeric: tabular-nums;
+		display: grid;
+		place-items: center;
+		box-shadow: 0 0 0 2px var(--color-void, #0c0518);
+	}
+
 	/* A thin vertical spine threading through the avatar column, connecting every
 	   icon like beads on a string. Sits behind the (opaque) avatars; fades at the
 	   ends so the imprecise top/bottom stops read as intentional. */
@@ -330,8 +571,8 @@
 		height: 60px;
 		margin-right: 0; /* the 60px avatar already centres on the lane */
 		box-shadow:
-			0 0 0 3px var(--brand-amber, #ffba3d),
-			0 0 16px color-mix(in srgb, var(--brand-amber, #ffba3d) 50%, transparent);
+			0 0 0 3px var(--ring),
+			0 0 16px color-mix(in srgb, var(--ring) 50%, transparent);
 	}
 	.lb-row.me .pts {
 		font-size: 1.5rem;
@@ -367,6 +608,20 @@
 		}
 		.potential {
 			max-width: 6rem;
+		}
+		.boss-name {
+			font-size: 0.82rem;
+		}
+		.boss-av {
+			width: 46px;
+			height: 46px;
+		}
+		.sigil::after {
+			height: 17px;
+		}
+		.bounty-ic {
+			width: 18px;
+			height: 18px;
 		}
 	}
 </style>

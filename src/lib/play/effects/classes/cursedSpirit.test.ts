@@ -32,7 +32,7 @@ function stateForCursed(
 	} = {}
 ) {
 	const player = makePlayer({
-		maxTokens: 10,
+		maxBarrier: 10,
 		spirits: [spirit(1, { 'Cursed Spirit': n })],
 		becameTaintedThisRound: stages.tainted ?? false,
 		becameCorruptThisRound: stages.corrupt ?? false,
@@ -110,7 +110,7 @@ describe('Cursed Spirit — engine-handled Cleanup claim', () => {
 	// auto-applied by the awakeningPhase effect trigger (that would double-grant).
 	it('the awakeningPhase effect trigger grants nothing (claim is the only channel)', () => {
 		const player = makePlayer({
-			maxTokens: 10,
+			maxBarrier: 10,
 			becameTaintedThisRound: true,
 			becameCorruptThisRound: true,
 			becameFallenThisRound: true,
@@ -120,6 +120,6 @@ describe('Cursed Spirit — engine-handled Cleanup claim', () => {
 		expect(player.attackDice).toHaveLength(0);
 		expect(player.relics).toBe(0);
 		expect(player.spiritAugments).toBe(0);
-		expect(player.maxTokens).toBe(10);
+		expect(player.maxBarrier).toBe(10);
 	});
 });

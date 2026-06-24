@@ -1,0 +1,190 @@
+# Simulation Optimization Plan — toward superhuman-scale ML training
+
+Goal: take the headless engine from ~**1.6 games/s/core** to the throughput a professional,
+production-grade RL pipeline needs (≈10⁸–10⁹ env steps to reach superhuman in a game this
+complex), with a clear ladder of CPU → WASM → GPU options.
+
+## Diagnosis (measured)
+
+- Single core, 4-player full games: **~1.6 games/s, ~144 rounds/s, ~912 command-applies/s, ~622 ms/game.**
+- **`random` and `medium` bots run at the same speed → the cost is the ENGINE, not the policy.**
+- Root cause: `applyGameCommand` deep-clones the whole state on **every** call via
+  `JSON.parse(JSON.stringify(state))` (`runtime.ts:cloneState`). A game is ~90 rounds ×
+  ~30 commands/round ≈ **2,700 full-state JSON round-trips per game**. That clone dominates.
+- Secondary per-command cost: `ensureStateShape` re-normalizes the state every call.
+
+## Target
+
+PPO/self-play to superhuman ≈ 10⁸–10⁹ env steps. At today's ~10³ steps/s/core that's
+weeks–years. We need **~10⁵–10⁶ steps/s aggregate**. The ladder below gets there.
+
+## Guiding principle: a golden-reference parity harness (do this FIRST)
+
+The canonical TS `applyGameCommand` is the **source of truth** for the rules. EVERY optimized
+path (in-place, WASM, GPU/JAX) must be **differential-tested** against it: run K random seeded
+rollouts through both, assert identical state hashes at every step. This is the safety net that
+makes all the speedups below safe — without it, a "fast but subtly wrong" engine silently
+corrupts training. Build this before optimizing.
+
+## The optimization ladder
+
+| Tier | Change | Expected | Effort | Risk |
+|---|---|---|---|---|
+| **1. CPU hot-path** | kill the per-command clone | **5–30×** | S–M | med (parity-gated) |
+| **2. Parallelism** | worker-pool / multi-machine | ×cores (×8 here) | S | low |
+| **3. WASM** | compile engine to WASM | 2–10× + Python interop | L | med |
+| **4. GPU-vectorized** | data-parallel batched env | 100–1000× | XL | high |
+| **5. Distributed RL** | actor-learner fleet | scale-out | L | med |
+
+### Tier 1 — CPU hot-path (do first; biggest bang/effort)
+The clone exists only for *purity* (so callers keep the old state). In self-play we apply
+commands sequentially and **discard the old state** — so the clone is pure waste in the hot loop.
+
+1. **In-place / no-clone fast path.** Add `applyGameCommand(state, …, { mutate: true })` (or a
+   `stepInPlace`) that skips `cloneState` and mutates directly. Guard: most commands validate
+   *before* mutating (early-return on failure); for the few that don't, snapshot only the touched
+   subtree or fall back to clone-on-write. Parity-test exhaustively. **Expected 5–30×.**
+2. **Trim what's cloned/carried.** `bags.history` (the `BagsData` spectate/export blob) and full
+   bag `contents` are likely large and irrelevant to the rules sim — drop or shallow-copy them in
+   a sim-only state. **Often the single cheapest big win** once profiled.
+3. **Faster clone where still needed** (bot-search rollouts): replace JSON round-trip with a typed
+   structural clone that shares immutable substructures (catalog refs, history). 2–5×.
+4. **Hoist `ensureStateShape`** out of the per-command path (normalize once at game start).
+5. **Cheaper `legalActions`** — it dry-runs N candidates, each cloning; reuse the no-clone path.
+
+After Tier 1: plausibly **~10–30 games/s/core** (hundreds of decisions/s → ~10⁴–10⁵ steps/s/core).
+
+### Tier 2 — Parallelism (linear, easy)
+Worker-thread / multi-process pool across all cores (we already shard 6×). Formalize a
+self-play worker pool; then a cloud CPU fleet for big runs. Linear scaling → ×8 locally,
+×100s in the cloud. Combined with Tier 1 this likely **already suffices for strong/superhuman**
+self-play (OpenAI Five trained on CPU env fleets).
+
+### Tier 3 — WASM (portability + Python RL)
+Compile the engine (or its hot core, via AssemblyScript or a Rust port) to WASM. Benefits:
+runs in Node, **and in-process from Python** — so a PettingZoo/Gymnasium wrapper can step it with
+no IPC, unlocking the mature Python RL stack on GPU. 2–10× over JS + the cross-language bridge.
+
+### Tier 4 — GPU-vectorized simulation (only if we hit the wall)
+The extreme-scale unlock (à la EnvPool / Brax / Pgx / Isaac Gym): run thousands of game
+instances in lockstep as **data-parallel array ops** (SoA layout, branch-free kernels) in JAX or
+CUDA/Triton. 100–1000× but an **XL rewrite** of branching rules into vectorized kernels, with
+high rules-drift risk — hence the parity harness is mandatory. Most RL projects never need this;
+reserve it for if Tiers 1–3 + cloud can't hit the step budget.
+
+### Tier 5 — Distributed RL (the production training system)
+Actor-learner architecture (IMPALA/SEED-RL): many CPU/WASM env **actors** generate experience →
+central **GPU learner** (PyTorch/JAX); experience queue, checkpointing, and **league play** to
+prevent strategy collapse in the multiplayer free-for-all. This is the scaffold that actually
+produces a superhuman agent once env throughput is solved.
+
+## Recommended sequencing
+
+1. **Profile** the state (what % of clone time is `bags.history` vs players vs combats) — 1 hr,
+   decides Tier-1 ordering.
+2. **Build the parity harness** (golden TS reference + differential rollout test).
+3. **Tier 1** (no-clone fast path + trim state) behind the parity gate → re-benchmark.
+4. **Tier 2** (worker pool) → measure aggregate; if it hits the step budget, train.
+5. **Tier 3 (WASM + Python bridge)** when moving to serious GPU RL / the actor-learner fleet.
+6. **Tier 4 (GPU-vectorized)** only if step-starved at the frontier.
+
+Bottom line: Tiers 1–2 (days of work, low risk, parity-gated) realistically get us **~100–1000×**
+aggregate over today — enough to train strong agents now; WASM + distributed for production
+superhuman; GPU-vectorized held in reserve.
+
+---
+
+## Results & decisions (implemented + measured)
+
+A 6-dimension Opus-4.8 audit (allocation, dry-run-cost, per-command-overhead, parallel-scaling,
+wasm-native, status-review) plus a synthesis pass evaluated the implementation and hunted for
+remaining wins. What we acted on, each benchmarked per the "re-benchmark after every change" rule:
+
+### ✅ Tier 1 — in-place mutate fast path (`applyGameCommand(..., { mutate: true })`)
+Skips the defensive deep clone in the self-play / training hot loop; parity-gated by
+`sim/_parity.test.ts` (byte-identical state vs the cloning reducer across 8 seeds). Used in
+`sim/selfPlay.ts` and the parity harness. ~1.5× single-core on raw self-play.
+
+### ✅ `bags.history` clone-cost cut (the headline allocation win)
+`buildHistoryBags` returns a snapshot whose bags **alias the same objects already on `state.bags`**
+(`history.hexSpirits === bags.hexSpirits`). `JSON.parse(JSON.stringify())` can't see the aliasing,
+so it serializes every bag's contents **twice**. `bags.history` is read in exactly ONE place —
+`buildHistorySnapshotRows` (server persistence) — and never by any handler, policy, `legalActions`
+dry-run, or the training loop. Fix (`cloneState`, parity-gated): detach `history` before the JSON
+round-trip and rebuild it **by reference** on the clone (zero extra serialized bytes).
+- **Isolated clone cost: 120.97 → 101.09 µs/clone (−16.4%, +19.6% clones/s)** (`sim/_profile.test.ts`).
+- **End-to-end RL data-gen (`ml/_gen.test.ts`, 24 heur games): 29.4s → 22.7s (−23%), byte-identical
+  output** (same 1562 samples, same 63% finished) — the gen path is dominated by `legalActions`
+  dry-run clones, so it gains more than the isolated number.
+- Lands on the JSON-clone paths: `ml/driver.ts` `legalActions` fan-out + the live server. (Self-play's
+  hot loop uses `mutate` and never clones; `botPolicy` uses `structuredClone`, which preserves
+  aliasing and so was never affected.)
+
+### ✅ Tier 1 extended to the RL driver (`ml/driver.ts` heuristic commit)
+The driver's per-command commit (`applyHeuristic`) deep-cloned on every heuristic command even though
+the prior state is discarded each step (same shape as self-play). Switched the commit to the
+parity-tested `mutate: true` fast path (the recording dry-runs above still clone, preserving the
+candidate states). Validated by **byte-identical training data** — same SHA-256 over the generated
+JSONL (1562 samples) before vs after — proving no aliasing corruption in the recorded
+`obs`/`phi`/`cands`.
+- **RL data-gen (24 heur games): 22.7s → 18.8s (−17% more).**
+
+### ✅ `isLegal` redundant double-clone removed (`server/botPolicy.ts:85`)
+`isLegal` did `applyGameCommand(structuredClone(state), …)` — but the default (no-`mutate`)
+`applyGameCommand` already deep-clones its input internally, so the `structuredClone` wrapper made a
+full extra deep copy that was immediately cloned again and discarded; `isLegal` only reads `.ok`.
+Dropped the wrapper. On the data-gen heuristic hot path (all FIELD profiles are `kind:'medium'` →
+`planMediumPhaseActions` → `isLegal` at navigation/encounter/location decisions).
+- Surfaced by the final verification critic (measured the wrapper at ~61% per-probe overhead,
+  141.6 → 55.2 µs). Validated: **identical SHA-256** over generated JSONL (decisions unchanged).
+- **RL data-gen (24 heur games): 18.8s → 17.3s (−8% more).**
+
+**Compounded data-gen result (`bags.history` + driver mutate commit + `isLegal` declone):
+29.4s → 22.7s → 18.8s → 17.3s = −41% (1.70× throughput), byte-identical output across the whole chain.**
+
+### ✅ Parity gate extended to the data-gen FIELD profiles (`sim/_parity.test.ts`)
+The standing parity gate previously drove only the `medium` profile. Added a second case that runs
+clone-vs-mutate byte-identity across the data-gen FIELD (`pvphunter/aggressive/cultivator/survivor/
+fighter/hard`, 5 seeds) — these exercise PvP-initiation, abyss-fishing, arcane-trade, and
+corruption-discard branches medium alone doesn't. This makes the in-place fast path's correctness
+(and the driver's `mutate:true` commit) a **permanent regression guard** on the exact command surface
+training data is generated from, rather than a one-time manual hash. Both parity cases pass; suite 777.
+
+### ✅ Tier 2 — parallelism (already committed)
+`ml/run_gen.sh` forks N shards (child processes), each running `_gen.test.ts` over a disjoint seed
+range → per-shard JSONL → merge. This is the production data-gen fan-out; per-core throughput
+(~1 game/s heur, post-`bags.history`) multiplies across cores. The `bags.history` win compounds
+per shard.
+
+### ❌ Rejected after benchmarking — `ensureStateShape` skip
+A Symbol-marked "already-shaped" fast path to skip the ~61 idempotent `??=`/backfill ops per player
+per command. Parity-safe, but **measured no gain** on the mutate loop (1723 → 1760 ms/game, within
+noise) — the per-command cost is dominated by handler/effects work, not the cheap field checks.
+Reverted to avoid complexity without payoff. (Would only help the clone/dry-run path, where the
+~120µs clone dwarfs it anyway.)
+
+### ❌ Tier 3 — WASM: do NOT pursue (audit consensus)
+The hot path is megamorphic dynamic dispatch (37 string-keyed class-effect modules, fresh context
+per class per trigger). QuickJS-in-WASM is an **interpreter — typically 3–10× slower than V8's JIT**
+on exactly this code. A native Rust/AssemblyScript port is XL effort + high rules-drift risk against
+a 2,771-line reducer + ~37 class modules, and the 8-seed parity gate is insufficient to certify a
+reimplementation. TS allocation cleanup recovers most of what a port would buy, at a fraction of the
+risk. WASM's only legitimate value (in-process Python RL bridge) is better served by Node-subprocess
+/ Arrow-IPC at Tier 5. **Tier 3 is dropped as a speed play.**
+
+### ⏭ Deferred (known, higher-risk; not cheap wins)
+- **`legalActions` dry-run reduction via pure pre-checks** (audit's biggest remaining RL-path lever:
+  cut location-phase clones from ~50-95 to ~10-25). **Deferred deliberately**: a pre-check that is
+  even slightly too aggressive would HIDE a legal action from the bot, violating the binding
+  action-set-fidelity requirement ("the bot should be able to do any action that is in the actual
+  game"). Only safe with a strict under-approximation + a differential test asserting the legal SET
+  equals the full clone-based oracle across many seeds. Worth doing in a focused pass, not a drive-by.
+- **Tier 5 — single-box actor-learner** (worker pool ⇄ GPU trainer with a shared replay buffer):
+  pure infra, no reducer risk; the natural next step once data-gen throughput is the bottleneck.
+
+### ⚠️ Correctness constraint discovered (load-bearing for any rollback scheme)
+`resolveLocationInteraction` **mutates before it can return `failure('cannot_afford')`** (Undercover
+discards, bag pushes/shuffles, clears the one-shot `freeNextRelicTrade`). So a naive
+"mutate-and-rollback-only-on-reject" dry-run is UNSAFE — `legalActions` must keep cloning (or use a
+true snapshot/restore). The parity test only covers commands that the heuristic emits AND that
+succeed; it does not prove rejected candidates leave state pristine.

@@ -368,6 +368,18 @@ export function recomputeAwakenEligibility(state: PublicGameState, catalog?: Pla
 export function tryAdvanceFromCleanup(state: PublicGameState): void {
 	if (!allActiveSeatsReady(state)) return;
 
+	// Snapshot each player's VP for the post-game "points over time" chart. This runs
+	// once per round as cleanup closes — and on the final round before finishing — so
+	// the series captures every round including the last.
+	for (const seat of state.activeSeats) {
+		const p = state.players[seat];
+		if (!p) continue;
+		p.vpHistory = [...(p.vpHistory ?? []), p.victoryPoints];
+		// Spirit Augments are a place-this-round benefit; any still unplaced at the round
+		// boundary are forfeited so the placement prompt never carries into the next round.
+		p.unplacedAugments = [];
+	}
+
 	const winner = findWinner(state);
 	if (winner) {
 		state.winnerSeat = winner;

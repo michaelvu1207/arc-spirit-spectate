@@ -1,5 +1,5 @@
 <script lang="ts">
-	/** Full-bleed gate shown over the play board while game art is cached. */
+	/** Full-bleed gate shown over the play board while the game loads. */
 	interface Props {
 		progress: { loaded: number; total: number };
 		/** Whether asset *data* has finished loading (images start after this). */
@@ -11,25 +11,15 @@
 	// Before data is ready (and thus total === 0) the bar is indeterminate.
 	const determinate = $derived(dataReady && progress.total > 0);
 	const pct = $derived(determinate ? Math.round((progress.loaded / progress.total) * 100) : 0);
-	const label = $derived(dataReady ? 'Caching board art' : 'Loading assets');
 </script>
 
 <div class="loading-screen" role="status" aria-live="polite">
 	<div class="panel">
 		<div class="eyebrow">Arc Spirits</div>
-		<h1>{label}…</h1>
+		<h1>Loading…</h1>
 
 		<div class="bar" class:indeterminate={!determinate}>
 			<div class="fill" style:width={determinate ? `${pct}%` : undefined}></div>
-		</div>
-
-		<div class="meta">
-			{#if determinate}
-				<span>{progress.loaded} / {progress.total}</span>
-				<span>{pct}%</span>
-			{:else}
-				<span>Preparing…</span>
-			{/if}
 		</div>
 	</div>
 </div>
@@ -95,17 +85,6 @@
 		100% {
 			transform: translateX(275%);
 		}
-	}
-
-	.meta {
-		display: flex;
-		justify-content: space-between;
-		margin-top: 12px;
-		font-family: var(--font-display);
-		font-size: 0.8rem;
-		letter-spacing: 0.12em;
-		color: var(--color-fog, #9a93b0);
-		font-variant-numeric: tabular-nums;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

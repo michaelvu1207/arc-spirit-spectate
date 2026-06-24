@@ -1,0 +1,12 @@
+{
+  "obs_dim": 48,
+  "act_dim": 40,
+  "samples": 1562,
+  "games": 24,
+  "mode": "heur",
+  "iter": 0,
+  "finishedRate": 0.625,
+  "decisiveRate": 0.625,
+  "neuralWinRate": null,
+  "out": "/tmp/gen_canapply.jsonl"
+}

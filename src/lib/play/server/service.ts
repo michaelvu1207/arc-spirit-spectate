@@ -80,6 +80,9 @@ type SessionMemberRow = {
 	joined_at: string;
 	updated_at: string;
 	last_seen_at: string;
+	user_id: string | null;
+	is_bot: boolean;
+	bot_profile: string | null;
 };
 
 export interface RoomView {
@@ -158,6 +161,38 @@ async function getSessionByRoomCode(roomCode: string): Promise<PlaySessionRow | 
 export async function getSessionModeByRoomCode(roomCode: string): Promise<PlayMode | null> {
 	const session = await getSessionByRoomCode(normalizeRoomCode(roomCode));
 	return session?.mode ?? null;
+}
+
+/** The session id (uuid) for a room, or null if the room doesn't exist. Exposed so the
+ *  bot driver can key its per-session bot-member lookup off the room code it already holds. */
+export async function getSessionIdByRoomCode(roomCode: string): Promise<string | null> {
+	const session = await getSessionByRoomCode(normalizeRoomCode(roomCode));
+	return session?.id ?? null;
+}
+
+/**
+ * The bot members of a session, keyed by member id → {@link BOT_PROFILES} strategy key
+ * (the `bot_profile` column, or null). The authoritative source of bot-ness for the live
+ * driving path: `PublicGameState.seats` only carries memberId + displayName, so botSim
+ * loads this map to tell which seated members are bots and which strategy drives each —
+ * replacing the legacy 🤖-display-name parse. Empty map when no service-role key.
+ */
+export async function loadBotMembers(sessionId: string): Promise<Map<string, string | null>> {
+	const admin = getSupabaseAdmin(PLAY_SCHEMA);
+	if (!admin) return new Map();
+	const { data, error } = await admin
+		.from(PLAY_TABLES.MEMBERS)
+		.select('id, bot_profile')
+		.eq('session_id', sessionId)
+		.eq('is_bot', true);
+	if (error) {
+		throw kitError(500, `Failed to load bot members: ${error.message}`);
+	}
+	const out = new Map<string, string | null>();
+	for (const row of (data as { id: string; bot_profile: string | null }[] | null) ?? []) {
+		out.set(row.id, row.bot_profile ?? null);
+	}
+	return out;
 }
 
 async function getMembersForSession(sessionId: string): Promise<SessionMemberRow[]> {
@@ -512,14 +547,18 @@ export async function enforceRoomDeadlines(roomCode: string): Promise<void> {
 /** Build the pure {@link RoomLiveness} input from a session row + its member rows. */
 function roomLivenessFrom(
 	session: Pick<PlaySessionRow, 'status' | 'created_at' | 'started_at'>,
-	members: { display_name: string | null; last_seen_at: string }[]
+	members: { display_name: string | null; last_seen_at: string; is_bot?: boolean | null }[]
 ): RoomLiveness {
 	return {
 		status: session.status,
 		createdAtMs: Date.parse(session.created_at),
 		startedAtMs: session.started_at ? Date.parse(session.started_at) : null,
 		humanLastSeenMs: humanLastSeen(
-			members.map((m) => ({ displayName: m.display_name, lastSeenAtMs: Date.parse(m.last_seen_at) }))
+			members.map((m) => ({
+				displayName: m.display_name,
+				lastSeenAtMs: Date.parse(m.last_seen_at),
+				isBot: m.is_bot ?? false
+			}))
 		)
 	};
 }
@@ -589,7 +628,7 @@ async function closeRoomSession(
  */
 async function maybeCloseRoom(
 	session: PlaySessionRow,
-	members?: { display_name: string | null; last_seen_at: string }[]
+	members?: { display_name: string | null; last_seen_at: string; is_bot?: boolean | null }[]
 ): Promise<PlaySessionRow> {
 	if (session.status !== 'lobby' && session.status !== 'active') return session;
 	const memberRows = members ?? (await getMembersForSession(session.id));
@@ -624,13 +663,18 @@ export async function closeAbandonedRooms(): Promise<void> {
 	const ids = rooms.map((room) => room.id);
 	const { data: memberData, error: memberError } = await admin
 		.from(PLAY_TABLES.MEMBERS)
-		.select('session_id, display_name, last_seen_at')
+		.select('session_id, display_name, last_seen_at, is_bot')
 		.in('session_id', ids);
 	if (memberError) {
 		throw kitError(500, `Failed to sweep room members: ${memberError.message}`);
 	}
 
-	type LiteMember = { session_id: string; display_name: string | null; last_seen_at: string };
+	type LiteMember = {
+		session_id: string;
+		display_name: string | null;
+		last_seen_at: string;
+		is_bot: boolean | null;
+	};
 	const bySession = new Map<string, LiteMember[]>();
 	for (const row of (memberData as LiteMember[] | null) ?? []) {
 		const list = bySession.get(row.session_id);
@@ -715,6 +759,10 @@ export async function createRoom(
 export interface RankedPlayer {
 	userId: string;
 	displayName: string;
+	/** True for backfilled bot accounts; their seat is driven by the bot engine. */
+	isBot?: boolean;
+	/** BOT_PROFILES strategy key for a bot (ignored for humans). */
+	botProfile?: string | null;
 }
 
 /**
@@ -736,9 +784,20 @@ export async function createRankedSession(
 		throw kitError(400, `A ranked session supports at most ${SEAT_COLORS.length} players.`);
 	}
 
-	const [host, ...rest] = players;
+	// A bot MUST NOT be host: the host creates the room and presses Start, which the bot
+	// engine doesn't drive. Reorder so a human is first while keeping the relative order
+	// of everyone else stable. The matcher guarantees ≥1 human, so a human is always found;
+	// if somehow all are bots we fall back to players[0] (shouldn't happen).
+	const orderedPlayers = (() => {
+		const firstHumanIndex = players.findIndex((p) => !p.isBot);
+		if (firstHumanIndex <= 0) return players; // already human-first (or all bots)
+		const human = players[firstHumanIndex];
+		return [human, ...players.filter((_, i) => i !== firstHumanIndex)];
+	})();
 
-	// 1) First player hosts a ranked room.
+	const [host] = orderedPlayers;
+
+	// 1) First player (a human) hosts a ranked room.
 	const created = await createRoom(host.displayName, host.userId, 'ranked');
 	const roomCode = created.roomCode;
 	const memberIdByUserId: Record<string, string> = { [host.userId]: created.memberId };
@@ -748,13 +807,20 @@ export async function createRankedSession(
 	if (!session) throw kitError(500, 'Ranked room vanished immediately after creation.');
 
 	// 2) Seat everyone at a distinct seat with a distinct guardian.
-	for (let i = 0; i < players.length; i += 1) {
+	for (let i = 0; i < orderedPlayers.length; i += 1) {
 		const seat = SEAT_COLORS[i];
-		const player = players[i];
+		const player = orderedPlayers[i];
 		const memberId =
 			i === 0
 				? created.memberId
-				: (await joinRoom(roomCode, player.displayName, player.userId)).memberId;
+				: (
+						await joinRoom(
+							roomCode,
+							player.displayName,
+							player.userId,
+							player.isBot ? { isBot: true, botProfile: player.botProfile ?? 'medium' } : undefined
+						)
+				  ).memberId;
 		if (i !== 0) memberIdByUserId[player.userId] = memberId;
 
 		await runRoomCommand({
@@ -1062,7 +1128,8 @@ export async function createDebugRoom(
 export async function joinRoom(
 	roomCode: string,
 	displayName: string,
-	userId?: string | null
+	userId?: string | null,
+	opts?: { isBot?: boolean; botProfile?: string | null }
 ): Promise<{ memberId: string }> {
 	let session = await getSessionByRoomCode(normalizeRoomCode(roomCode));
 	if (!session) {
@@ -1082,7 +1149,9 @@ export async function joinRoom(
 			display_name: normalizeDisplayName(displayName),
 			role: 'spectator',
 			private_state: {},
-			user_id: userId ?? null
+			user_id: userId ?? null,
+			is_bot: opts?.isBot ?? false,
+			bot_profile: opts?.botProfile ?? null
 		})
 		.select('*')
 		.single();
@@ -1152,7 +1221,7 @@ export async function listOpenRooms(): Promise<RoomSummary[]> {
 	const sessionIds = rows.map((r) => r.id);
 	const { data: memberRows, error: memberError } = await admin
 		.from(PLAY_TABLES.MEMBERS)
-		.select('session_id, display_name, role, last_seen_at')
+		.select('session_id, display_name, role, last_seen_at, is_bot')
 		.in('session_id', sessionIds);
 
 	if (memberError) {
@@ -1164,6 +1233,7 @@ export async function listOpenRooms(): Promise<RoomSummary[]> {
 		display_name: string | null;
 		role: MemberRole;
 		last_seen_at: string;
+		is_bot: boolean | null;
 	};
 	const hostBySession = new Map<string, string>();
 	const membersBySession = new Map<string, LiteMember[]>();

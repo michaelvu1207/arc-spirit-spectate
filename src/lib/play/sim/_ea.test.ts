@@ -31,7 +31,7 @@ function mkRng(seed: number) {
 interface Gene {
 	killThreshold: number;
 	builtOutThreshold: number;
-	potentialTarget: number;
+	maxBarrierTarget: number;
 	cultivatorTarget: number;
 	elementalistTarget: number;
 	climbReadyFactor: number;
@@ -42,7 +42,7 @@ const BOUNDS: Record<keyof Gene, [number, number, boolean]> = {
 	// [min, max, isInteger]
 	killThreshold: [0.4, 0.9, false],
 	builtOutThreshold: [0.15, 0.6, false],
-	potentialTarget: [5, 10, true],
+	maxBarrierTarget: [5, 10, true],
 	cultivatorTarget: [2, 4, true],
 	elementalistTarget: [2, 5, true],
 	climbReadyFactor: [0.45, 1.05, false],
@@ -66,7 +66,7 @@ function toProfile(base: BotProfile, g: Gene): BotProfile {
 		...base,
 		killThreshold: g.killThreshold,
 		builtOutThreshold: g.builtOutThreshold,
-		potentialTarget: g.potentialTarget,
+		maxBarrierTarget: g.maxBarrierTarget,
 		cultivatorTarget: g.cultivatorTarget,
 		elementalistTarget: g.elementalistTarget,
 		climbReadyFactor: g.climbReadyFactor,
@@ -80,7 +80,7 @@ function geneFromProfile(base: BotProfile): Gene {
 	return clampGene({
 		killThreshold: base.killThreshold,
 		builtOutThreshold: base.builtOutThreshold,
-		potentialTarget: base.potentialTarget,
+		maxBarrierTarget: base.maxBarrierTarget,
 		cultivatorTarget: base.cultivatorTarget ?? 3,
 		elementalistTarget: base.elementalistTarget ?? 3,
 		climbReadyFactor: base.climbReadyFactor ?? 0.9,

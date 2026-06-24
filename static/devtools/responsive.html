@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Responsive Preview — Arc Spirits</title>
+		<style>
+			:root {
+				color-scheme: dark;
+				--bg: #0c0d12;
+				--panel: #16181f;
+				--border: #2a2d38;
+				--text: #e6e8ee;
+				--muted: #8a8f9c;
+				--accent: #6ea8fe;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				margin: 0;
+				height: 100%;
+				background: var(--bg);
+				color: var(--text);
+				font: 14px/1.4 system-ui, sans-serif;
+			}
+			header {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 12px;
+				align-items: center;
+				padding: 10px 16px;
+				border-bottom: 1px solid var(--border);
+				background: var(--panel);
+				position: sticky;
+				top: 0;
+				z-index: 10;
+			}
+			header h1 {
+				font-size: 14px;
+				margin: 0;
+				font-weight: 600;
+			}
+			header .spacer {
+				flex: 1;
+			}
+			label {
+				color: var(--muted);
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+			}
+			input[type='text'] {
+				background: var(--bg);
+				border: 1px solid var(--border);
+				color: var(--text);
+				border-radius: 6px;
+				padding: 6px 10px;
+				width: 320px;
+				font: inherit;
+			}
+			button {
+				background: var(--bg);
+				border: 1px solid var(--border);
+				color: var(--text);
+				border-radius: 6px;
+				padding: 6px 12px;
+				cursor: pointer;
+				font: inherit;
+			}
+			button:hover {
+				border-color: var(--accent);
+			}
+			.stage {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 24px;
+				padding: 24px;
+				align-items: flex-start;
+				justify-content: center;
+			}
+			.device {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 8px;
+			}
+			.device .meta {
+				color: var(--muted);
+				font-size: 12px;
+			}
+			.frame-wrap {
+				border: 1px solid var(--border);
+				border-radius: 14px;
+				padding: 10px;
+				background: #000;
+				box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+			}
+			iframe {
+				border: 0;
+				border-radius: 6px;
+				background: #fff;
+				display: block;
+			}
+			#status {
+				color: var(--muted);
+				font-size: 12px;
+			}
+		</style>
+	</head>
+	<body>
+		<header>
+			<h1>Arc Spirits — Responsive Preview</h1>
+			<label
+				>URL <input id="url" type="text" value="http://localhost:5173/play" />
+			</label>
+			<button id="reload">Reload all</button>
+			<button id="rotate">Rotate ⟳</button>
+			<label>Scale <input id="scale" type="text" value="1" style="width: 48px" /></label>
+			<label><input id="sync" type="checkbox" checked /> Sync interactions</label>
+			<div class="spacer"></div>
+			<span id="status"></span>
+		</header>
+		<div class="stage" id="stage"></div>
+
+		<script>
+			// `lock: true` keeps a frame's orientation fixed when you hit "Rotate".
+			const DEVICES = [
+				{ name: 'iPhone 16', w: 393, h: 852 },
+				{ name: 'iPhone 16 Pro Max', w: 440, h: 956 },
+				{ name: 'Galaxy S24', w: 360, h: 780 },
+				{ name: 'iPad 11" (portrait)', w: 820, h: 1180 },
+				{ name: 'iPhone 16 (landscape)', w: 852, h: 393, lock: true },
+				{ name: 'Desktop 1440', w: 1440, h: 900, lock: true }
+			];
+
+			const stage = document.getElementById('stage');
+			const urlInput = document.getElementById('url');
+			const scaleInput = document.getElementById('scale');
+			const syncInput = document.getElementById('sync');
+			const statusEl = document.getElementById('status');
+			let landscape = false;
+
+			/** @type {HTMLIFrameElement[]} */
+			let frames = [];
+
+			function render() {
+				const url = urlInput.value;
+				const scale = parseFloat(scaleInput.value) || 1;
+				stage.innerHTML = '';
+				frames = [];
+				for (const d of DEVICES) {
+					const flip = landscape && !d.lock;
+					const vw = flip ? d.h : d.w;
+					const vh = flip ? d.w : d.h;
+
+					const wrap = document.createElement('div');
+					wrap.className = 'device';
+					wrap.innerHTML = `
+						<div class="frame-wrap">
+							<iframe src="${url}" width="${vw}" height="${vh}"
+								style="width:${vw * scale}px;height:${vh * scale}px"></iframe>
+						</div>
+						<div class="meta">${d.name} — ${vw}×${vh} (AR ${(vw / vh).toFixed(2)})</div>`;
+					stage.appendChild(wrap);
+
+					const frame = wrap.querySelector('iframe');
+					frame.addEventListener('load', () => attach(frame));
+					frames.push(frame);
+				}
+			}
+
+			// ---- Interaction mirroring ---------------------------------------------
+			// All iframes load same-origin (the dev server), so the parent can read
+			// each frame's DOM. We listen for user events in whichever frame the user
+			// touches, compute a structural path to the target node, then replay the
+			// event on the equivalent node in every other frame so they stay in lockstep.
+
+			let replaying = false; // guards against echo while we dispatch into siblings
+
+			// Path = array of child-element indices from <html> down to the node.
+			function pathOf(el, doc) {
+				const path = [];
+				while (el && el !== doc.documentElement) {
+					const parent = el.parentElement;
+					if (!parent) return null;
+					path.unshift(Array.prototype.indexOf.call(parent.children, el));
+					el = parent;
+				}
+				return path;
+			}
+
+			function resolve(path, doc) {
+				let el = doc.documentElement;
+				for (const i of path) {
+					el = el && el.children[i];
+					if (!el) return null;
+				}
+				return el;
+			}
+
+			function forEachOther(sourceDoc, fn) {
+				for (const f of frames) {
+					let doc;
+					try {
+						doc = f.contentDocument;
+					} catch {
+						continue; // cross-origin (e.g. external nav) — skip
+					}
+					if (doc && doc !== sourceDoc) fn(doc, f);
+				}
+			}
+
+			function attach(frame) {
+				let doc, win;
+				try {
+					doc = frame.contentDocument;
+					win = frame.contentWindow;
+				} catch {
+					statusEl.textContent = 'Frame is cross-origin — sync unavailable for it.';
+					return;
+				}
+				if (!doc || doc.__synced) return;
+				doc.__synced = true;
+
+				// Clicks (and other pointer activations) — capture phase catches them
+				// even on dynamically rendered elements after SvelteKit hydration/nav.
+				doc.addEventListener(
+					'click',
+					(e) => {
+						if (!syncInput.checked || replaying) return;
+						const path = pathOf(e.target, doc);
+						if (!path) return;
+						replaying = true;
+						forEachOther(doc, (otherDoc) => {
+							const el = resolve(path, otherDoc);
+							if (el)
+								el.dispatchEvent(
+									new MouseEvent('click', { bubbles: true, cancelable: true, view: otherDoc.defaultView })
+								);
+						});
+						replaying = false;
+					},
+					true
+				);
+
+				// Text/checkbox/range inputs — mirror the value live.
+				const onInput = (e) => {
+					if (!syncInput.checked || replaying) return;
+					const path = pathOf(e.target, doc);
+					if (!path) return;
+					replaying = true;
+					forEachOther(doc, (otherDoc) => {
+						const el = resolve(path, otherDoc);
+						if (!el) return;
+						if (el.type === 'checkbox' || el.type === 'radio') el.checked = e.target.checked;
+						else el.value = e.target.value;
+						el.dispatchEvent(new Event(e.type, { bubbles: true }));
+					});
+					replaying = false;
+				};
+				doc.addEventListener('input', onInput, true);
+				doc.addEventListener('change', onInput, true);
+
+				// Scroll — async, so guard each target with a short suppression window.
+				win.addEventListener(
+					'scroll',
+					() => {
+						if (!syncInput.checked) return;
+						const now = Date.now();
+						if (doc.__suppressScrollUntil && now < doc.__suppressScrollUntil) return;
+						const se = doc.scrollingElement || doc.documentElement;
+						const top = se.scrollTop;
+						const left = se.scrollLeft;
+						forEachOther(doc, (otherDoc, f) => {
+							otherDoc.__suppressScrollUntil = now + 120;
+							const ose = otherDoc.scrollingElement || otherDoc.documentElement;
+							ose.scrollTop = top;
+							ose.scrollLeft = left;
+						});
+					},
+					true
+				);
+
+				statusEl.textContent = 'Sync active across ' + frames.length + ' frames.';
+			}
+
+			document.getElementById('reload').onclick = render;
+			document.getElementById('rotate').onclick = () => {
+				landscape = !landscape;
+				render();
+			};
+			urlInput.onchange = render;
+			scaleInput.onchange = render;
+			render();
+		</script>
+	</body>
+</html>

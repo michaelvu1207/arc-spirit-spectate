@@ -16,13 +16,21 @@ const supabaseHandle: Handle = async ({ event, resolve }) => {
 			getAll: () => event.cookies.getAll(),
 			setAll: (cookiesToSet) => {
 				for (const { name, value, options } of cookiesToSet) {
-					// httpOnly:false is REQUIRED by the @supabase/ssr browser client, which
-					// reads the session from document.cookie. SvelteKit defaults cookies to
-					// httpOnly:true, which would hide them from the client (getUser → null on
-					// reload). The accepted tradeoff of this pattern (short-lived rotating JWTs)
-					// is mitigated by the `script-src 'self'` CSP in svelte.config.js, which
-					// stops an injected script from running to read the cookie in the first place.
-					event.cookies.set(name, value, { ...options, path: '/', httpOnly: false });
+					try {
+						// httpOnly:false is REQUIRED by the @supabase/ssr browser client, which
+						// reads the session from document.cookie. SvelteKit defaults cookies to
+						// httpOnly:true, which would hide them from the client (getUser → null on
+						// reload). The accepted tradeoff of this pattern (short-lived rotating JWTs)
+						// is mitigated by the `script-src 'self'` CSP in svelte.config.js, which
+						// stops an injected script from running to read the cookie in the first place.
+						event.cookies.set(name, value, { ...options, path: '/', httpOnly: false });
+					} catch {
+						// Supabase's background token refresh can fire setAll AFTER the response
+						// has been generated; `cookies.set` then throws. That rejection is
+						// un-awaited (it rides a subscriber promise), so leaving it unhandled
+						// crashes the Node process. Swallow it — the rotated cookie is re-applied
+						// on the next request's setAll, so nothing is lost.
+					}
 				}
 			}
 		}

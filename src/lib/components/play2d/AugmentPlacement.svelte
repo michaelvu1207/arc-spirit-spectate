@@ -22,9 +22,11 @@
 			spiritSlotIndex: number,
 			className: string
 		) => void;
+		/** Finish placing — forfeit any augments that remain unplaced (the escape hatch). */
+		onDone?: () => void;
 	}
 
-	let { player, assets, spiritImages = new Map(), busy = false, onPlace }: Props = $props();
+	let { player, assets, spiritImages = new Map(), busy = false, onPlace, onDone }: Props = $props();
 
 	// Augments awaiting placement; resolved one at a time (first in pouch = current).
 	const myAugments = $derived(player?.unplacedAugments ?? []);
@@ -75,6 +77,9 @@
 	const eligibleSlots = $derived(
 		(player?.spirits ?? []).map((s) => s.slotIndex).filter((slot) => isEligible(slot))
 	);
+	// No spirit can host the current augment (every host is at capacity / ineligible) — the
+	// player is stuck unless they can forfeit, so surface the escape prominently.
+	const noTarget = $derived(myAugments.length > 0 && eligibleSlots.length === 0);
 
 	// Placed-augment badges (Spirit Augment icons), keyed by host spirit slot.
 	const augmentsBySlot = $derived.by(() => {
@@ -151,6 +156,22 @@
 			onDropAugment={dropOn}
 		/>
 	</div>
+
+	<footer class="foot">
+		{#if noTarget}
+			<span class="foot-note" data-testid="augment-no-target">
+				No spirit can hold {myAugments.length === 1 ? 'this augment' : 'these augments'} — finish to discard {myAugments.length === 1 ? 'it' : 'them'}.
+			</span>
+		{/if}
+		<button
+			type="button"
+			class="done-btn"
+			class:urgent={noTarget}
+			disabled={busy}
+			data-testid="augment-done"
+			onclick={() => onDone?.()}
+		>{noTarget ? `Discard ${myAugments.length} & continue` : 'Done'}</button>
+	</footer>
 </div>
 
 <style>
@@ -256,5 +277,49 @@
 		width: 100%;
 		height: 100%;
 		max-height: 100%;
+	}
+
+	/* Finish / escape — always present so placement can never soft-lock the turn. */
+	.foot {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.45rem;
+		flex-shrink: 0;
+	}
+	.foot-note {
+		font-size: 0.82rem;
+		text-align: center;
+		color: var(--brand-amber-soft, #ffd56a);
+	}
+	.done-btn {
+		padding: 0.55rem 1.4rem;
+		font-family: var(--font-display);
+		font-size: 0.82rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.25);
+		background: rgba(255, 255, 255, 0.06);
+		color: var(--color-bone, #f5f0ff);
+		cursor: pointer;
+		transition: border-color 140ms ease, background 140ms ease, transform 120ms ease;
+	}
+	.done-btn:not(:disabled):hover {
+		transform: translateY(-1px);
+		border-color: rgba(255, 255, 255, 0.45);
+		background: rgba(255, 255, 255, 0.1);
+	}
+	.done-btn.urgent {
+		border-color: var(--brand-amber, #ffba3d);
+		background: var(--brand-amber, #ffba3d);
+		color: var(--color-void, #0c0518);
+	}
+	.done-btn.urgent:not(:disabled):hover {
+		box-shadow: 0 0 18px rgba(255, 186, 61, 0.5);
+	}
+	.done-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 </style>

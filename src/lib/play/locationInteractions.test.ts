@@ -3,6 +3,7 @@ import type { GameLocationRewardRow, MatSlotSnapshot } from '$lib/types';
 import {
 	buildLocationInteractions,
 	canAfford,
+	eligibleCostSlots,
 	matchRewardCost,
 	meaningFor,
 	type CostRequirement
@@ -53,8 +54,7 @@ const CYBER_CITY_ROWS: GameLocationRewardRow[] = [
 const FLORAL_PATCH_ROWS: GameLocationRewardRow[] = [
 	{ type: 'trade', cost_icon_ids: [ANY_RELIC], gain_icon_ids: [AVATAR_BARRIER, AVATAR_BARRIER, AVATAR_BARRIER] },
 	{ type: 'trade', cost_icon_ids: [FOREST, FOREST], gain_icon_ids: [FLOWER, BARRIER, BARRIER] },
-	{ type: 'gain', gain_icon_ids: [REST] },
-	{ type: 'trade', cost_icon_ids: [ANY_RELIC], gain_icon_ids: [REST] }
+	{ type: 'gain', gain_icon_ids: [REST] }
 ];
 
 const LANTERN_CANYON_ROWS: GameLocationRewardRow[] = [
@@ -86,8 +86,8 @@ describe('meaningFor', () => {
 		expect(meaningFor(ABYSS)).toMatchObject({ kind: 'action', action: 'abyssSummon' });
 		expect(meaningFor(REST)).toMatchObject({ kind: 'action', action: 'rest' });
 		expect(meaningFor(CULTIVATE)).toMatchObject({ kind: 'action', action: 'cultivate' });
-		expect(meaningFor(BARRIER)).toMatchObject({ kind: 'heal' });
-		expect(meaningFor(AVATAR_BARRIER)).toMatchObject({ kind: 'heal' });
+		expect(meaningFor(BARRIER)).toMatchObject({ kind: 'restoreBarrier' });
+		expect(meaningFor(AVATAR_BARRIER)).toMatchObject({ kind: 'restoreBarrier' });
 		expect(meaningFor(ANY_RELIC)).toMatchObject({ kind: 'wildcardRelic' });
 		expect(meaningFor(ANY_RUNE)).toMatchObject({ kind: 'anyRune' });
 		expect(meaningFor(TIDAL)).toMatchObject({ kind: 'originRune', originId: MOON_TIDE_ORIGIN });
@@ -148,8 +148,8 @@ describe('buildLocationInteractions — live map', () => {
 		]);
 		expect(interactions[2].gains).toEqual([
 			{ type: 'rune', rune: expect.objectContaining({ name: 'Teapot', special: true, type: 'relic' }) },
-			{ type: 'heal', amount: 1 },
-			{ type: 'heal', amount: 1 }
+			{ type: 'restoreBarrier', amount: 1 },
+			{ type: 'restoreBarrier', amount: 1 }
 		]);
 	});
 
@@ -193,7 +193,7 @@ describe('buildLocationInteractions — live map', () => {
 		// Row 1: free Cultivate + restore 1 health.
 		expect(interactions[1].gains).toEqual([
 			{ type: 'action', action: 'cultivate' },
-			{ type: 'heal', amount: 1 }
+			{ type: 'restoreBarrier', amount: 1 }
 		]);
 		// Row 2: pay 2 Lantern Lights → Firecracker relic + 2 heal.
 		expect(interactions[2].cost).toEqual([
@@ -203,17 +203,16 @@ describe('buildLocationInteractions — live map', () => {
 		expect(interactions[2].gains[0]).toMatchObject({ type: 'rune', rune: { name: 'Firecracker' } });
 	});
 
-	test('Floral Patch: heal trade, forest trade, and free + paid Rest', () => {
+	test('Floral Patch: heal trade, forest trade, and free Rest', () => {
 		const interactions = buildLocationInteractions(FLORAL_PATCH_ROWS);
-		expect(interactions).toHaveLength(4);
+		expect(interactions).toHaveLength(3);
 		expect(interactions[0].gains).toEqual([
-			{ type: 'heal', amount: 1 },
-			{ type: 'heal', amount: 1 },
-			{ type: 'heal', amount: 1 }
+			{ type: 'restoreBarrier', amount: 1 },
+			{ type: 'restoreBarrier', amount: 1 },
+			{ type: 'restoreBarrier', amount: 1 }
 		]);
 		expect(interactions[1].gains[0]).toMatchObject({ type: 'rune', rune: { name: 'Flower' } });
 		expect(interactions[2].gains).toEqual([{ type: 'action', action: 'rest' }]);
-		expect(interactions[3].gains).toEqual([{ type: 'action', action: 'rest' }]);
 	});
 
 	test('text rows and fully-unresolvable rows are skipped', () => {
@@ -230,6 +229,16 @@ describe('buildLocationInteractions — live map', () => {
 	test('handles null/empty reward rows', () => {
 		expect(buildLocationInteractions(null)).toEqual([]);
 		expect(buildLocationInteractions([])).toEqual([]);
+	});
+
+	test('the Arcane Abyss location row resolves to a free abyssSummon action', () => {
+		// The Abyss summon moved off monster reward tracks into a permanent location
+		// interaction (a free "gain" row) on the Arcane Abyss.
+		const interactions = buildLocationInteractions([{ type: 'gain', gain_icon_ids: [ABYSS] }]);
+		expect(interactions).toHaveLength(1);
+		expect(interactions[0].kind).toBe('gain');
+		expect(interactions[0].cost).toEqual([]);
+		expect(interactions[0].gains).toEqual([{ type: 'action', action: 'abyssSummon' }]);
 	});
 });
 
@@ -298,5 +307,39 @@ describe('matchRewardCost / canAfford', () => {
 
 	test('empty cost is always affordable', () => {
 		expect(matchRewardCost([], []).ok).toBe(true);
+	});
+});
+
+describe('matchRewardCost — player discard choice for wildcard costs', () => {
+	const anyRelicTrade = buildLocationInteractions(CYBER_CITY_ROWS)[0]; // pay any relic
+
+	test('honors the chosen held-slot index for a wildcard cost', () => {
+		const runes = [
+			rune({ name: 'Fairy Relic', type: 'relic' }), // 0
+			rune({ name: 'Teapot Relic', type: 'relic' }), // 1
+			rune({ name: 'Flower Relic', type: 'relic' }) // 2
+		];
+		// No preference → first eligible (auto-pick, unchanged behavior).
+		expect(matchRewardCost(anyRelicTrade.cost, runes).consumedArrayIndexes).toEqual([0]);
+		// Explicit pick discards the chosen one instead.
+		expect(matchRewardCost(anyRelicTrade.cost, runes, [2]).consumedArrayIndexes).toEqual([2]);
+	});
+
+	test('ignores an invalid pick and falls back to auto-pick', () => {
+		const runes = [rune({ type: 'rune' }), rune({ name: 'Fairy Relic', type: 'relic' })]; // relic at 1
+		// Index 0 is a basic rune, not a relic → not valid for anyRelic → use the real relic.
+		expect(matchRewardCost(anyRelicTrade.cost, runes, [0]).consumedArrayIndexes).toEqual([1]);
+		// Out-of-range pick is ignored too.
+		expect(matchRewardCost(anyRelicTrade.cost, runes, [99]).consumedArrayIndexes).toEqual([1]);
+	});
+
+	test('eligibleCostSlots lists every held slot that can pay the wildcard', () => {
+		const runes = [
+			rune({ name: 'Fairy Relic', type: 'relic' }), // 0 ✓
+			rune({ originId: MOON_TIDE_ORIGIN }), // 1 ✗ not a relic
+			rune({ name: 'Teapot Relic', type: 'relic' }), // 2 ✓
+			rune({ type: 'relic', hasRune: false }) // 3 ✗ already spent
+		];
+		expect(eligibleCostSlots(anyRelicTrade.cost[0], runes)).toEqual([0, 2]);
 	});
 });

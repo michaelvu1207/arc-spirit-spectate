@@ -17,7 +17,7 @@
 </script>
 
 <svelte:head>
-	<title>Hall of Champions | Arc Spirits</title>
+	<title>Hall of Guardians | Arc Spirits</title>
 </svelte:head>
 
 <MenuShell>

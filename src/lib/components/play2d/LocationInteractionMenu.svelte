@@ -1,32 +1,82 @@
 <script lang="ts">
 	import type { PlayerProjection } from '$lib/play/types';
-	import type { GameLocationAsset, IconPoolEntry, RewardIconToken } from '$lib/types';
+	import type { GameLocationAsset, IconPoolEntry, MatSlotSnapshot, RewardIconToken } from '$lib/types';
 	import {
 		buildLocationInteractions,
 		canAfford,
+		eligibleCostSlots,
+		isWildcardCost,
 		meaningFor,
 		type LocationInteraction
 	} from '$lib/play/locationInteractions';
 	import { awakenedClassCounts } from '$lib/play/effects/apply';
-	import { storageUrl } from './helpers';
+	import type { getAssetState } from '$lib/stores/assetStore.svelte';
+	import { runeIconUrl, storageUrl } from './helpers';
 
 	interface Props {
 		location: GameLocationAsset | null;
 		iconPool?: Map<string, IconPoolEntry>;
+		/** Full asset state — used to draw the icons of held relics/runes in the
+		 *  "which to discard" chooser for wildcard costs. */
+		assets: ReturnType<typeof getAssetState>;
 		player: PlayerProjection | null;
 		accent?: string;
 		busy?: boolean;
-		onResolve?: (rowIndex: number, choices: number[]) => void;
+		onResolve?: (rowIndex: number, choices: number[], costChoices: number[]) => void;
 	}
 
 	let {
 		location,
 		iconPool = new Map(),
+		assets,
 		player,
 		accent = 'var(--brand-violet, #5a2bff)',
 		busy = false,
 		onResolve
 	}: Props = $props();
+
+	// A wildcard cost ("any relic" / "any basic rune") where the player holds more
+	// than one eligible item to discard — each is the player's choice. `slots` are the
+	// held mats (with their array index into player.mats) that could pay cost slot `ci`.
+	type CostChooser = { ci: number; slots: { arrayIndex: number; slot: MatSlotSnapshot }[] };
+	function costChooserFor(interaction: LocationInteraction, ci: number): CostChooser['slots'] | null {
+		const mats = player?.mats ?? [];
+		const req = interaction.cost[ci];
+		if (!req || !isWildcardCost(req)) return null;
+		// Collapse identical held items to one option — discarding any one of four copies of
+		// the same relic is the same choice, so show each DISTINCT item once.
+		const seen = new Set<string>();
+		const distinct: CostChooser['slots'] = [];
+		for (const arrayIndex of eligibleCostSlots(req, mats)) {
+			const slot = mats[arrayIndex];
+			const key = slot.id ?? `${slot.name ?? ''}|${slot.type ?? ''}|${slot.originId ?? ''}`;
+			if (seen.has(key)) continue;
+			seen.add(key);
+			distinct.push({ arrayIndex, slot });
+		}
+		// Only a real *choice* (>1 distinct item) needs UX — otherwise any one auto-pays.
+		return distinct.length >= 2 ? distinct : null;
+	}
+	function costChoosers(interaction: LocationInteraction): CostChooser[] {
+		const out: CostChooser[] = [];
+		interaction.cost.forEach((_req, ci) => {
+			const slots = costChooserFor(interaction, ci);
+			if (slots) out.push({ ci, slots });
+		});
+		return out;
+	}
+	function slotIconUrl(slot: MatSlotSnapshot): string | null {
+		return runeIconUrl(assets, slot);
+	}
+
+	// Per-row, per-cost-slot discard pick: costSel[rowIndex][ci] = chosen mat array index.
+	let costSel = $state<Record<number, Record<number, number>>>({});
+	function chosenCostIndex(rowIndex: number, ci: number, fallback: number): number {
+		return costSel[rowIndex]?.[ci] ?? fallback;
+	}
+	function selectCost(rowIndex: number, ci: number, arrayIndex: number) {
+		costSel = { ...costSel, [rowIndex]: { ...(costSel[rowIndex] ?? {}), [ci]: arrayIndex } };
+	}
 
 	const interactions = $derived(buildLocationInteractions(location?.reward_rows));
 	const usedRows = $derived(player?.actionsUsedThisRound ?? []);
@@ -115,7 +165,12 @@
 	function resolve(interaction: LocationInteraction, inst: number) {
 		if (instDisabled(interaction, inst)) return;
 		lastRow = interaction.rowIndex; // this card will show the detailed result
-		onResolve?.(interaction.rowIndex, choices[interaction.rowIndex] ?? []);
+		// The held-mat array index the player chose to discard for each wildcard cost
+		// (defaults to the first eligible item, matching the old auto-pick).
+		const costChoices = costChoosers(interaction).map((c) =>
+			chosenCostIndex(interaction.rowIndex, c.ci, c.slots[0].arrayIndex)
+		);
+		onResolve?.(interaction.rowIndex, choices[interaction.rowIndex] ?? [], costChoices);
 	}
 
 	function resultLines(interaction: LocationInteraction, inst: number): string[] {
@@ -169,16 +224,41 @@
 				<div class="flipper" class:flipped={isUsed}>
 					<!-- Front: the interaction -->
 					<div class="face front">
-						<div class="type" data-kind={isTrade ? 'trade' : 'gain'}>
-							<span class="type-bullet" aria-hidden="true"></span>
-							<span class="type-label">{isTrade ? 'Trade' : 'Gain'}</span>
-						</div>
-
 						<div class="flow">
 							{#if isTrade}
 								<div class="row cost">
 									{#each interaction.costTokens as token, ci (ci)}
-										{#if !isOr(token)}
+										{@const costOpts = costChooserFor(interaction, ci)}
+										{#if costOpts}
+											{@const pickedIdx = chosenCostIndex(
+												interaction.rowIndex,
+												ci,
+												costOpts[0].arrayIndex
+											)}
+											<span class="chooser" role="group" aria-label="Choose which one to discard">
+												<span class="chooser-label">
+													<span class="tap-dot" aria-hidden="true"></span>Discard one
+												</span>
+												<span class="chooser-opts">
+													{#each costOpts as opt, oi (opt.arrayIndex)}
+														{#if oi > 0}<span class="or-sep" aria-hidden="true">or</span>{/if}
+														<button
+															type="button"
+															class="opt"
+															class:selected={pickedIdx === opt.arrayIndex}
+															aria-pressed={pickedIdx === opt.arrayIndex}
+															title="Tap to discard {opt.slot.name ?? 'this'}"
+															onclick={(e) => {
+																e.stopPropagation();
+																selectCost(interaction.rowIndex, ci, opt.arrayIndex);
+															}}
+														>
+															{@render icon(slotIconUrl(opt.slot), 'base')}
+														</button>
+													{/each}
+												</span>
+											</span>
+										{:else if !isOr(token)}
 											{@render icon(iconUrl(token), iconSize(token, soloCost))}
 										{/if}
 									{/each}
@@ -380,17 +460,6 @@
 		align-items: center;
 		gap: 0.5rem;
 	}
-	.type-bullet {
-		width: 7px;
-		height: 8px;
-		clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-		background: var(--gradient-ember, linear-gradient(135deg, #ff704d, #ffd56a));
-		box-shadow: 0 0 7px color-mix(in srgb, var(--brand-amber, #ffba3d) 70%, transparent);
-	}
-	.type[data-kind='trade'] .type-bullet {
-		background: linear-gradient(135deg, var(--brand-teal, #20e0c1), var(--brand-cyan, #24d4ff));
-		box-shadow: 0 0 7px color-mix(in srgb, var(--brand-teal, #20e0c1) 70%, transparent);
-	}
 	.type-label {
 		font-family: var(--font-display);
 		font-size: 0.82rem;
@@ -403,12 +472,6 @@
 		background-clip: text;
 		-webkit-text-fill-color: transparent;
 		color: transparent;
-	}
-	.type[data-kind='trade'] .type-label {
-		background: linear-gradient(135deg, var(--brand-teal, #20e0c1), var(--brand-cyan, #24d4ff));
-		-webkit-background-clip: text;
-		background-clip: text;
-		-webkit-text-fill-color: transparent;
 	}
 	/* Result heading is calm/muted — the card is done. */
 	.type.result .type-label {
@@ -508,8 +571,6 @@
 		gap: 0.45rem;
 		padding: 0.5rem 0.55rem 0.45rem;
 		border-radius: 16px;
-		background: color-mix(in srgb, var(--accent) 9%, rgba(255, 255, 255, 0.03));
-		border: 1px dashed color-mix(in srgb, var(--accent) 45%, rgba(255, 255, 255, 0.18));
 	}
 	.chooser-label {
 		display: inline-flex;

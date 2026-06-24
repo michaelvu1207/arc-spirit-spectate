@@ -447,6 +447,146 @@ export async function fetch2DRatingLeaderboard(): Promise<Rating2DRow[]> {
 		.sort((a, b) => b.ordinal - a.ordinal);
 }
 
+/** The current 2D rating for a single user (arc_spirits_2d.player_ratings), or null
+ *  if they have no rated games yet. */
+export async function fetchMy2DRating(userId: string): Promise<Rating2DRow | null> {
+	const { data, error: fetchError } = await supabase
+		.schema('arc_spirits_2d')
+		.from('player_ratings')
+		.select('user_id, display_name, mu, sigma, games_played')
+		.eq('user_id', userId)
+		.maybeSingle();
+
+	if (fetchError) throw new Error(`Failed to fetch 2D rating: ${fetchError.message}`);
+	if (!data) return null;
+
+	const r = data as { user_id: string; display_name: string | null; mu: number; sigma: number; games_played: number };
+	return {
+		userId: r.user_id,
+		displayName: r.display_name ?? 'Player',
+		mu: r.mu,
+		sigma: r.sigma,
+		gamesPlayed: r.games_played,
+		ordinal: r.mu - 3 * r.sigma
+	};
+}
+
+/** One finished 2D match from a player's perspective (for the profile "Past games" list). */
+export interface MatchHistoryEntry {
+	sessionId: string;
+	endedAt: string;
+	mode: string;
+	ranked: boolean;
+	rated: boolean;
+	playerCount: number;
+	winnerSeat: string | null;
+	mySeat: string;
+	myPlacement: number;
+	myVictoryPoints: number;
+	didWin: boolean;
+	/** Conservative-rating change (ordinal after − before) for ranked/rated games; null otherwise. */
+	ratingDelta: number | null;
+	/** The other seats in the match, best placement first. */
+	opponents: { displayName: string; placement: number; isBot: boolean }[];
+}
+
+/**
+ * A player's recent finished 2D matches (arc_spirits_2d), newest first. Joins the
+ * per-seat standings to the canonical result for date/mode, attaches the other
+ * seats as opponents, and (for ranked games) the OpenSkill ordinal delta. All
+ * tables are anon-readable, so this runs on the data-only client filtered by uid.
+ */
+export async function fetchMyMatchHistory(userId: string, limit = 25): Promise<MatchHistoryEntry[]> {
+	const db = supabase.schema('arc_spirits_2d');
+
+	// 1) My seat in each match + the canonical result (embedded via the session_id FK).
+	const mineRes = await db
+		.from('match_result_players')
+		.select(
+			'session_id, seat_color, placement, victory_points, match_results!inner(mode, ranked, rated, player_count, winner_seat, ended_at)'
+		)
+		.eq('user_id', userId)
+		.order('ended_at', { ascending: false, foreignTable: 'match_results' })
+		.limit(limit);
+	if (mineRes.error) throw new Error(`Failed to fetch match history: ${mineRes.error.message}`);
+
+	type Embedded = {
+		mode: string;
+		ranked: boolean;
+		rated: boolean;
+		player_count: number;
+		winner_seat: string | null;
+		ended_at: string;
+	};
+	type MineRow = {
+		session_id: string;
+		seat_color: string;
+		placement: number;
+		victory_points: number;
+		// PostgREST returns an embedded to-one as an object; type it permissively.
+		match_results: Embedded | Embedded[];
+	};
+	const mine = (mineRes.data as MineRow[] | null) ?? [];
+	if (mine.length === 0) return [];
+
+	const sessionIds = mine.map((m) => m.session_id);
+
+	// 2) All seats for those sessions (opponents) + 3) my rating events, in parallel.
+	const [playersRes, eventsRes] = await Promise.all([
+		db
+			.from('match_result_players')
+			.select('session_id, display_name, placement, is_bot, user_id')
+			.in('session_id', sessionIds),
+		db
+			.from('player_rating_events')
+			.select('session_id, mu_before, sigma_before, mu_after, sigma_after')
+			.eq('user_id', userId)
+			.in('session_id', sessionIds)
+	]);
+	if (playersRes.error) throw new Error(`Failed to fetch match opponents: ${playersRes.error.message}`);
+
+	const bySession = new Map<string, { displayName: string; placement: number; isBot: boolean; userId: string | null }[]>();
+	for (const p of (playersRes.data as
+		| { session_id: string; display_name: string | null; placement: number; is_bot: boolean; user_id: string | null }[]
+		| null) ?? []) {
+		const list = bySession.get(p.session_id) ?? [];
+		list.push({ displayName: p.display_name ?? 'Player', placement: p.placement, isBot: p.is_bot, userId: p.user_id });
+		bySession.set(p.session_id, list);
+	}
+
+	const deltaBySession = new Map<string, number>();
+	for (const e of (eventsRes.data as
+		| { session_id: string; mu_before: number; sigma_before: number; mu_after: number; sigma_after: number }[]
+		| null) ?? []) {
+		const before = e.mu_before - 3 * e.sigma_before;
+		const after = e.mu_after - 3 * e.sigma_after;
+		deltaBySession.set(e.session_id, after - before);
+	}
+
+	return mine.map((m) => {
+		const res = (Array.isArray(m.match_results) ? m.match_results[0] : m.match_results) as Embedded;
+		const opponents = (bySession.get(m.session_id) ?? [])
+			.filter((p) => p.userId !== userId)
+			.sort((a, b) => a.placement - b.placement)
+			.map(({ displayName, placement, isBot }) => ({ displayName, placement, isBot }));
+		return {
+			sessionId: m.session_id,
+			endedAt: res.ended_at,
+			mode: res.mode,
+			ranked: res.ranked,
+			rated: res.rated,
+			playerCount: res.player_count,
+			winnerSeat: res.winner_seat,
+			mySeat: m.seat_color,
+			myPlacement: m.placement,
+			myVictoryPoints: m.victory_points,
+			didWin: m.placement === 1,
+			ratingDelta: deltaBySession.get(m.session_id) ?? null,
+			opponents
+		};
+	});
+}
+
 export async function fetchRatingLeaderboardByUsernameKey(
 	usernameKey: string
 ): Promise<RatingLeaderboardRow | null> {
@@ -867,7 +1007,7 @@ export async function fetchAssetsData(): Promise<AssetsData> {
 		supabaseAssets
 			.from(TABLES.GUARDIANS)
 			.select('id, name, origin_id, icon_image_path, image_mat_path, chibi_image_path'),
-		supabaseAssets.from(TABLES.CLASSES).select('id, name, position, icon_png, color, description, effect_schema, footer, class_type, is_special'),
+		supabaseAssets.from(TABLES.CLASSES).select('id, name, position, icon_png, augment_token_path, color, description, effect_schema, footer, class_type, is_special'),
 		supabaseAssets
 			.from(TABLES.ORIGINS)
 			.select('id, name, position, icon_png, icon_token_png, color, description, calling_card'),

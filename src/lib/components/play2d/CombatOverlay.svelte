@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { playSfx } from '$lib/stores/gameAudio.svelte';
+	import { mergeCombatLog } from '$lib/play/combatLog';
 	import type { CombatState, SeatColor } from '$lib/play/types';
 
 	interface Props {
@@ -16,7 +17,8 @@
 		mySeat ? (combats.find((c) => c.sides.some((s) => s.seat === mySeat)) ?? null) : null
 	);
 	const combatId = $derived(myCombat?.id ?? null);
-	const lines = $derived(myCombat?.log ?? []);
+	// Collapse consecutive same-source buff lines into one summed sentence (cosmetic).
+	const lines = $derived(mergeCombatLog(myCombat?.log ?? []));
 
 	type LineKind = 'upgrade' | 'ward' | 'gain' | 'strike' | 'harm' | 'cost' | 'neutral';
 
@@ -77,7 +79,8 @@
 	$effect(() => {
 		const id = combatId; // sole tracked dependency → restart only on a NEW combat
 		if (!id) return;
-		const log = untrack(() => myCombat?.log ?? []);
+		// Walk the SAME merged lines the template renders, so the reveal stays aligned.
+		const log = untrack(() => mergeCombatLog(myCombat?.log ?? []));
 		lineIdx = 0;
 		charIdx = 0;
 		if (typeof window === 'undefined' || reducedMotion()) {
@@ -86,9 +89,9 @@
 		}
 		let cancelled = false;
 		let timer: ReturnType<typeof setTimeout>;
-		// 3× slower than the original snappy pace — let the fight build dramatically.
-		const CHAR_MS = 72;
-		const LINE_PAUSE_MS = 1260;
+		// Crawl pace — the attack log reveals at 3× the previous speed.
+		const CHAR_MS = 24;
+		const LINE_PAUSE_MS = 420;
 		function step() {
 			if (cancelled || lineIdx >= log.length) return;
 			const cur = log[lineIdx] ?? '';
@@ -106,7 +109,7 @@
 				if (lineIdx < log.length) timer = setTimeout(step, LINE_PAUSE_MS);
 			}
 		}
-		timer = setTimeout(step, 780); // a longer beat before the crawl begins
+		timer = setTimeout(step, 260); // a short beat before the crawl begins
 		return () => {
 			cancelled = true;
 			clearTimeout(timer);

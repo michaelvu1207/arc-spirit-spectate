@@ -7,9 +7,9 @@
 		SeatColor,
 		SpectatorProjection
 	} from '$lib/play/types';
-	import { DICE_TIER_ORDER, MAX_ATTACK_DICE } from '$lib/play/types';
+	import { DICE_TIER_ORDER, MAX_ATTACK_DICE, STATUS_LADDER } from '$lib/play/types';
 	import type { ClassTrait } from '$lib/types';
-	import { seatAccent, storageUrl, spiritBackImageUrl, augmentIconForClass } from './helpers';
+	import { seatAccent, statusAccent, storageUrl, spiritBackImageUrl, augmentIconForClass } from './helpers';
 	import { WILDCARD_MAT_IDS } from '$lib/play/awakenConditions';
 	import { expectedAttack } from '$lib/play/combat';
 	import HexGrid from '$lib/components/HexGrid.svelte';
@@ -41,6 +41,12 @@
 	const player = $derived<PlayerProjection | null>(room.players[viewedSeat] ?? null);
 	const accent = $derived(seatAccent(viewedSeat));
 	const isMe = $derived(viewedSeat === mySeat);
+
+	// Player-level readouts surfaced in the profile header: corruption status (token name,
+	// falling back to the ladder label) and the combat initiative accrued this fight.
+	const statusLabel = $derived(player?.statusToken ?? STATUS_LADDER[player?.statusLevel ?? 0] ?? 'Pure');
+	const statusColor = $derived(statusAccent(statusLabel));
+	const initiative = $derived(Math.max(0, player?.initiative ?? 0));
 
 	// ── Combat readout ──────────────────────────────────────────────────────────
 	// The scouted player's attack-dice pool and the expected total damage of a roll —
@@ -309,6 +315,14 @@
 						<span class="dp-avg-val" data-testid="scout-avg-attack">{avgAttack.toFixed(1)}</span>
 						<span class="dp-avg-label">avg attack</span>
 					</span>
+					<span class="dp-stat">
+						<span class="dp-stat-val" data-testid="profile-initiative">{initiative}</span>
+						<span class="dp-stat-label">initiative</span>
+					</span>
+					<span class="dp-stat status" style="--s: {statusColor}">
+						<span class="dp-stat-val" data-testid="profile-status">{statusLabel}</span>
+						<span class="dp-stat-label">status</span>
+					</span>
 				</div>
 			</section>
 		{/if}
@@ -330,6 +344,35 @@
 		min-height: 0;
 		padding: 0.5rem;
 		animation: fade 140ms ease both;
+	}
+
+	/* Initiative + Status sit in the dice-pool readout row, sharing the same value-over-label
+	   shape (and the row's thin white dividers) as the average-attack cell beside them. */
+	.dp-stat {
+		display: inline-flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.12rem;
+		padding: 0.1rem 0.75rem;
+	}
+	.dp-stat-val {
+		font-family: var(--font-display);
+		font-size: 1.5rem;
+		font-weight: 700;
+		line-height: 1;
+		color: #fff;
+		text-transform: uppercase;
+	}
+	.dp-stat-label {
+		font-size: 0.8rem;
+		letter-spacing: 0.09em;
+		text-transform: uppercase;
+		color: var(--color-fog, #9a93b0);
+	}
+	/* Status reads in its alignment colour (green Pure → red Fallen). */
+	.dp-stat.status .dp-stat-val {
+		color: var(--s);
+		text-shadow: 0 0 10px color-mix(in srgb, var(--s) 50%, transparent);
 	}
 
 	/* ── Dice Pool: flat in-line strip — attack-dice icons + the pool's average ──
@@ -432,15 +475,18 @@
 		width: 100%;
 		display: grid;
 		place-items: center;
+		/* Become a size container so the board can size itself to the largest
+		   square that fits this box (both width AND height) — see .hex-wrap. */
+		container-type: size;
 	}
 	.hex-wrap {
 		position: relative;
-		/* ~⅓ larger than before (was clamp(240px, 62vmin, 560px)). Capped by
-		   max-height:100% so it still fits the stage on short viewports. */
-		width: clamp(300px, 82vmin, 720px);
-		max-width: 100%;
+		/* Largest square that fits the board-area in BOTH dimensions, capped by a
+		   viewport-relative ceiling. Using cqw/cqh (not just width + max-height)
+		   means the square actually shrinks its width to honor the available
+		   height, so it never spills into the stats below on short viewports. */
+		width: min(100cqw, 100cqh, clamp(300px, 82vmin, 720px));
 		aspect-ratio: 1;
-		max-height: 100%;
 		display: grid;
 		place-items: center;
 	}

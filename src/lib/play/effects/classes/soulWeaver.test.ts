@@ -20,7 +20,7 @@ describe('Soul Weaver', () => {
 
 	it('(3) at >=3, restores 2 health on rest and is stun-immune', () => {
 		const { player } = fire({ 'Soul Weaver': 3 }, 'onRest', {
-			player: { barrier: 0, blood: 4, maxTokens: 4 }
+			player: { barrier: 0, brokenBarrier: 4, maxBarrier: 4 }
 		});
 		expect(player.barrier).toBe(2);
 		expect(player.stunImmune).toBe(true);
@@ -28,7 +28,7 @@ describe('Soul Weaver', () => {
 
 	it('a single Soul Weaver does NOT heal or grant stun-immunity on rest', () => {
 		const { player } = fire({ 'Soul Weaver': 1 }, 'onRest', {
-			player: { barrier: 0, blood: 4, maxTokens: 4 }
+			player: { barrier: 0, brokenBarrier: 4, maxBarrier: 4 }
 		});
 		expect(player.barrier).toBe(0);
 		expect(player.stunImmune).toBe(false);

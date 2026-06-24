@@ -1,6 +1,6 @@
 import type { ClassAbility } from './types';
 
-// Adaptive Fighter — "If you overkill by 2 damage, gain 1 potential. If you don't
+// Adaptive Fighter — "If you overkill by 2 damage, gain 1 max barrier. If you don't
 // kill, gain 1 Enchanted Attack." Per-trait ('1+') so each fighter activates.
 export const ability: ClassAbility[] = [
 	{
@@ -12,7 +12,7 @@ export const ability: ClassAbility[] = [
 					{
 						kind: 'conditional',
 						when: { kind: 'overkillAtLeast', amount: 2 },
-						then: [{ kind: 'gainPotential', amount: 1 }]
+						then: [{ kind: 'gainMaxBarrier', amount: 1 }]
 					},
 					{
 						kind: 'conditional',

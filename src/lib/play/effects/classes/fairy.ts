@@ -5,7 +5,7 @@ import type { ClassAbility, ClassHandler } from './types';
  * "When Awakened, gain 1 Exalted Attack for every spirit matching this Fairy's
  * origin. Gain 3 Initiative." Per-awakening + origin-aware: only grants when the
  * spirit that just awakened (ctx.command.slotIndex) is itself a Fairy; counts every
- * spirit whose origin overlaps that Fairy's. Exalted dice capped at potential.
+ * spirit whose origin overlaps that Fairy's. Exalted dice capped at max barrier.
  */
 const fairyAwakening: ClassHandler = (ctx) => {
 	const slot = (ctx.command as { slotIndex?: number } | undefined)?.slotIndex;

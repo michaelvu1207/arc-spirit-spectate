@@ -85,9 +85,9 @@ describe('group Encounter (PvP) combat', () => {
 			for (const seat of ['Blue', 'Orange'] as const) {
 				const g = s.players[seat]!;
 				g.statusLevel = 0;
-				g.maxTokens = 12;
+				g.maxBarrier = 12;
 				g.barrier = 12;
-				g.blood = 0;
+				g.brokenBarrier = 0;
 				g.attackDice = []; // goods deal nothing back here
 			}
 		});
@@ -113,9 +113,9 @@ describe('group Encounter (PvP) combat', () => {
 			}
 			const blue = s.players.Blue!;
 			blue.statusLevel = 0;
-			blue.maxTokens = 14;
+			blue.maxBarrier = 14;
 			blue.barrier = 14;
-			blue.blood = 0;
+			blue.brokenBarrier = 0;
 		});
 		const blueBefore = state.players.Blue!.barrier;
 
@@ -142,9 +142,9 @@ describe('group Encounter (PvP) combat', () => {
 			}
 			const blue = s.players.Blue!;
 			blue.statusLevel = 0;
-			blue.maxTokens = 14;
+			blue.maxBarrier = 14;
 			blue.barrier = 14;
-			blue.blood = 0;
+			blue.brokenBarrier = 0;
 		});
 		const blueBefore = state.players.Blue!.barrier;
 
@@ -162,22 +162,22 @@ describe('group Encounter (PvP) combat', () => {
 			const red = s.players.Red!;
 			red.statusLevel = 3;
 			red.statusToken = 'Fallen';
-			red.maxTokens = 14;
+			red.maxBarrier = 14;
 			red.barrier = 14;
-			red.blood = 0;
+			red.brokenBarrier = 0;
 			red.attackDice = arcane(2);
 			const blue = s.players.Blue!;
 			blue.statusLevel = 0;
-			blue.maxTokens = 14;
+			blue.maxBarrier = 14;
 			blue.barrier = 14;
-			blue.blood = 0;
+			blue.brokenBarrier = 0;
 			blue.attackDice = arcane(2); // goods have dice → they hit back simultaneously
 			// Orange present but neutral with high barrier; it takes damage too.
 			const orange = s.players.Orange!;
 			orange.statusLevel = 0;
-			orange.maxTokens = 14;
+			orange.maxBarrier = 14;
 			orange.barrier = 14;
-			orange.blood = 0;
+			orange.brokenBarrier = 0;
 			orange.attackDice = [];
 		});
 		const after = apply(state, RED, { type: 'initiatePvp' });
@@ -196,16 +196,16 @@ describe('group Encounter (PvP) combat', () => {
 			red.attackDice = arcane(6); // ≥6 damage — overruns a tiny barrier
 			const blue = s.players.Blue!;
 			blue.statusLevel = 0;
-			blue.maxTokens = 2;
+			blue.maxBarrier = 2;
 			blue.barrier = 2;
-			blue.blood = 0;
+			blue.brokenBarrier = 0;
 			blue.attackDice = [];
 			blue.stunImmune = false;
 			const orange = s.players.Orange!;
 			orange.statusLevel = 0;
-			orange.maxTokens = 14;
+			orange.maxBarrier = 14;
 			orange.barrier = 14;
-			orange.blood = 0;
+			orange.brokenBarrier = 0;
 			orange.attackDice = [];
 		});
 		const after = apply(state, RED, { type: 'initiatePvp' });

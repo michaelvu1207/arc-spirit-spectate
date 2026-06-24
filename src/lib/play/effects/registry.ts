@@ -31,7 +31,7 @@ export type EffectTrigger = GameEvent;
 export type EffectAction =
 	// ── Original kinds (numeric breakpoint path) ────────────────────────────
 	| { kind: 'gainAttackDice'; tier: DiceTier; amount: number }
-	| { kind: 'gainPotential'; amount: number }
+	| { kind: 'gainMaxBarrier'; amount: number }
 	/**
 	 * Upgrade attack dice. With no `from`/`to`, upgrades the `times` lowest-tier
 	 * non-arcane dice one step (the classic Elementalist ladder). When `from`/`to`
@@ -54,8 +54,8 @@ export type EffectAction =
 	| { kind: 'gainAugment'; amount: number }
 	| { kind: 'gainRelic'; amount: number }
 	/**
-	 * Purify Arcane Blood. A fixed `amount`, or `fraction: 'halfRoundUp'` to
-	 * remove half the current pool rounded up (Purifier's rest effect).
+	 * Purify broken barrier. A fixed `amount`, or `fraction: 'halfRoundUp'` to
+	 * remove half the current broken barrier rounded up (Purifier's rest effect).
 	 */
 	| { kind: 'purifyArcaneBlood'; amount?: number; fraction?: 'halfRoundUp' }
 	// ── P3 kinds (Rest / Cultivate coverage) ────────────────────────────────
@@ -65,8 +65,8 @@ export type EffectAction =
 	| { kind: 'discardAttackDice'; amount: number }
 	// ── P4 kinds (Combat-trigger coverage) ───────────────────────────────────
 	/**
-	 * Add combat damage equal to the player's current Arcane Blood, capped at
-	 * `max` (Blood Hunter: "deal 1 damage per Arcane Blood, max 4"). The amount
+	 * Add combat damage equal to the player's current broken barrier, capped at
+	 * `max` (Blood Hunter: "deal 1 damage per broken barrier, max 4"). The amount
 	 * is computed at trigger time from the live pool, so it can't be expressed
 	 * with the static `combatBonus` amount.
 	 */

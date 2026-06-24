@@ -82,7 +82,11 @@ function isLegal(
 	command: GameCommand,
 	catalog: PlayCatalog
 ): boolean {
-	const result = applyGameCommand(structuredClone(state), botActorFor(state, seat), command, catalog);
+	// No structuredClone wrapper: applyGameCommand (default path, no `mutate`) already deep-clones
+	// `state` internally, so it never mutates the input — and isLegal only reads `.ok`, discarding
+	// the result state. Wrapping in structuredClone produced a full extra deep copy that was then
+	// cloned again and thrown away (~61% overhead per probe). Parity-gated (sim/_parity.test.ts).
+	const result = applyGameCommand(state, botActorFor(state, seat), command, catalog);
 	return result.ok;
 }
 
@@ -217,7 +221,7 @@ function wantsElementalistAugment(player: BotPlayer, profile: BotProfile): boole
 
 /**
  * Is the build's ENGINE still missing pieces it should summon before grinding? Assembling the
- * whole engine first — sustain, enough Cultivators for the potential rate, Fighters for dice, and
+ * whole engine first — sustain, enough Cultivators for the max barrier rate, Fighters for dice, and
  * (the lever that decides game length) enough ELEMENTALISTS so the basic→exalted upgrade runs at N
  * dice/rest instead of dragging at 1/rest — beats settling into a Rest grind with one Elementalist
  * and never coming back for more. Two summon rounds that triple upgrade throughput pay for
@@ -265,7 +269,7 @@ function destinationOfferingAbyssSummon(catalog: PlayCatalog): NavigationDestina
 }
 
 /** Should the bot detour to fish the Arcane Abyss bag for an ARCANE source? Only once the core
- *  build is done (dice exalted, potential maxed, sustain) but it still lacks arcane — Dragon Warrior
+ *  build is done (dice exalted, max barrier maxed, sustain) but it still lacks arcane — Dragon Warrior
  *  (+3 arcane on awaken) / Arcane Advisor (exalted→arcane on rest) are the ~16+ damage the hp14 boss
  *  one-shot needs that a 10-exalted pool (mean 10) + scarce Spirit Animals can't reach. ~4 arcane
  *  sources in the 37-card bag → a few Cyber visits find one. Gated on pursueArcane + a relic to pay
@@ -274,8 +278,8 @@ function wantsArcaneFish(player: BotPlayer, profile: BotProfile): boolean {
 	if (!profile.pursueArcane) return false;
 	if (!atDiceCap(player, profile)) return false;
 	if (player.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted')) return false;
-	if (player.maxTokens < profile.potentialTarget) return false;
-	if (!hasSustain(player) && !canHealViaEconomy(player)) return false;
+	if (player.maxBarrier < profile.maxBarrierTarget) return false;
+	if (!hasSustain(player) && !canRestoreBarrierViaEconomy(player)) return false;
 	if (hasArcaneSource(player)) return false;
 	if (player.pendingDraw || player.spirits.some((sp) => sp.isFaceDown)) return false; // pending recruit already
 	if (!player.mats.some((r) => r.hasRune && r.type === 'relic')) return false; // can pay the trade
@@ -286,7 +290,7 @@ function wantsArcaneFish(player: BotPlayer, profile: BotProfile): boolean {
  * Should the bot fish the Arcane Abyss bag NOW — for a CLIMB-COMPRESSOR (Aquamaiden/Golem/Firekeeper/
  * Guardian damage-mitigation, or Dark Assassin's damage-double) or, for pursueArcane builds, an arcane
  * source? These cost-7-9 spirits are the levers that collapse the ~17-round climb (mitigation lets
- * barrier survive two top-rung hits → far fewer heal rounds; Dark Assassin one-shots the boss). Unlike
+ * barrier survive two top-rung hits → far fewer restore-barrier rounds; Dark Assassin one-shots the boss). Unlike
  * wantsArcaneFish (late, post-cap, arcane-only) this fires EARLIER — once a real dice pool has started
  * (≥4 dice) — so the compressor is awakened BEFORE the hard rungs. Gated on: a relic to pay the Cyber
  * City "relic → abyssSummon" trade, no recruit already pending (so it never stacks unawakened fishes),
@@ -310,7 +314,7 @@ function wantsAbyssFish(player: BotPlayer, profile: BotProfile): boolean {
  * Pick the ONE specialized Spirit World to visit this round (you only get one build action per
  * round now that a location's actions are its reward rows). Priority: SUMMON to finish assembling
  * the engine (sustain + Cultivators + Fighters + Elementalists) before grinding it → Cultivate
- * (the potential gate) while short and actionable → Rest (convert/upgrade pieces into dice, heal)
+ * (the max barrier gate) while short and actionable → Rest (convert/upgrade pieces into dice, restore barrier)
  * → Summon as the default growth engine and the bootstrap when nothing else is actionable yet.
  */
 function chooseBuildDestination(
@@ -332,7 +336,7 @@ function chooseBuildDestination(
 	}
 	// 1a. Fish the Arcane Abyss for a COMPRESSOR (Cyber City: relic → abyssSummon) — HIGH priority so a
 	//     Fairy relic is reserved for it before augments. Damage-mitigation (Aquamaiden/Golem/Firekeeper
-	//     /Guardian) lets barrier survive two top-rung hits → far fewer climb heal rounds; Dark Assassin
+	//     /Guardian) lets barrier survive two top-rung hits → far fewer climb restore-barrier rounds; Dark Assassin
 	//     doubles the roll on odd barrier → one-shots the boss. These cost-7-9 spirits collapse the
 	//     ~17-round climb, worth far more than an augment. wantsAbyssFish gates on ≥4 dice (core started),
 	//     a relic, room, and lacking a compressor, so it fires once mid-build and not again until awakened.
@@ -347,18 +351,18 @@ function chooseBuildDestination(
 		const d = legalDest(destinationOfferingAugment(catalog, ['Elementalist']));
 		if (d) return d;
 	}
-	// 2. Cultivate while potential is short and actionable.
+	// 2. Cultivate while max barrier is short and actionable.
 	if (
-		profile.cultivateForPotential &&
-		player.maxTokens < profile.potentialTarget &&
+		profile.cultivateForMaxBarrier &&
+		player.maxBarrier < profile.maxBarrierTarget &&
 		awakenedCultivators(player) >= 2
 	) {
 		const d = legalDest(destinationOfferingAction(catalog, 'cultivate'));
 		if (d) return d;
 	}
-	// 3. Rest to build/upgrade dice, or heal — but only up to COMBAT-READY (toughest monster
-	//    damage + 1), not to a bloated max barrier: over-healing past what survives the next hit
-	//    just burns Floral rounds (a pot-10 build otherwise spends ~3 rounds topping 7→10 for nothing).
+	// 3. Rest to build/upgrade dice, or restore barrier — but only up to COMBAT-READY (toughest monster
+	//    damage + 1), not to a bloated max barrier: restoring barrier past what survives the next hit
+	//    just burns Floral rounds (a max-barrier-10 build otherwise spends ~3 rounds topping 7→10 for nothing).
 	if (profile.restForDice && hasRestPayoff(player, profile, maxLadderDamage(catalog) + 1)) {
 		const d = legalDest(destinationOfferingAction(catalog, 'rest'));
 		if (d) return d;
@@ -370,7 +374,7 @@ function chooseBuildDestination(
 	{
 		const coreBuilt =
 			atDiceCap(player, profile) &&
-			player.maxTokens >= profile.potentialTarget &&
+			player.maxBarrier >= profile.maxBarrierTarget &&
 			!player.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted');
 		const belowOneShot = expectedAttack(state, seat, catalog) < maxLadderHp(catalog) + 1;
 		if (coreBuilt && belowOneShot && hasAugmentCapacity(player)) {
@@ -391,13 +395,13 @@ const RELIC_TARGET = 5; // relics are awaken fuel + pay "any relic" costs — ke
 
 /**
  * Should the bot resolve this location interaction? Plays a location like a thorough real player:
- * take every FREE gain (build action, free rune; a free heal only when actually hurt), and any
- * affordable TRADE whose gain advances the build (buy relics up to a target, heal when hurt, take
+ * take every FREE gain (build action, free rune; a free barrier restore only when actually hurt), and any
+ * affordable TRADE whose gain advances the build (buy relics up to a target, restore barrier when hurt, take
  * runes/augments/class-runes/summons we can use). There is no artificial one-action cap — the bot
  * may resolve every worthwhile row the location offers (each row once per round).
  */
 /** Best chooseRune-option INDEX for an augment trade whose class augment CROSSES a useful
- * breakpoint — Fighter while still building dice, Cultivator while still building potential
+ * breakpoint — Fighter while still building dice, Cultivator while still building max barrier
  * (preferring the count nearest the cap-reaching breakpoint), or a flat-damage augment once
  * built — or -1 if none is worth it. Buying must ADVANCE the build, never just spend a relic. */
 function augmentWorth(
@@ -408,7 +412,7 @@ function augmentWorth(
 ): number {
 	const counts = awakenedClassCounts(player);
 	const needDice = !atDiceCap(player, profile);
-	const needPot = player.maxTokens < profile.potentialTarget;
+	const needMaxBarrier = player.maxBarrier < profile.maxBarrierTarget;
 	const hasUpgradable = player.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted');
 	let best = -1;
 	let bestScore = 0;
@@ -426,7 +430,7 @@ function augmentWorth(
 		// 1-die/Rest floor that caused the ~9-Rest grind in bad-Fighter-draw games). Once dice are capped
 		// it drops to 0 and the Elementalist augment takes over for quality.
 		if (cls === 'Fighter' && needDice && c >= 2 && c < 5) score = c + 6;
-		else if (cls === 'Cultivator' && needPot && c >= 3 && c < 5) score = c;
+		else if (cls === 'Cultivator' && needMaxBarrier && c >= 3 && c < 5) score = c;
 		// Elementalist augment is the dice-QUALITY throughput lever (super-linear): top priority once the
 		// dice exist. Spirit Animal augment = the slot-free flat-damage cap once dice are done.
 		else if (cls === 'Elementalist' && hasUpgradable && c >= 1 && c < 5) score = c + 5;
@@ -456,19 +460,19 @@ function augmentChoices(
 }
 
 function wantsInteraction(player: BotPlayer, profile: BotProfile, it: LocationInteraction, catalog: PlayCatalog): boolean {
-	const hurt = player.barrier < player.maxTokens;
+	const hurt = player.barrier < player.maxBarrier;
 	const heldRelics = player.mats.filter((s) => s.hasRune && s.type === 'relic').length;
 	if (it.kind === 'gain') {
-		// Free. Take it — unless it's purely a heal we don't need right now.
-		if (it.gains.every((g) => g.type === 'heal')) return hurt;
+		// Free. Take it — unless it's purely a barrier restore we don't need right now.
+		if (it.gains.every((g) => g.type === 'restoreBarrier')) return hurt;
 		return true;
 	}
 	if (!canAfford(it, player.mats)) return false;
 	let want = false;
 	for (const g of it.gains) {
-		if (g.type === 'heal') want ||= hurt;
+		if (g.type === 'restoreBarrier') want ||= hurt;
 		else if (g.type === 'vp') want = true;
-		// A relic → 2nd build action this turn only when it clearly helps (still building dice/potential)
+		// A relic → 2nd build action this turn only when it clearly helps (still building dice/max barrier)
 		// and we can keep a relic in reserve — never just to spend.
 		else if (g.type === 'action')
 			// Spend relics on the abyss-summon fish (arcane) only. Do NOT blow them on an extra
@@ -497,7 +501,7 @@ function wantsInteraction(player: BotPlayer, profile: BotProfile, it: LocationIn
 // Strategic ("Medium") bot
 //
 // Strategy: fight the Arcane Abyss monster when the kill odds clear a threshold
-// (default 80%), otherwise visit the Spirit World to cultivate potential, rest
+// (default 80%), otherwise visit the Spirit World to cultivate max barrier, rest
 // for attack dice, and recruit Fighters/Elementalists (dice) until the dice cap,
 // then Spirit Animals (flat combat damage). Win = first to 30 VP, farmed off the
 // monster's reward track. All choices are still trial-applied for legality.
@@ -516,32 +520,32 @@ export interface BotProfile {
 	 */
 	killThreshold: number;
 	/**
-	 * Lower P(kill) bar used once the build is "topped out" (dice + potential at
+	 * Lower P(kill) bar used once the build is "topped out" (dice + max barrier at
 	 * target, no more rest/recruit progress). At that point waiting no longer helps,
 	 * so the bot takes the best shot it has even at modest odds (the hp14/dmg10 boss).
 	 */
 	builtOutThreshold: number;
 	/** Target attack-dice count (also bounded by the flat 10-dice cap). */
 	diceCapTarget: number;
-	/** Target potential (max barrier) the bot builds to, then stops. Must cover the top monster's
+	/** Target max barrier the bot builds to, then stops. Must cover the top monster's
 	 *  damage to clear the ladder without corrupting (currently 7); over-building past it is wasted
-	 *  rounds (see the potential-target sweep in src/lib/play/sim/metaReport.test.ts). */
-	potentialTarget: number;
+	 *  rounds (see the max-barrier-target sweep in src/lib/play/sim/metaReport.test.ts). */
+	maxBarrierTarget: number;
 	/** Class names to recruit while building dice, in priority order. */
 	preCapClasses: string[];
 	/** Class names to recruit once dice are capped. */
 	postCapClasses: string[];
 	/** Classes that always add combat power (flat damage / arcane dice) — valued in every phase. */
 	damageClasses: string[];
-	/** Cultivate to raise potential while it is below the potential target. */
-	cultivateForPotential: boolean;
-	/** Rest when it yields dice / tier upgrades / arcane conversion / a needed heal. */
+	/** Cultivate to raise max barrier while it is below the max barrier target. */
+	cultivateForMaxBarrier: boolean;
+	/** Rest when it yields dice / tier upgrades / arcane conversion / a needed barrier restore. */
 	restForDice: boolean;
 	/** Concentrate recruiting on one origin to consolidate Cultivate's rune yield (mild tiebreaker). */
 	originFocus: boolean;
 	/**
-	 * How many Cultivators to stack while potential is short. The reworked Cultivator grants
-	 * (awakened count − 1) potential per Cultivate, so more Cultivators = faster potential
+	 * How many Cultivators to stack while max barrier is short. The reworked Cultivator grants
+	 * (awakened count − 1) max barrier per Cultivate, so more Cultivators = faster max barrier
 	 * (2 → +1, 3 → +2, 4 → +3). Defaults to CULTIVATOR_WANTED. Higher = faster cap, more slot churn.
 	 */
 	cultivatorTarget?: number;
@@ -563,7 +567,7 @@ export interface BotProfile {
 	searchRolloutRounds?: number;
 	/**
 	 * Fight as soon as the hit is survivable and the kill is likely, instead of topping barrier
-	 * off first. Trades a little safety for far fewer wasted heal-rounds → faster wins.
+	 * off first. Trades a little safety for far fewer wasted restore-barrier rounds → faster wins.
 	 */
 	fightUrgency?: boolean;
 	/**
@@ -583,17 +587,17 @@ export interface BotProfile {
 	pursueArcane?: boolean;
 	/**
 	 * Pursue the CORRUPTION build: recruit a simultaneous-attack class (Sharpshooter / Soul
-	 * Weaver ≥2) + Cursed Spirits, run a LOW potential target, and deliberately fight rungs
+	 * Weaver ≥2) + Cursed Spirits, run a LOW max barrier target, and deliberately fight rungs
 	 * whose damage exceeds barrier — corrupting THROUGH the hit (you still strike, and can kill)
-	 * to punch past the dmg-7/dmg-10 walls without grinding potential to 10. Cursed Spirits turn
-	 * the Tainted corruption into +1 potential each (claimed via taintedPotential). Gated so the
+	 * to punch past the dmg-7/dmg-10 walls without grinding max barrier to 10. Cursed Spirits turn
+	 * the Tainted corruption into +1 max barrier each (claimed via taintedMaxBarrier). Gated so the
 	 * corruption-aware kill model (computeKillProbability) only fires for this build.
 	 */
 	pursueCorruption?: boolean;
 	/**
 	 * Pursue the EVIL-HUNTER / PvP line: build a small Cursed-Spirit + Sharpshooter core, then
 	 * deliberately corrupt all the way to Fallen at the Abyss (each crossing pays out the held
-	 * Cursed Spirits — potential → relic → augment), and from then on co-locate with the Good
+	 * Cursed Spirits — max barrier → relic → augment), and from then on co-locate with the Good
 	 * players every round to launch the unanimous group attack for a flat +3 VP each. The
 	 * aggressive line the design wants to dominate. Implies corruption-aware play.
 	 */
@@ -633,11 +637,11 @@ export const RANDOM_PROFILE: BotProfile = {
 	killThreshold: 1,
 	builtOutThreshold: 1,
 	diceCapTarget: 10,
-	potentialTarget: 10,
+	maxBarrierTarget: 10,
 	preCapClasses: [],
 	postCapClasses: [],
 	damageClasses: [],
-	cultivateForPotential: false,
+	cultivateForMaxBarrier: false,
 	restForDice: false,
 	originFocus: false
 };
@@ -651,8 +655,8 @@ const DAMAGE_CLASSES = ['Spirit Animal', 'Sharpshooter', 'Arcane Advisor', 'Drag
  *
  * The ladder cannot be beaten by raw dice alone: a corrupted player (monster damage
  * > barrier) cannot strike back, so the bot must (1) NEVER fight into corruption —
- * kill-probability is 0 unless it survives the first hit; (2) raise POTENTIAL via
- * Cultivators (≥2 awakened → +potential/Cultivate) so its barrier covers the damage curve (4 → 10); (3) build +
+ * kill-probability is 0 unless it survives the first hit; (2) raise MAX BARRIER via
+ * Cultivators (≥2 awakened → +max barrier/Cultivate) so its barrier covers the damage curve (4 → 10); (3) build +
  * upgrade dice (Fighter/Elementalist) and add Spirit-Animal flat damage to out-roll
  * the rising HP; (4) keep a Healer for between-fight sustain. Tuned by src/lib/play/sim.
  */
@@ -661,11 +665,11 @@ export const MEDIUM_DEFAULTS: BotProfile = {
 	killThreshold: 0.7,
 	builtOutThreshold: 0.25,
 	diceCapTarget: 10,
-	potentialTarget: 10,
+	maxBarrierTarget: 10,
 	preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 	postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 	damageClasses: DAMAGE_CLASSES,
-	cultivateForPotential: true,
+	cultivateForMaxBarrier: true,
 	restForDice: true,
 	originFocus: true
 };
@@ -677,18 +681,18 @@ export const MEDIUM_DEFAULTS: BotProfile = {
 export const BOT_PROFILES: Record<string, BotProfile> = {
 	random: RANDOM_PROFILE,
 	medium: MEDIUM_DEFAULTS,
-	// The OLD literal strategy: Fighters/Elementalists for dice, no potential, no
+	// The OLD literal strategy: Fighters/Elementalists for dice, no max barrier, no
 	// origin focus — the baseline the safe scaler must beat (hard-walls at dmg-5 rungs).
 	fighter: {
 		kind: 'medium',
 		killThreshold: 0.8,
 		builtOutThreshold: 0.3,
 		diceCapTarget: 10,
-		potentialTarget: 4,
+		maxBarrierTarget: 4,
 		preCapClasses: ['Fighter', 'Elementalist'],
 		postCapClasses: ['Spirit Animal'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: false,
+		cultivateForMaxBarrier: false,
 		restForDice: true,
 		originFocus: false
 	},
@@ -698,70 +702,70 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.8,
 		builtOutThreshold: 0.3,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Cultivator', 'Healer', 'Fighter', 'Elementalist', 'Spirit Animal'],
 		postCapClasses: ['Cultivator', 'Healer', 'Spirit Animal'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true
 	},
-	// Aggressive: lower fight bar, dice + damage focus, lighter on potential.
+	// Aggressive: lower fight bar, dice + damage focus, lighter on max barrier.
 	aggressive: {
 		kind: 'medium',
 		killThreshold: 0.55,
 		builtOutThreshold: 0.2,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Spirit Animal', 'Elementalist'],
 		postCapClasses: ['Spirit Animal', 'Cultivator', 'Elementalist'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true
 	},
-	// Capacity-first: rush potential to 10 before leaning on dice/damage.
+	// Capacity-first: rush max barrier to 10 before leaning on dice/damage.
 	cultivator: {
 		kind: 'medium',
 		killThreshold: 0.75,
 		builtOutThreshold: 0.25,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Cultivator', 'Fighter', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true
 	},
 	// Safe scaler without origin focus — isolates how much origin concentration still matters
-	// (now only Cultivate's rune yield; potential is origin-independent).
+	// (now only Cultivate's rune yield; max barrier is origin-independent).
 	noorigin: {
 		kind: 'medium',
 		killThreshold: 0.7,
 		builtOutThreshold: 0.25,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: false
 	},
 	// ── The difficulty LADDER (each tier definitively stronger) ────────────────────
 	// HARD: the safe scaler, but urgent — fights the moment a kill is survivable + likely
-	// instead of over-healing, so it wins materially faster than Medium.
+	// instead of over-restoring barrier, so it wins materially faster than Medium.
 	hard: {
 		kind: 'medium',
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true
@@ -772,11 +776,11 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true,
@@ -790,11 +794,11 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true,
@@ -808,11 +812,11 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true,
@@ -827,11 +831,11 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true,
@@ -843,55 +847,55 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 	// All share the HARD template (fightUrgency, NO search) so head-to-head differences are
 	// attributable to the economy lever varied (Cultivator count / origin focus), not to search
 	// depth. Used by the meta self-play battery (src/lib/play/sim/metaReport.test.ts).
-	// CULRUSH — stack 4 Cultivators (+3 potential/Cultivate): caps potential fastest.
+	// CULRUSH — stack 4 Cultivators (+3 max barrier/Cultivate): caps max barrier fastest.
 	culrush: {
 		kind: 'medium',
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Cultivator', 'Fighter', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true,
 		cultivatorTarget: 4
 	},
-	// CULLEAN — only 2 Cultivators (+1 potential/Cultivate): slowest potential, most slots for damage.
+	// CULLEAN — only 2 Cultivators (+1 max barrier/Cultivate): slowest max barrier, most slots for damage.
 	cullean: {
 		kind: 'medium',
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true,
 		cultivatorTarget: 2
 	},
-	// FLEXORIGIN — origin focus OFF (potential no longer needs an origin trio): spread origins freely.
+	// FLEXORIGIN — origin focus OFF (max barrier no longer needs an origin trio): spread origins freely.
 	flexorigin: {
 		kind: 'medium',
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Fighter', 'Cultivator', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: false,
 		fightUrgency: true,
 		cultivatorTarget: 3
 	},
-	// RUSHPATIENT — the data-driven hybrid: capacity-first (rush potential, patient fights, like
+	// RUSHPATIENT — the data-driven hybrid: capacity-first (rush max barrier, patient fights, like
 	// `cultivator`) + 4 Cultivators (`culrush`'s reliability lever). Combines the solo-best and
 	// MP-best traits surfaced by the meta battery.
 	rushpatient: {
@@ -899,30 +903,30 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.75,
 		builtOutThreshold: 0.25,
 		diceCapTarget: 10,
-		potentialTarget: 10,
+		maxBarrierTarget: 10,
 		preCapClasses: ['Cultivator', 'Fighter', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		cultivatorTarget: 4
 	},
-	// CORRUPTION — the "you don't need 10 potential" build. Runs a LOW potential target and a
+	// CORRUPTION — the "you don't need 10 max barrier" build. Runs a LOW max barrier target and a
 	// simultaneous-attack class (Sharpshooter) so it can fight rungs whose damage exceeds its
 	// barrier, corrupting THROUGH the hit (still striking, and killing) to punch past the
-	// dmg-7/dmg-10 walls. Cursed Spirits convert the Tainted corruption into +potential. Probe
+	// dmg-7/dmg-10 walls. Cursed Spirits convert the Tainted corruption into +max barrier. Probe
 	// profile for the meta battery — measures whether corruption beats the safe scaler.
 	corruption: {
 		kind: 'medium',
 		killThreshold: 0.6,
 		builtOutThreshold: 0.3,
 		diceCapTarget: 10,
-		potentialTarget: 6,
+		maxBarrierTarget: 6,
 		preCapClasses: ['Sharpshooter', 'Fighter', 'Cursed Spirit', 'Elementalist', 'Spirit Animal', 'Cultivator'],
 		postCapClasses: ['Sharpshooter', 'Spirit Animal', 'Cursed Spirit', 'Elementalist'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: false,
 		fightUrgency: true,
@@ -930,19 +934,19 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 	},
 	// PVPHUNTER — the aggressive Evil line the design wants to be dominant. Build a small Cursed +
 	// Sharpshooter core, descend to Fallen at the Abyss (each crossing pays the Cursed Spirits out:
-	// potential → relic → augment), then co-locate with the Good players every round and launch the
+	// max barrier → relic → augment), then co-locate with the Good players every round and launch the
 	// unanimous group attack for a flat +3 VP each (Sharpshooter lets it strike through the
-	// corrupting descent hits). Low potential — it corrupts on purpose, so over-building is wasted.
+	// corrupting descent hits). Low max barrier — it corrupts on purpose, so over-building is wasted.
 	pvphunter: {
 		kind: 'medium',
 		killThreshold: 0.6,
 		builtOutThreshold: 0.3,
 		diceCapTarget: 10,
-		potentialTarget: 5,
+		maxBarrierTarget: 5,
 		preCapClasses: ['Cursed Spirit', 'Sharpshooter', 'Fighter', 'Spirit Animal', 'Elementalist'],
 		postCapClasses: ['Cursed Spirit', 'Sharpshooter', 'Spirit Animal'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: false,
 		fightUrgency: true,
@@ -951,7 +955,7 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		cultivatorTarget: 2
 	},
 	// CURSED — the Cursed-Spirit value engine WITHOUT PvP: stack Cursed Spirits, descend the
-	// corruption ladder through fights for the threshold rewards (potential → relic → augment,
+	// corruption ladder through fights for the threshold rewards (max barrier → relic → augment,
 	// each ×Cursed held), then convert that surplus into a normal VP win. Isolates the cursed
 	// economy from the PvP payoff so the battery can attribute each independently.
 	cursed: {
@@ -959,11 +963,11 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.6,
 		builtOutThreshold: 0.3,
 		diceCapTarget: 10,
-		potentialTarget: 6,
+		maxBarrierTarget: 6,
 		preCapClasses: ['Cursed Spirit', 'Sharpshooter', 'Fighter', 'Elementalist', 'Spirit Animal'],
 		postCapClasses: ['Cursed Spirit', 'Sharpshooter', 'Spirit Animal', 'Elementalist'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: false,
 		fightUrgency: true,
@@ -978,11 +982,11 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 		killThreshold: 0.7,
 		builtOutThreshold: 0.4,
 		diceCapTarget: 10,
-		potentialTarget: 9,
+		maxBarrierTarget: 9,
 		preCapClasses: ['Cultivator', 'Fighter', 'Elementalist', 'Spirit Animal', 'Healer'],
 		postCapClasses: ['Cultivator', 'Spirit Animal', 'Elementalist', 'Healer'],
 		damageClasses: DAMAGE_CLASSES,
-		cultivateForPotential: true,
+		cultivateForMaxBarrier: true,
 		restForDice: true,
 		originFocus: true,
 		fightUrgency: true,
@@ -990,21 +994,21 @@ export const BOT_PROFILES: Record<string, BotProfile> = {
 	}
 };
 
-// Potential-target sweep probes (the HARD template, varying ONLY potentialTarget). Used by the
-// meta battery to find the win-rate-optimal potential cap for the current monster damage curve
+// Max-barrier-target sweep probes (the HARD template, varying ONLY maxBarrierTarget). Used by the
+// meta battery to find the win-rate-optimal max barrier cap for the current monster damage curve
 // (max damage = the boss's 7, so 7 is the minimum that survives every rung; 8–10 over-build).
 for (const pt of [5, 6, 7, 8, 9, 10]) {
-	BOT_PROFILES[`pot${pt}`] = { ...BOT_PROFILES.hard, potentialTarget: pt };
+	BOT_PROFILES[`pot${pt}`] = { ...BOT_PROFILES.hard, maxBarrierTarget: pt };
 }
 
-// Low-potential + SIMULTANEOUS-ATTACK probes: run a Sharpshooter (attack at the same time) and a
-// LOW potential cap, healing through survivable rungs and corrupt-punching only the rungs whose
-// damage exceeds max potential (sim6 → just the boss; sim5 → rung-6 + boss). Tests whether sub-7
-// potential is viable/better once you can strike through corruption. (No Cursed Spirits — clean.)
+// Low-max-barrier + SIMULTANEOUS-ATTACK probes: run a Sharpshooter (attack at the same time) and a
+// LOW max barrier cap, restoring barrier through survivable rungs and corrupt-punching only the rungs whose
+// damage exceeds max barrier (sim6 → just the boss; sim5 → rung-6 + boss). Tests whether sub-7
+// max barrier is viable/better once you can strike through corruption. (No Cursed Spirits — clean.)
 for (const pt of [4, 5, 6]) {
 	BOT_PROFILES[`sim${pt}`] = {
 		...BOT_PROFILES.hard,
-		potentialTarget: pt,
+		maxBarrierTarget: pt,
 		pursueCorruption: true,
 		originFocus: false,
 		preCapClasses: ['Sharpshooter', 'Fighter', 'Elementalist', 'Spirit Animal', 'Cultivator'],
@@ -1012,21 +1016,21 @@ for (const pt of [4, 5, 6]) {
 	};
 }
 
-// Data-driven potential cap for the SHIPPED tiers. The boss hits for 7, so potential 7 is the
-// minimum that survives every rung (corruption is damage > barrier, so barrier 7 survives a 7).
+// Data-driven max barrier cap for the SHIPPED tiers. The boss hits for 7, so max barrier 7 is
+// the minimum that survives every rung (corruption is damage > barrier, so barrier 7 survives a 7).
 // A self-play sweep (src/lib/play/sim/metaReport.test.ts) shows 7 wins MORE and no slower than
 // 8–10 — over-building past the top damage is wasted rounds. The tiers share the safe-scaler
 // build and differ only by search depth, so they all use the same cap. (medium === MEDIUM_DEFAULTS,
 // so this updates both.) If the monster damage curve changes, re-run the sweep and update this.
-// Potential target for the shipped difficulty tiers. NB: a self-play sweep on the REBUILT economy
+// Max barrier target for the shipped difficulty tiers. NB: a self-play sweep on the REBUILT economy
 // (src/lib/play/sim/_potSweep) shows the full 10 is materially MORE ROBUST than 7 — the extra
 // barrier headroom buffers the boss climb against corruption (which would otherwise eat the
 // flat-damage Spirit Animals the build needs), lifting 2p win rate to ~100% with no loss of winning
-// speed (~42 rounds either way). So the economy scalers keep their authored potentialTarget: 10;
+// speed (~42 rounds either way). So the economy scalers keep their authored maxBarrierTarget: 10;
 // only the search-tier ladder is normalized here. (If the monster damage curve changes, re-sweep.)
-const TIER_POTENTIAL_TARGET = 10;
+const TIER_MAX_BARRIER_TARGET = 10;
 for (const t of ['medium', 'hard', 'extrahard', 'insane', 'godly']) {
-	BOT_PROFILES[t].potentialTarget = TIER_POTENTIAL_TARGET;
+	BOT_PROFILES[t].maxBarrierTarget = TIER_MAX_BARRIER_TARGET;
 }
 
 // Co-location robustness counterfactual. Heuristic bots otherwise all cluster on the first legal
@@ -1054,7 +1058,7 @@ BOT_PROFILES['fast'] = {
 	...BOT_PROFILES['cullean'],
 	killThreshold: 0.55,
 	builtOutThreshold: 0.42,
-	potentialTarget: 9,
+	maxBarrierTarget: 9,
 	cultivatorTarget: 2,
 	elementalistTarget: 3,
 	climbReadyFactor: 0.6,
@@ -1125,14 +1129,14 @@ export function computeKillProbability(
 	const mitigation = (player.damageReduction ?? 0) + (player.deflect ?? 0);
 	const incoming = Math.max(0, monster.damage - mitigation);
 	if (!player.skipTakeDamage && incoming >= player.barrier) {
-		// Would corrupt at the CURRENT barrier. If a FULL barrier (maxTokens) WOULD survive this hit,
-		// don't corrupt — return 0 so the bot heals first and fights cleanly. Corruption is NOT free:
+		// Would corrupt at the CURRENT barrier. If a FULL barrier (maxBarrier) WOULD survive this hit,
+		// don't corrupt — return 0 so the bot restores barrier first and fights cleanly. Corruption is NOT free:
 		// it decays status, which shrinks the spirit-slot cap (Pure 7 → Corrupt 5 → Fallen 4), costing
 		// flat-damage spirits (Spirit Animals) — the very firepower the hp-rich rungs need. So only
-		// punch through when corruption is UNAVOIDABLE (incoming > maxTokens, i.e. even a full barrier
+		// punch through when corruption is UNAVOIDABLE (incoming > maxBarrier, i.e. even a full barrier
 		// dies), the caller opts in (pursueCorruption), we have a simultaneous-attack class
 		// (Sharpshooter / Soul Weaver ≥2) to still strike, and status ≤ 1 so we don't fall to Fallen.
-		if (incoming < player.maxTokens) return 0;
+		if (incoming < player.maxBarrier) return 0;
 		const c = awakenedClassCounts(player);
 		const simultaneous = (c['Sharpshooter'] ?? 0) >= 1 || (c['Soul Weaver'] ?? 0) >= 2;
 		if (opts.allowCorruptKill && simultaneous && (player.statusLevel ?? 0) <= 1) {
@@ -1233,8 +1237,8 @@ function focusOriginFor(player: BotPlayer): string | null {
 
 /**
  * How many AWAKENED Cultivators the player has. The reworked Cultivator grants
- * (count − 1) potential per Cultivate at count ≥ 2 (a lone Cultivator grants nothing),
- * so spending the Cultivate action on potential only pays off once there are ≥2.
+ * (count − 1) max barrier per Cultivate at count ≥ 2 (a lone Cultivator grants nothing),
+ * so spending the Cultivate action on max barrier only pays off once there are ≥2.
  */
 function awakenedCultivators(player: BotPlayer): number {
 	return awakenedClassCounts(player)['Cultivator'] ?? 0;
@@ -1249,12 +1253,12 @@ const FIGHTER_SOFT_CAP = 5; // 5 Fighters fill all 10 dice in a single Rest — 
 const HEALER_WANTED = 1; // one Healer's +3/rest sustain doesn't stack
 const SOUL_WEAVER_WANTED = 3; // Soul Weaver heals (+2/rest) only at count 3 — the Healer-less fallback
 const ELEMENTALIST_WANTED = 3; // upgrades dice toward exalted (more = faster basic→exalted, N dice/rest)
-const CULTIVATOR_WANTED = 3; // 3 awakened Cultivators → +2 potential/Cultivate (caps potential ~3× faster than 2)
-const CURSED_WANTED = 3; // corruption build: each awakened Cursed Spirit → +1 potential on the Tainted corruption
+const CULTIVATOR_WANTED = 3; // 3 awakened Cultivators → +2 max barrier/Cultivate (caps max barrier ~3× faster than 2)
+const CURSED_WANTED = 3; // corruption build: each awakened Cursed Spirit → +1 max barrier on the Tainted corruption
 
 /**
  * Renewable barrier income WITHOUT corrupting: a single Healer (+3/rest) or three Soul
- * Weavers (+2/rest). Having this lets the bot climb the whole ladder by healing between
+ * Weavers (+2/rest). Having this lets the bot climb the whole ladder by restoring barrier between
  * fights instead of spending its scarce ~3-corruption budget (which ends the solo game at
  * Fallen, well short of 30 VP). The decisive ingredient for a real win.
  */
@@ -1265,11 +1269,12 @@ function hasSustain(player: BotPlayer): boolean {
 
 /**
  * Can the bot restore barrier the SAFE way via the location economy instead of corrupting?
- * The heal path is: Cultivate → origin runes → a rune trade that grants +2 health (every
- * location's rune→relic row heals), or a held relic → heal at Floral Patch. True if it holds a
- * relic, holds an origin rune, or has ≥2 same-origin spirits to Cultivate runes from.
+ * The restore barrier path is: Cultivate → origin runes → a rune trade that restores barrier
+ * (every location's rune→relic row restores barrier), or a held relic → restore barrier at
+ * Floral Patch. True if it holds a relic, holds an origin rune, or has ≥2 same-origin spirits
+ * to Cultivate runes from.
  */
-function canHealViaEconomy(player: BotPlayer): boolean {
+function canRestoreBarrierViaEconomy(player: BotPlayer): boolean {
 	if (player.mats.some((r) => r.hasRune && r.type === 'relic')) return true;
 	if (player.mats.some((r) => r.hasRune && r.originId)) return true;
 	const byOrigin: Record<string, number> = {};
@@ -1300,7 +1305,7 @@ function hasArcaneSource(player: BotPlayer): boolean {
 }
 
 /** Climb-compressors the bot fishes the Abyss for: combat damage MITIGATION (so barrier survives two
- *  top-rung hits → fewer heal rounds) or Dark Assassin's odd-barrier damage-double (one-shot the boss).
+ *  top-rung hits → fewer restore-barrier rounds) or Dark Assassin's odd-barrier damage-double (one-shot the boss).
  *  These are the levers that collapse the ~17-round climb; all are Abyss-only (cost 7-9). */
 function hasClimbCompressor(player: BotPlayer): boolean {
 	const c = awakenedClassCounts(player);
@@ -1315,7 +1320,7 @@ function hasClimbCompressor(player: BotPlayer): boolean {
 
 /**
  * Marginal value of adding/owning a spirit of class `cls`, given current awakened counts.
- * Centralizes the build's economy: gate-resource Cultivators while potential is short, one
+ * Centralizes the build's economy: gate-resource Cultivators while max barrier is short, one
  * Healer for sustain, Fighters until dice are nearly built, a couple Elementalists, and
  * flat-damage/arcane classes always (they raise the boss-rung kill ceiling). Shared by the
  * recruit scorer and the cull scorer so "what to keep" and "what to add" stay consistent.
@@ -1329,7 +1334,7 @@ function classNeedValue(
 ): number {
 	const c = counts[cls] ?? 0;
 	const needDice = !atDiceCap(player, profile);
-	const needPotential = player.maxTokens < profile.potentialTarget;
+	const needMaxBarrier = player.maxBarrier < profile.maxBarrierTarget;
 	const hasUpgradable = player.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted');
 	switch (cls) {
 		case 'Fighter':
@@ -1337,14 +1342,14 @@ function classNeedValue(
 			// then dead weight (the dice persist when the Fighter is released).
 			return needDice ? (c < FIGHTER_SOFT_CAP ? 8 : 2) : 0;
 		case 'Cultivator': {
-			// The potential engine — built in parallel with dice; culled once potential is maxed.
-			// `cultivatorTarget` sets how many to stack (more → faster potential, see the knob doc).
+			// The max barrier engine — built in parallel with dice; culled once max barrier is maxed.
+			// `cultivatorTarget` sets how many to stack (more → faster max barrier, see the knob doc).
 			const want = profile.cultivatorTarget ?? CULTIVATOR_WANTED;
-			return needPotential ? (c < want ? 8 : 1) : 0;
+			return needMaxBarrier ? (c < want ? 8 : 1) : 0;
 		}
 		case 'Cursed Spirit':
 			// Corruption / PvP build: each awakened Cursed Spirit turns a corruption CROSSING into
-			// rewards (Tainted → +1 potential, Corrupt → relic, Fallen → augment). It keeps paying
+			// rewards (Tainted → +1 max barrier, Corrupt → relic, Fallen → augment). It keeps paying
 			// out until the player has crossed every threshold (Fallen), so it stays HIGH-value
 			// through the descent — never shed it to the forced corruption-sacrifice while we can
 			// still bank a crossing. Recruit a few while short; once Fallen it is spent (value 0).
@@ -1379,14 +1384,14 @@ function classNeedValue(
 			return c < 5 ? 8 : 1;
 		}
 		case 'Healer':
-			// Sustain is a PREREQUISITE for the climb (heal between fights instead of burning the
+			// Sustain is a PREREQUISITE for the climb (restore barrier between fights instead of burning the
 			// scarce corruption budget), so the one Healer outranks even the flat-damage stack —
-			// never let a Spirit Animal displace it, or the build strands itself unable to heal.
+			// never let a Spirit Animal displace it, or the build strands itself unable to restore barrier.
 			// Worthless beyond the first (its +3/rest doesn't stack).
 			return c < HEALER_WANTED ? 11 : 0;
 		case 'Soul Weaver':
 			// Healer-less sustain. Hold off while still laying the dice foundation, then assemble
-			// the count-3 heal. Worthless once a Healer already covers sustain.
+			// the count-3 barrier restore. Worthless once a Healer already covers sustain.
 			if ((counts['Healer'] ?? 0) >= HEALER_WANTED || c >= SOUL_WEAVER_WANTED) return 0;
 			return needDice ? 2 : 6;
 		case 'Ironmane':
@@ -1403,7 +1408,7 @@ function classNeedValue(
 		case 'Golem of Wishes':
 		case 'Guardian':
 			// CLIMB-COMPRESSORS — combat damage MITIGATION (Aquamaiden −3 / Golem deflect 4 / Guardian
-			// skip-a-corrupting-hit). Powerful (barrier survives two top-rung hits → far fewer heal
+			// skip-a-corrupting-hit). Powerful (barrier survives two top-rung hits → far fewer restore-barrier
 			// rounds), and the kill model already reads damageReduction/deflect/skipTakeDamage. BUT their
 			// host spirits awaken via a rune_cost / "discard 2 Teapots" the solo bot rarely holds, so a
 			// fished copy usually strands FACE-DOWN (un-awakable) and blocks re-fishing. Value moderate:
@@ -1426,10 +1431,10 @@ function classNeedValue(
 			return !atDiceCap(player, profile) ? (c < 1 ? 8 : 2) : 0;
 		default:
 			// Flat-damage / arcane classes (Spirit Animal, Sharpshooter, Dragon Warrior, …): the
-			// FINAL firepower lever, and the TOP recruit once the dice+potential foundation is laid.
+			// FINAL firepower lever, and the TOP recruit once the dice+max barrier foundation is laid.
 			// A 10-exalted pool only averages ~10 damage; one-shotting the hp12/hp14 boss rungs needs
 			// ~14-16, and the only way to get there is to STACK flat damage (each Spirit Animal = +1)
-			// in every slot the build no longer needs for dice/potential/sustain. So value them low
+			// in every slot the build no longer needs for dice/max barrier/sustain. So value them low
 			// while still building the foundation, then high enough to displace spent dead weight.
 			if (!damaging) return 0;
 			// Flat damage is the LATE lever. Cull it (0) ONLY while slots are still needed for the CORE
@@ -1437,7 +1442,7 @@ function classNeedValue(
 			// upgradable). The dominant economy stall was a bot that filled every slot with early
 			// flat-damage + Cursed, left NO room for a single Elementalist, and ground out 10 basic dice
 			// it could never upgrade (avg ~3.3 → jams at hp4). But ONCE the core is assembled, KEEP flat
-			// damage even while finishing dice/potential — stacking Spirit Animals in parallel with the
+			// damage even while finishing dice/max barrier — stacking Spirit Animals in parallel with the
 			// late build means the climb STARTS near the boss one-shot (the user's "buy Spirit Animals
 			// toward the late game for the final cap"), instead of arriving at the boss with zero flat
 			// damage and grinding it one summon/round while the boss sits there.
@@ -1447,7 +1452,7 @@ function classNeedValue(
 				(hasUpgradable &&
 					(counts['Elementalist'] ?? 0) < (profile.elementalistTarget ?? ELEMENTALIST_WANTED));
 			if (coreShort && needDice) return 0;
-			if (needPotential) return 4;
+			if (needMaxBarrier) return 4;
 			return 9;
 	}
 }
@@ -1481,7 +1486,7 @@ function spiritNeedValue(
 	}
 	// Origin focus is now only a MILD economy tiebreaker: concentrating origins squeezes a
 	// little more rune yield out of Cultivate (one rune per two same-origin spirits → fewer
-	// wasted odd remainders). Potential no longer needs an origin trio, so this is a small
+	// wasted odd remainders). Max barrier no longer needs an origin trio, so this is a small
 	// nudge rather than a build driver.
 	// …but only as a tiebreaker between spirits that are ALREADY pulling weight. It must never
 	// keep a spent spirit (value 0 — a maxed-out Cultivator, a PvE Cursed Spirit) alive: that
@@ -1521,7 +1526,7 @@ function keepValue(
 function hasRestPayoff(
 	player: BotPlayer | undefined,
 	profile: BotProfile,
-	healCeiling = Infinity
+	barrierCeiling = Infinity
 ): boolean {
 	if (!player) return false;
 	const counts = awakenedClassCounts(player);
@@ -1533,9 +1538,9 @@ function hasRestPayoff(
 	const dice = player.attackDice;
 	const hasUpgradable = dice.some((d) => d.tier === 'basic' || d.tier === 'enchanted');
 	const hasExalted = dice.some((d) => d.tier === 'exalted');
-	// Heal only up to `healCeiling` (the caller passes combat-ready = toughest damage + 1; defaults
-	// to "to full" for the built-out check). Healing past combat-ready just burns Floral rounds.
-	const wounded = player.barrier < Math.min(player.maxTokens, healCeiling);
+	// Restore barrier only up to `barrierCeiling` (the caller passes combat-ready = toughest damage + 1; defaults
+	// to "to full" for the built-out check). Restoring past combat-ready just burns Floral rounds.
+	const wounded = player.barrier < Math.min(player.maxBarrier, barrierCeiling);
 	return (
 		(!atDiceCap(player, profile) && fighter >= 2) ||
 		(elementalist >= 2 && hasUpgradable) || // count 1 upgrades nothing on the super-linear curve
@@ -1545,14 +1550,14 @@ function hasRestPayoff(
 }
 
 /**
- * "Topped out": dice at the cap, potential at target, and Rest no longer helps — so
+ * "Topped out": dice at the cap, max barrier at target, and Rest no longer helps — so
  * waiting can no longer improve the next fight. At that point the bot should take its
  * best shot (the hp14/dmg10 boss) even at modest odds rather than stall forever.
  */
 function isBuiltOut(player: BotPlayer | undefined, profile: BotProfile): boolean {
 	if (!player) return false;
 	if (!atDiceCap(player, profile)) return false;
-	if (player.maxTokens < profile.potentialTarget) return false;
+	if (player.maxBarrier < profile.maxBarrierTarget) return false;
 	if (hasRestPayoff(player, profile)) return false;
 	// Capped dice that are still BASIC/ENCHANTED are NOT built out: their TIER can still be
 	// upgraded, which is worth far more than another flat point and is the difference between a
@@ -1563,10 +1568,10 @@ function isBuiltOut(player: BotPlayer | undefined, profile: BotProfile): boolean
 	// / PvP builds skip this (they win by descending, not by dice quality).
 	if (!profile.pursueCorruption && !profile.pursuePvp) {
 		// Sustain (a Healer / 3 Soul Weavers) is a hard climb prerequisite — without renewable
-		// barrier the build strands itself unable to heal between fights (the corruption budget
+		// barrier the build strands itself unable to restore barrier between fights (the corruption budget
 		// runs out at Fallen, well short of 30 VP). A sustain-less PvE build is NEVER "done": keep
 		// building (summon for a Healer) rather than climbing into a deadlock. Mirrors readyToClimb.
-		if (!hasSustain(player) && !canHealViaEconomy(player)) return false; // a Healer OR the relic/rune→health economy
+		if (!hasSustain(player) && !canRestoreBarrierViaEconomy(player)) return false; // a Healer OR the relic/rune→barrier economy
 		if (player.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted')) return false;
 	}
 	return true;
@@ -1594,15 +1599,15 @@ function maxLadderHp(catalog: PlayCatalog): number {
 }
 
 /** The toughest rung's DAMAGE — the barrier the build must keep above to fight without corrupting.
- *  The bot needs to heal only to ~this (+1 buffer), NOT to a bloated max barrier; over-healing past
- *  combat-ready just burns Floral rounds. */
+ *  The bot needs to restore barrier only to ~this (+1 buffer), NOT to a bloated max barrier; restoring
+ *  past combat-ready just burns Floral rounds. */
 function maxLadderDamage(catalog: PlayCatalog): number {
 	return (catalog.monsters ?? []).reduce((m, x) => Math.max(m, x.damage ?? 0), 1);
 }
 
 /**
  * Is the build strong enough to START climbing? Killing advances the ladder to a tougher
- * monster, so we hold at rung 0 (building) until potential is maxed, dice are capped, and
+ * monster, so we hold at rung 0 (building) until max barrier is maxed, dice are capped, and
  * expected damage nears the toughest rung's HP — THEN blitz the whole ladder while it's at
  * full strength, rather than advancing under-built and bleeding the tableau to corruption.
  */
@@ -1614,7 +1619,7 @@ function readyToClimb(
 ): boolean {
 	const player = state.players[seat];
 	if (!player) return false;
-	if (player.maxTokens < profile.potentialTarget) return false;
+	if (player.maxBarrier < profile.maxBarrierTarget) return false;
 	// NOTE: deliberately NOT requiring the full 10-dice cap. Holding at rung 0 until every die is built
 	// serialized the whole build BEFORE the climb; instead start once expected damage clears the climb
 	// threshold below (reachable with a partial-but-upgraded pool + flat damage) and finish the last
@@ -1623,7 +1628,7 @@ function readyToClimb(
 	// safe early rungs with the tail of the build — it never throws an under-built bot at a hard rung.
 	// Climbing the whole ladder needs renewable barrier (a Healer / 3 Soul Weavers) so we
 	// don't burn the corruption budget; without it the climb stalls and falls out at Fallen.
-	if (!hasSustain(player) && !canHealViaEconomy(player)) return false; // a Healer OR the relic/rune→health economy
+	if (!hasSustain(player) && !canRestoreBarrierViaEconomy(player)) return false; // a Healer OR the relic/rune→barrier economy
 	return expectedAttack(state, seat, catalog) >= maxLadderHp(catalog) * (profile.climbReadyFactor ?? 0.9);
 }
 
@@ -1662,9 +1667,9 @@ function canStillRaiseDamage(player: BotPlayer, profile: BotProfile): boolean {
 /**
  * The strategic policy — a SAFE SCALER. Same trial-apply legality threading as the random
  * policy, but goal-driven: only fight when the hit is survivable AND the kill odds clear
- * the bar; otherwise build at the Spirit World — cultivate for potential (via
- * ≥2 awakened Cultivators), rest for dice/upgrades/heals, and recruit toward the binding
- * need (potential → dice → flat damage).
+ * the bar; otherwise build at the Spirit World — cultivate for max barrier (via
+ * ≥2 awakened Cultivators), rest for dice/upgrades/barrier restores, and recruit toward the binding
+ * need (max barrier → dice → flat damage).
  */
 export function planMediumPhaseActions(
 	state: PublicGameState,
@@ -1796,7 +1801,7 @@ export function planMediumPhaseActions(
 			// reached a sane floor). Once climbing (ladderIndex > 0), the build has plateaued,
 			// or we're battle-ready, never block — advancing the ladder before a reasonable
 			// floor just bleeds the tableau to corruption, but over-gating strands builds whose
-			// potential plateaus below the full target.
+			// max barrier plateaus below the full target.
 			const climbFloor =
 				(monster?.ladderIndex ?? 0) > 0 ||
 				readyToClimb(working, seat, catalog, profile) ||
@@ -1807,7 +1812,7 @@ export function planMediumPhaseActions(
 			const committed =
 				(monster?.ladderIndex ?? 0) > 0 || isBuiltOut(player, profile) || profile.fightUrgency === true;
 			// High-HP "boss" rungs (hp ≥ 10) must be (near-)ONE-SHOT, not ground out: grinding one at
-			// coin-flip odds wastes the fight AND the heal round after each miss — the dominant time sink
+			// coin-flip odds wastes the fight AND the restore-barrier round after each miss — the dominant time sink
 			// in long games. So while we can still RAISE firepower (upgrade dice, source arcane, or stack
 			// another flat-damage spirit) and expected attack can't yet near-one-shot the toughest rung,
 			// demand a high kill bar at a boss rung — routing the bot to BUILD more damage instead. Once
@@ -1819,24 +1824,24 @@ export function planMediumPhaseActions(
 			// At a boss rung, only keep BUILDING damage while we're FAR from a kill (expected attack
 			// more than ~2 below the rung HP) AND can still raise it. Once we're within striking range —
 			// or damage-maxed — stop stalling and take realistic shots at a low bar, grinding the rung
-			// through heal+retry; chasing the last point or a Spirit Animal that never draws is what
+			// through restore-barrier+retry; chasing the last point or a Spirit Animal that never draws is what
 			// caused the 35-round boss stall. Easy rungs (hp < 10) stay urgent at the normal bar.
 			const wantMoreDamage = bossRung && exp < maxLadderHp(catalog) && canRaise;
 			const bar = wantMoreDamage
 				? Math.max(profile.builtOutThreshold, 0.6)
 				: bossRung
-					? Math.min(profile.builtOutThreshold, 0.25) // realistic boss shots, retry through heals
+					? Math.min(profile.builtOutThreshold, 0.25) // realistic boss shots, retry through barrier restores
 					: committed
 						? profile.builtOutThreshold
 						: profile.killThreshold;
 			const canFight = abyssLegal && climbFloor && pKill >= bar;
-			// Deliberate corruption-reset: corrupting instant-heals to full, a legitimate tempo play —
-			// it is FINE for the bot to corrupt itself. But it should PREFER the safe heal when one is
-			// available (Cultivate → runes → a rune/relic trade that grants +health, or a held relic →
-			// heal); corruption's escalating spirit-sacrifice makes it a poor *default*. So we only
-			// fall back to it when there's neither sustain NOR a way to heal via the location economy.
+			// Deliberate corruption-reset: corrupting instantly restores barrier to full, a legitimate tempo play —
+			// it is FINE for the bot to corrupt itself. But it should PREFER the safe barrier restore when one is
+			// available (Cultivate → runes → a rune/relic trade that restores barrier, or a held relic →
+			// restore barrier); corruption's escalating spirit-sacrifice makes it a poor *default*. So we only
+			// fall back to it when there's neither sustain NOR a way to restore barrier via the location economy.
 			// ONLY corruption builds take the reset (they BANK the crossing as a Cursed-Spirit reward). A
-			// PvE bot must NOT: its own precondition (maxTokens > monster.damage) means one free Floral Rest
+			// PvE bot must NOT: its own precondition (maxBarrier > monster.damage) means one free Floral Rest
 			// restores barrier above the hit, so a safe fight is always one rest away — corrupting instead
 			// spirals to Fallen (the no-Healer death seen). PvE rests; corruption resets.
 			const corruptReset =
@@ -1847,9 +1852,9 @@ export function planMediumPhaseActions(
 				player != null &&
 				monster != null &&
 				player.barrier <= monster.damage &&
-				player.maxTokens > monster.damage &&
+				player.maxBarrier > monster.damage &&
 				!hasSustain(player) &&
-				!canHealViaEconomy(player) &&
+				!canRestoreBarrierViaEconomy(player) &&
 				firepowerKillProbability(working, seat, catalog) >= profile.builtOutThreshold;
 			if (canFight || corruptReset) {
 				tryEmit({ type: 'lockNavigation', destination: 'Arcane Abyss' });
@@ -1907,14 +1912,14 @@ export function planMediumPhaseActions(
 						const picks: number[] = [];
 						const choices: number[] = [];
 						const rp = working.players[seat];
-						// Only chase arcane ONCE THE CORE BUILD IS DONE (dice capped, potential maxed,
+						// Only chase arcane ONCE THE CORE BUILD IS DONE (dice capped, max barrier maxed,
 						// sustain in place). Chasing it early starves VP + clutters slots and tanks the
 						// win rate — arcane only matters for the hp12/14 boss, which the core build
 						// reaches last anyway.
 						const coreBuildDone =
 							rp != null &&
 							atDiceCap(rp, profile) &&
-							rp.maxTokens >= profile.potentialTarget &&
+							rp.maxBarrier >= profile.maxBarrierTarget &&
 							hasSustain(rp);
 						// Once the core build is done, fish for an arcane source by claiming ONE Abyss
 						// Summon (the starting Fairy relics pay its "any relic" awaken cost). Stop the
@@ -2009,7 +2014,12 @@ export function planMediumPhaseActions(
 								return placed < augmentCapacityForSpirit(s);
 							})
 							.sort((a, b) => keepValue(b, p, profile, focus) - keepValue(a, p, profile, focus))[0];
-						if (!target) break;
+						if (!target) {
+							// No host spirit can take it (all at augment capacity) — forfeit the rest so
+							// the unplaceable augments never stall the round.
+							tryEmit({ type: 'discardUnplacedAugments' });
+							break;
+						}
 						if (!tryEmit({ type: 'placeAugmentOnSpirit', augmentIndex: 0, augmentRuneId: aug.runeId, spiritSlotIndex: target.slotIndex })) break;
 					}
 				};
@@ -2036,7 +2046,7 @@ export function planMediumPhaseActions(
 					if (!tryEmit({ type: 'resolveLocationInteraction', rowIndex: next.rowIndex, choices: augmentChoices(p, profile, next, catalog) })) break;
 					placeAugments(); // place any augment that row just granted — same turn, never unplaced
 				}
-				// Release dead-weight spirits (value 0). Their banked dice / potential persist, so
+				// Release dead-weight spirits (value 0). Their banked dice / max barrier persist, so
 				// freeing the slot lets the tableau pivot to sustain (Soul Weaver / Healer) + damage.
 				let cullGuard = 0;
 				while (cullGuard < 8) {
@@ -2050,7 +2060,7 @@ export function planMediumPhaseActions(
 					if (!worst || worst.v > 0) break; // only release truly valueless spirits
 					if (!tryEmit({ type: 'discardSpirit', slotIndex: worst.s.slotIndex })) break;
 				}
-				// ENDGAME DAMAGE PIVOT: once the core build is done (dice exalted, potential maxed),
+				// ENDGAME DAMAGE PIVOT: once the core build is done (dice exalted, max barrier maxed),
 				// ruthlessly free slots for flat-damage Spirit Animals — the only way to reach the ~16
 				// expected the hp14 boss one-shot needs. Cull any spirit that contributes NO combat damage
 				// and isn't sustain (Healer) or combat economy (Ironmane): spent Cultivators, PvE
@@ -2065,7 +2075,7 @@ export function planMediumPhaseActions(
 						if (!p || p.spirits.length <= 1) break;
 						const built =
 							atDiceCap(p, profile) &&
-							p.maxTokens >= profile.potentialTarget &&
+							p.maxBarrier >= profile.maxBarrierTarget &&
 							!p.attackDice.some((d) => d.tier === 'basic' || d.tier === 'enchanted');
 						if (!built) break;
 						const victim = p.spirits.find(
@@ -2089,13 +2099,13 @@ export function planMediumPhaseActions(
 			// Claim any pending Cursed Spirit Awakening-Phase rewards — the Benefits step
 			// can't advance while a claim is pending.
 			if (working.players[seat]?.pendingAwakenReward) {
-				// Take the Tainted corruption reward as POTENTIAL while still below the potential
+				// Take the Tainted corruption reward as MAX BARRIER while still below the max barrier
 				// target (99 → runtime clamps to the grant amount), else as Enchanted dice. This
-				// is what makes Cursed Spirits a real potential engine. Corrupt→relic / Fallen→
+				// is what makes Cursed Spirits a real max barrier engine. Corrupt→relic / Fallen→
 				// augment are auto-granted regardless of this choice.
 				const cp = working.players[seat];
-				const wantPotential = cp && cp.maxTokens < profile.potentialTarget ? 99 : 0;
-				tryEmit({ type: 'resolveAwakenReward', taintedPotential: wantPotential, relicPicks: [] });
+				const wantMaxBarrier = cp && cp.maxBarrier < profile.maxBarrierTarget ? 99 : 0;
+				tryEmit({ type: 'resolveAwakenReward', taintedMaxBarrier: wantMaxBarrier, relicPicks: [] });
 			}
 			tryEmit({ type: 'commitBenefits' });
 			break;
@@ -2236,12 +2246,12 @@ function rolloutValue(
 
 	if (p.victoryPoints >= 30) return 1000 - elapsed; // win inside the horizon: sooner = better
 	// Otherwise value progress toward a win: VP banked, ladder climbed, and build quality
-	// (potential, dice, damage, sustain, barrier headroom), minus a small time cost.
+	// (max barrier, dice, damage, sustain, barrier headroom), minus a small time cost.
 	const dmg = expectedAttack(s, ourSeat, catalog);
 	return (
 		p.victoryPoints * 12 +
 		(s.monster?.ladderIndex ?? 0) * 5 +
-		Math.min(p.maxTokens, 10) +
+		Math.min(p.maxBarrier, 10) +
 		Math.min(p.attackDice.length, 10) * 0.8 +
 		dmg * 1.5 +
 		(hasSustain(p) ? 6 : 0) +
@@ -2414,7 +2424,7 @@ function ismctsSimValue(
 	return (
 		p.victoryPoints * 10 +
 		(s.monster?.ladderIndex ?? 0) * 5 +
-		Math.min(p.maxTokens, 10) +
+		Math.min(p.maxBarrier, 10) +
 		Math.min(p.attackDice.length, 10) * 0.8 +
 		dmg * 1.5 +
 		(hasSustain(p) ? 6 : 0) +
@@ -2658,8 +2668,8 @@ export function planBotPhaseActions(
 				}
 			}
 			// Corruption is now a CLEANUP-PHASE RITUAL — it no longer blocks ending the
-			// Location turn. The bot finishes the round at low health and resolves corruption
-			// (heal + owed discards) in the cleanup case.
+			// Location turn. The bot finishes the round at low barrier and resolves corruption
+			// (restore barrier + owed discards) in the cleanup case.
 			tryEmit({ type: 'endLocationActions' });
 			break;
 		}
@@ -2668,13 +2678,13 @@ export function planBotPhaseActions(
 			// Claim any pending Cursed Spirit Awakening-Phase rewards — the Benefits step
 			// can't advance while a claim is pending.
 			if (working.players[seat]?.pendingAwakenReward) {
-				// Take the Tainted corruption reward as POTENTIAL while still below the potential
+				// Take the Tainted corruption reward as MAX BARRIER while still below the max barrier
 				// target (99 → runtime clamps to the grant amount), else as Enchanted dice. This
-				// is what makes Cursed Spirits a real potential engine. Corrupt→relic / Fallen→
+				// is what makes Cursed Spirits a real max barrier engine. Corrupt→relic / Fallen→
 				// augment are auto-granted regardless of this choice.
 				const cp = working.players[seat];
-				const wantPotential = cp && cp.maxTokens < profile.potentialTarget ? 99 : 0;
-				tryEmit({ type: 'resolveAwakenReward', taintedPotential: wantPotential, relicPicks: [] });
+				const wantMaxBarrier = cp && cp.maxBarrier < profile.maxBarrierTarget ? 99 : 0;
+				tryEmit({ type: 'resolveAwakenReward', taintedMaxBarrier: wantMaxBarrier, relicPicks: [] });
 			}
 			tryEmit({ type: 'commitBenefits' });
 			break;

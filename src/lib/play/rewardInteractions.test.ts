@@ -119,9 +119,9 @@ describe('resolveLocationInteraction (engine)', () => {
 	test('a trade consumes the cost runes and grants the reward', () => {
 		let s = atLocation('Tidal Cove');
 		// Take 3 damage first so the two barrier (heal) icons have health to restore.
-		s.players.Red!.barrier = Math.max(0, s.players.Red!.maxTokens - 3);
-		s.players.Red!.blood = s.players.Red!.maxTokens - s.players.Red!.barrier;
-		const beforeTokens = s.players.Red!.maxTokens;
+		s.players.Red!.barrier = Math.max(0, s.players.Red!.maxBarrier - 3);
+		s.players.Red!.brokenBarrier = s.players.Red!.maxBarrier - s.players.Red!.barrier;
+		const beforeTokens = s.players.Red!.maxBarrier;
 		const beforeBarrier = s.players.Red!.barrier;
 		s.players.Red!.mats.push(
 			{ slotIndex: 90, hasRune: true, originId: MOON_TIDE_ORIGIN, name: 'Moon Tide Rune', type: 'rune' },
@@ -134,9 +134,9 @@ describe('resolveLocationInteraction (engine)', () => {
 		// Gained a Teapot relic (a rune slot) and restored 2 health — capacity is unchanged
 		// (barrier icons heal, they do not grant potential).
 		expect(s.players.Red!.mats.some((r) => r.name === 'Teapot' && r.hasRune && r.special)).toBe(true);
-		expect(s.players.Red!.maxTokens).toBe(beforeTokens);
+		expect(s.players.Red!.maxBarrier).toBe(beforeTokens);
 		expect(s.players.Red!.barrier).toBe(beforeBarrier + 2);
-		expect(s.players.Red!.blood).toBe(s.players.Red!.maxTokens - s.players.Red!.barrier);
+		expect(s.players.Red!.brokenBarrier).toBe(s.players.Red!.maxBarrier - s.players.Red!.barrier);
 	});
 
 	test('an "or" gain grants the chosen option', () => {

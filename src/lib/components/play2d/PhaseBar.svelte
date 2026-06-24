@@ -30,6 +30,19 @@
 	const currentIndex = $derived(GAME_PHASES.indexOf(phase));
 	// A display step is "done" once the current phase is past its last engine phase.
 	const lastIndexOf = (s: DisplayStep) => Math.max(...s.phases.map((p) => GAME_PHASES.indexOf(p)));
+
+	// Small instruction shown in the second row of the bar. During navigation the
+	// NavTimer renders its own "Choose your destination" label + countdown; every
+	// other phase shows a static instruction here so the bar's layout never jumps.
+	const PHASE_INSTRUCTION: Record<GamePhase, string> = {
+		navigation: 'Choose your destination',
+		encounter: 'Revealing destinations',
+		location: 'Resolve your location',
+		benefits: 'Collect your benefits',
+		awakening: 'Awaken your spirits',
+		cleanup: 'Cleaning up the round'
+	};
+	const instruction = $derived(PHASE_INSTRUCTION[phase] ?? '');
 </script>
 
 <div class="phase-bar" data-testid="phase-bar" data-phase={phase} data-round={round}>
@@ -50,9 +63,15 @@
 				</li>
 			{/each}
 		</ol>
-		{#if showTimer}
-			<NavTimer deadline={navigationDeadline} onExpire={onNavExpire} />
-		{/if}
+		<!-- Instruction row — always present so the bar keeps one consistent layout:
+		     the live countdown during navigation, a static instruction otherwise. -->
+		<div class="instruction-row">
+			{#if showTimer}
+				<NavTimer deadline={navigationDeadline} onExpire={onNavExpire} />
+			{:else}
+				<span class="instruction" data-testid="phase-instruction">{instruction}</span>
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -108,6 +127,25 @@
 		flex: 1;
 		min-width: 0;
 		justify-content: center;
+	}
+	/* Always-present second row — reserves the NavTimer's height so the bar's
+	   layout stays identical whether or not the countdown is showing. */
+	.instruction-row {
+		display: flex;
+		align-items: center;
+		min-height: 1.05rem;
+		min-width: 0;
+	}
+	/* Static per-phase instruction — matches the NavTimer's label treatment. */
+	.instruction {
+		font-family: var(--font-display);
+		font-size: 0.85rem;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		color: rgba(255, 255, 255, 0.5);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.steps {
 		display: flex;

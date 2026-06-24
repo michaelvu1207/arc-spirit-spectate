@@ -9,7 +9,7 @@ import type { ClassAbility } from './types';
 //       onSpiritSummon breakpoint here.
 //   (2) At >=2, your side may always attack at the same time as the enemy
 //       (setStunImmune backs the count-based rule in combat.ts).
-//   (3) At >=3, on Rest restore 2 health.
+//   (3) At >=3, on Rest restore 2 barrier.
 export const ability: ClassAbility[] = [
 	{
 		on: 'onRest',

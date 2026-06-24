@@ -77,12 +77,27 @@ const MAT_ITEM_RESERVE_START = { x: -0.42, z: -0.95 };
 const MAT_ITEM_RESERVE_SPACING = 0.18;
 
 function cloneState(state: PublicGameState): PublicGameState {
-	// The game state is fully JSON-serializable (it is persisted + transported as JSON; the RNG is
-	// {seed,cursor}, no Maps/Sets/Dates/functions). A JSON round-trip is therefore an exact deep
-	// clone and is materially faster than structuredClone in the hot self-play / bot-search loops,
-	// where applyGameCommand clones once per command across millions of rollouts. (ensureStateShape
-	// re-defaults any field that was undefined — JSON drops undefined-valued keys, which is a no-op.)
-	return JSON.parse(JSON.stringify(state)) as PublicGameState;
+	// The game state is fully JSON-serializable (no Maps/Sets/Dates/functions; the RNG is
+	// {seed,cursor}), so a JSON round-trip is an exact deep clone. MEASURED faster than
+	// structuredClone in the real self-play/bot-search loop (structuredClone regressed random
+	// self-play 2.4→1.7 games/s — the structuredClone micro-bench win did not hold in situ).
+	// The hot path avoids this entirely via `mutate:true`; this clone remains for dry-runs / search.
+	//
+	// `bags.history` is a derived snapshot that ALIASES the same bag objects already on
+	// `state.bags` (buildHistoryBags copies references, not contents). JSON.stringify can't see
+	// the aliasing, so it serializes every bag's contents TWICE — ~30% of clone cost (measured).
+	// Since history is a pure function of the current bags (re-snapshotted at every bag mutation,
+	// see the 8 `state.bags.history = buildHistoryBags(...)` sites) and is read only at the
+	// persistence boundary (buildHistorySnapshotRows), we detach it before serializing and rebuild
+	// it by reference on the clone — adding zero serialized bytes. Parity-gated by
+	// sim/_parity.test.ts (byte-identical state vs the naive full clone across seeds).
+	const history = state.bags?.history as BagsData | undefined;
+	if (!history) return JSON.parse(JSON.stringify(state)) as PublicGameState;
+	state.bags.history = undefined as unknown as BagsData; // transient detach (restored below; sync, unobservable)
+	const cloned = JSON.parse(JSON.stringify(state)) as PublicGameState;
+	state.bags.history = history; // restore original ref — contents were never mutated
+	cloned.bags.history = buildHistoryBags(cloned.bags); // rebuild by reference: no extra serialized bytes
+	return cloned;
 }
 
 function toBagEntry(spirit: PlayCatalogSpirit, guidSuffix: string): RuntimeBagEntry {
@@ -138,10 +153,11 @@ function buildPlayerState(seatColor: SeatColor, seat: LobbySeatState): PrivatePl
 		displayName: seat.displayName,
 		selectedGuardian: seat.selectedGuardian ?? 'Unknown Guardian',
 		navigationDestination: null,
-		blood: 0,
+		brokenBarrier: 0,
 		victoryPoints: 0,
+		vpHistory: [],
 		barrier: 4,
-		maxTokens: 4,
+		maxBarrier: 4,
 		statusLevel: 0,
 		statusToken: STATUS_LADDER[0],
 		corruptionCount: 0,
@@ -247,9 +263,9 @@ function nextMatItemPosition(index: number) {
 	};
 }
 
-function syncBarrierFromBlood(player: PrivatePlayerState) {
-	player.blood = Math.max(0, Math.min(player.maxTokens, player.blood));
-	player.barrier = Math.max(0, player.maxTokens - player.blood);
+function syncBarrierFromBrokenBarrier(player: PrivatePlayerState) {
+	player.brokenBarrier = Math.max(0, Math.min(player.maxBarrier, player.brokenBarrier));
+	player.barrier = Math.max(0, player.maxBarrier - player.brokenBarrier);
 }
 
 function buildInitialSpiritBag(catalog: PlayCatalog, sourceBag: SpiritSourceBag): RuntimeBagEntry[] {
@@ -448,13 +464,13 @@ function applyRewardGain(
 			player.victoryPoints += gain.amount;
 			log.push(`Gained ${gain.amount} Victory Point${gain.amount === 1 ? '' : 's'}.`);
 			break;
-		case 'heal': {
-			// Restore health: flip arcane-blood tokens back to the health side. Does NOT
-			// raise potential — capacity grows only through class effects.
+		case 'restoreBarrier': {
+			// Restore barrier: flip broken-barrier tokens back to the intact side. Does NOT
+			// raise max barrier — capacity grows only through class effects.
 			const before = player.barrier;
-			player.barrier = Math.min(player.maxTokens, player.barrier + gain.amount);
-			player.blood = Math.max(0, player.maxTokens - player.barrier);
-			log.push(`Restored ${player.barrier - before} health.`);
+			player.barrier = Math.min(player.maxBarrier, player.barrier + gain.amount);
+			player.brokenBarrier = Math.max(0, player.maxBarrier - player.barrier);
+			log.push(`Restored ${player.barrier - before} barrier.`);
 			break;
 		}
 		case 'rune':
@@ -516,14 +532,14 @@ function autoClaimReward(
  * Apply a player's pending Awakening-Phase (Benefits) reward claim and clear it.
  * Shared by the `resolveAwakenReward` command and the deadline/force-advance drain
  * (which calls it with default picks so an idle player still receives their grants
- * rather than forfeiting them). `taintedPotential` splits the Cursed-Spirit Tainted
+ * rather than forfeiting them). `taintedMaxBarrier` splits the Cursed-Spirit Tainted
  * line; `relicPicks` is a flat list consumed in order across every relicChoice grant.
  */
 function applyAwakenRewardClaim(
 	state: PublicGameState,
 	seat: SeatColor,
 	player: PrivatePlayerState,
-	taintedPotential: number,
+	taintedMaxBarrier: number,
 	relicPicks: number[],
 	catalog: PlayCatalog
 ): void {
@@ -543,10 +559,10 @@ function applyAwakenRewardClaim(
 	let relicCursor = 0;
 	for (const grant of pending.grants) {
 		if (grant.kind === 'taintedChoice') {
-			// Cursed Spirit, Tainted: split the N units between potential and Enchanted.
-			const potential = Math.max(0, Math.min(grant.amount, taintedPotential));
-			const enchanted = grant.amount - potential;
-			if (potential > 0) runAction(ctx, { kind: 'gainPotential', amount: potential });
+			// Cursed Spirit, Tainted: split the N units between max barrier and Enchanted.
+			const maxBarrier = Math.max(0, Math.min(grant.amount, taintedMaxBarrier));
+			const enchanted = grant.amount - maxBarrier;
+			if (maxBarrier > 0) runAction(ctx, { kind: 'gainMaxBarrier', amount: maxBarrier });
 			if (enchanted > 0)
 				runAction(ctx, { kind: 'gainAttackDice', tier: 'enchanted', amount: enchanted });
 		} else if (grant.kind === 'relicChoice') {
@@ -625,7 +641,7 @@ function drainPendingBeforeAdvance(state: PublicGameState, catalog: PlayCatalog)
 		return;
 	}
 	// In the Cleanup phase, auto-resolve any outstanding corruption ritual so an
-	// idle/disconnected player can never deadlock the round: heal to full + auto-discard
+	// idle/disconnected player can never deadlock the round: restore barrier to full + auto-discard
 	// the highest-slot spirits until the owed count is satisfied + clear the obligation.
 	if (state.phase === 'cleanup') {
 		for (const seat of state.activeSeats) {
@@ -641,7 +657,7 @@ function drainPendingBeforeAdvance(state: PublicGameState, catalog: PlayCatalog)
  * deadlock: auto-discards the highest-slot spirits (returning each to its source bag, exactly
  * like the `discardSpirit` command) until `pendingCorruptionDiscard.count` is satisfied, then
  * clears the obligation. Used only by the deadline / host-force-advance drain. (Corruption
- * already healed the player instantly in takeDamage — there is no heal to apply here.)
+ * already restored the player's barrier instantly in takeDamage — there is no restore to apply here.)
  */
 function autoResolveCorruptionDiscard(state: PublicGameState, player: PrivatePlayerState): void {
 	const obligation = player.pendingCorruptionDiscard;
@@ -706,6 +722,7 @@ function refillEmptyMarketSlots(state: PublicGameState) {
 
 function ensurePlayerCollections(player: PrivatePlayerState) {
 	player.handDraws ??= [];
+	player.vpHistory ??= [];
 	player.mats ??= [];
 	player.spirits ??= [];
 	player.spawnedDice ??= [];
@@ -738,7 +755,16 @@ function ensurePlayerCollections(player: PrivatePlayerState) {
 	player.encounterVote ??= null;
 	player.spiritAugments ??= 0;
 	player.relics ??= 0;
-	// Arcane blood is now derived (maxTokens − barrier); strip any stale standalone
+	// Back-compat: `blood`→`brokenBarrier` and `maxTokens`→`maxBarrier` renamed these JSON
+	// keys. Copy the legacy keys forward so in-flight saved games still load.
+	{
+		const legacy = player as unknown as { blood?: number; maxTokens?: number };
+		if (player.brokenBarrier === undefined && legacy.blood !== undefined)
+			player.brokenBarrier = legacy.blood;
+		if (player.maxBarrier === undefined && legacy.maxTokens !== undefined)
+			player.maxBarrier = legacy.maxTokens;
+	}
+	// Broken barrier is now derived (maxBarrier − barrier); strip any stale standalone
 	// field from states persisted before that change.
 	delete (player as unknown as { arcaneBlood?: number }).arcaneBlood;
 	player.extraActions ??= {};
@@ -898,9 +924,16 @@ export function applyGameCommand(
 	currentState: PublicGameState,
 	actor: GameActor,
 	command: GameCommand,
-	catalog: PlayCatalog
+	catalog: PlayCatalog,
+	opts?: { mutate?: boolean }
 ): CommandResult {
-	const state = ensureStateShape(cloneState(currentState));
+	// `mutate: true` skips the defensive deep-clone and mutates `currentState` IN PLACE — the
+	// hot-path fast mode for self-play / training loops, where the prior state is discarded each
+	// step (the clone is ~60% of per-command cost; see docs/sim-optimization-plan.md). It is
+	// parity-tested against the cloning path across thousands of random rollouts (sim/_parity.test.ts).
+	// Callers that must preserve the input state — dry-runs, bot search (`legalActions`,
+	// `planBotPhaseActions`), the live server — MUST omit it (default = safe deep clone).
+	const state = opts?.mutate ? ensureStateShape(currentState) : ensureStateShape(cloneState(currentState));
 
 	switch (command.type) {
 		case 'claimSeat': {
@@ -1148,10 +1181,15 @@ export function applyGameCommand(
 				advanceDrawQueue(state, activePlayer.player);
 			}
 
-			// onSpiritSummon: fire for the summoning player (Sharpshooter +Enchanted/
-			// stun-immune grant, Mod Injector decision). Effects apply silently — the new
-			// die shows in the dice pool; no result-card interruption.
-			applyTrigger(state, activePlayer.seatColor, 'onSpiritSummon', [], { catalog, command });
+			// onSpiritSummon: fire scoped to the JUST-SUMMONED spirit's own classes, so an
+			// on-summon grant (Sharpshooter +Enchanted/stun-immune, Healer restore 2 barrier)
+			// fires once when THAT spirit is summoned — not on every summon while the class is
+			// merely in play. Effects apply silently — the new die/barrier shows directly.
+			applyTrigger(state, activePlayer.seatColor, 'onSpiritSummon', [], {
+				catalog,
+				command,
+				counts: spirit.classes
+			});
 
 			// Keep cleanup awaken offers/eligibility consistent if an abyss spirit
 			// auto-awakened mid-summon, and surface that awaken result.
@@ -1272,10 +1310,14 @@ export function applyGameCommand(
 
 			marketSlot.spiritId = null;
 			refillSingleMarketSlot(state, command.marketIndex);
-			// onSpiritSummon: taking a market spirit is also a summon — fire for the
-			// acting player so summon-triggered class effects resolve here too (silently;
-			// the granted die shows in the dice pool, no result-card interruption).
-			applyTrigger(state, activePlayer.seatColor, 'onSpiritSummon', [], { catalog, command });
+			// onSpiritSummon: taking a market spirit is also a summon — fire scoped to the
+			// taken spirit's own classes so its on-summon grant resolves here too (silently;
+			// the granted die/barrier shows directly, no result-card interruption).
+			applyTrigger(state, activePlayer.seatColor, 'onSpiritSummon', [], {
+				catalog,
+				command,
+				counts: spirit.classes
+			});
 			return success(state);
 		}
 
@@ -1419,31 +1461,31 @@ export function applyGameCommand(
 			const activePlayer = activePlayerForActor(state, actor);
 			if (!activePlayer) return failure('seat_required', 'Only seated players can adjust barrier.');
 			activePlayer.player.barrier = Math.max(0, activePlayer.player.barrier + command.amount);
-			// Barrier (health) is authoritative: grow capacity if it now exceeds, then
-			// derive arcane blood so blood === maxTokens − barrier always holds.
-			activePlayer.player.maxTokens = Math.max(
-				activePlayer.player.maxTokens,
+			// Barrier (intact side) is authoritative: grow capacity if it now exceeds, then
+			// derive broken barrier so brokenBarrier === maxBarrier − barrier always holds.
+			activePlayer.player.maxBarrier = Math.max(
+				activePlayer.player.maxBarrier,
 				activePlayer.player.barrier
 			);
-			activePlayer.player.blood = activePlayer.player.maxTokens - activePlayer.player.barrier;
+			activePlayer.player.brokenBarrier = activePlayer.player.maxBarrier - activePlayer.player.barrier;
 			return success(state);
 		}
 
-		case 'adjustBlood': {
+		case 'adjustBrokenBarrier': {
 			const activePlayer = activePlayerForActor(state, actor);
-			if (!activePlayer) return failure('seat_required', 'Only seated players can adjust blood.');
-			// Arcane blood is a side of the existing pool: bump it (clamped to capacity) and
-			// re-derive the health side, keeping blood === maxTokens − barrier.
-			activePlayer.player.blood = Math.max(0, activePlayer.player.blood + command.amount);
-			syncBarrierFromBlood(activePlayer.player);
+			if (!activePlayer) return failure('seat_required', 'Only seated players can adjust broken barrier.');
+			// Broken barrier is a side of the existing pool: bump it (clamped to capacity) and
+			// re-derive the intact side, keeping brokenBarrier === maxBarrier − barrier.
+			activePlayer.player.brokenBarrier = Math.max(0, activePlayer.player.brokenBarrier + command.amount);
+			syncBarrierFromBrokenBarrier(activePlayer.player);
 			return success(state);
 		}
 
-		case 'adjustMaxTokens': {
+		case 'adjustMaxBarrier': {
 			const activePlayer = activePlayerForActor(state, actor);
-			if (!activePlayer) return failure('seat_required', 'Only seated players can adjust potential.');
-			activePlayer.player.maxTokens = Math.max(0, Math.min(10, activePlayer.player.maxTokens + command.amount));
-			syncBarrierFromBlood(activePlayer.player);
+			if (!activePlayer) return failure('seat_required', 'Only seated players can adjust max barrier.');
+			activePlayer.player.maxBarrier = Math.max(0, Math.min(10, activePlayer.player.maxBarrier + command.amount));
+			syncBarrierFromBrokenBarrier(activePlayer.player);
 			return success(state);
 		}
 
@@ -1459,12 +1501,12 @@ export function applyGameCommand(
 			// onStatusChange: record crossed thresholds + fire the trigger when the
 			// level actually moved (manual adjustments can also corrupt a player).
 			if (activePlayer.player.statusLevel !== oldStatus) {
-				// An UPWARD status move is a corruption: instant full heal + the escalating
+				// An UPWARD status move is a corruption: instant full barrier restore + the escalating
 				// spirit sacrifice, exactly like the damage paths. A
 				// DOWNWARD move (purification) owes nothing.
 				if (activePlayer.player.statusLevel > oldStatus) {
-					activePlayer.player.barrier = activePlayer.player.maxTokens;
-						activePlayer.player.blood = 0;
+					activePlayer.player.barrier = activePlayer.player.maxBarrier;
+						activePlayer.player.brokenBarrier = 0;
 						activePlayer.player.corruptionCount = (activePlayer.player.corruptionCount ?? 0) + 1;
 						setCorruptionDiscardObligation(activePlayer.player);
 				}
@@ -1644,6 +1686,20 @@ export function applyGameCommand(
 			return success(state);
 		}
 
+		case 'discardUnplacedAugments': {
+			// Forfeit any augments the player can't (or doesn't want to) place — the escape
+			// hatch that keeps the optional placement step from ever blocking the turn.
+			if (state.status !== 'active') {
+				return failure('inactive', 'The game has not started yet.');
+			}
+			const ap = activePlayerForActor(state, actor);
+			if (!ap) {
+				return failure('seat_required', 'Only seated players can manage augments.');
+			}
+			ap.player.unplacedAugments = [];
+			return success(state);
+		}
+
 		case 'commitRound': {
 			if (state.status !== 'active') {
 				return failure('inactive', 'The game has not started yet.');
@@ -1712,7 +1768,7 @@ export function applyGameCommand(
 			}
 			// A corruption this turn forces its escalating spirit sacrifice IMMEDIATELY: you
 			// can't end your location actions until you've shed the owed spirit(s). (Corruption
-			// already healed you instantly — this is the cost.) The deadline drain auto-resolves
+			// already restored your barrier instantly — this is the cost.) The deadline drain auto-resolves
 			// it for idle players so the round never deadlocks.
 			if (active.player.pendingCorruptionDiscard) {
 				return failure('corruption_pending', 'Discard your corrupted spirit(s) before ending your turn.');
@@ -1780,7 +1836,7 @@ export function applyGameCommand(
 					`Your runes are overflowing — discard down to ${RUNE_CARRY_LIMIT} before ending cleanup.`
 				);
 			}
-			// Corruption owes a forced spirit sacrifice (it already healed you instantly): shed
+			// Corruption owes a forced spirit sacrifice (it already restored your barrier instantly): shed
 			// the owed spirit(s). The round cannot advance past cleanup until the obligation
 			// is fully cleared (null). The deadline / host force-advance drain auto-resolves
 			// it so an idle/disconnected player can never deadlock the round.
@@ -1805,7 +1861,7 @@ export function applyGameCommand(
 				state,
 				active.seatColor,
 				active.player,
-				command.taintedPotential ?? 0,
+				command.taintedMaxBarrier ?? 0,
 				command.relicPicks ?? [],
 				catalog
 			);
@@ -2105,8 +2161,8 @@ export function applyGameCommand(
 				case 'attackDice':
 					runAction(ctx, { kind: 'gainAttackDice', tier: grant.tier, amount: grant.amount });
 					break;
-				case 'potential':
-					runAction(ctx, { kind: 'gainPotential', amount: grant.amount });
+				case 'maxBarrier':
+					runAction(ctx, { kind: 'gainMaxBarrier', amount: grant.amount });
 					break;
 				case 'vp':
 					runAction(ctx, { kind: 'gainVP', amount: grant.amount });
@@ -2166,9 +2222,9 @@ export function applyGameCommand(
 					break;
 				}
 				case 'fullHeal': {
-					player.blood = 0;
-					syncBarrierFromBlood(player);
-					log.push('Debug: healed to full.');
+					player.brokenBarrier = 0;
+					syncBarrierFromBrokenBarrier(player);
+					log.push('Debug: barrier restored to full.');
 					break;
 				}
 			}
@@ -2194,9 +2250,8 @@ export function applyGameCommand(
 			}
 			const destination = player.navigationDestination;
 			if (!destination) return failure('no_location', 'You are not at a location yet.');
-			if (destination === 'Arcane Abyss') {
-				return failure('no_interaction', 'The Arcane Abyss has no reward interactions — fight the monster instead.');
-			}
+			// The Arcane Abyss now carries one permanent location action — a free Arcane
+			// Abyss Summon — alongside the monster fight, so it resolves like any other.
 
 			const locEntry = (catalog.locations ?? []).find((l) => l.name === destination);
 			const interactions = buildLocationInteractions(locEntry?.rewardRows);
@@ -2279,7 +2334,9 @@ export function applyGameCommand(
 					}
 					if (undercovers.length > 0) state.bags.history = buildHistoryBags(state.bags);
 				} else {
-					const matched = matchRewardCost(interaction.cost, player.mats);
+					// `costChoices` lets the player pick WHICH held slot to discard for a
+					// wildcard cost; specific costs and missing picks fall back to auto-pick.
+					const matched = matchRewardCost(interaction.cost, player.mats, command.costChoices);
 					if (!matched.ok) {
 						return failure('cannot_afford', 'You cannot pay the cost for that interaction.');
 					}
@@ -2322,13 +2379,13 @@ export function applyGameCommand(
 						}
 						break;
 					}
-					case 'heal': {
-						// Restore health: flip arcane-blood tokens back to the health side
-						// (capacity is unchanged — potential grows only via class effects).
+					case 'restoreBarrier': {
+						// Restore barrier: flip broken-barrier tokens back to the intact side
+						// (capacity is unchanged — max barrier grows only via class effects).
 						const before = player.barrier;
-						player.barrier = Math.min(player.maxTokens, player.barrier + gain.amount);
-						player.blood = Math.max(0, player.maxTokens - player.barrier);
-						log.push(`Restored ${player.barrier - before} health.`);
+						player.barrier = Math.min(player.maxBarrier, player.barrier + gain.amount);
+						player.brokenBarrier = Math.max(0, player.maxBarrier - player.barrier);
+						log.push(`Restored ${player.barrier - before} barrier.`);
 						break;
 					}
 					case 'vp': {
@@ -2363,7 +2420,7 @@ export function applyGameCommand(
 			}
 			if (restTokens > 0) {
 				applyTrigger(state, active.seatColor, 'onRest', log, { catalog });
-				// Rest-time awaken progress (Meteor Shower: "Rest with 10 Potential").
+				// Rest-time awaken progress (Meteor Shower: "Rest with 10 Max Barrier").
 				recordRestAwakenProgress(player);
 				log.push('Rested.');
 			}
@@ -2712,10 +2769,10 @@ export function buildHistorySnapshotRows(
 				tts_username: player.displayName,
 				navigation_destination: player.navigationDestination,
 				selected_character: player.selectedGuardian,
-				blood: player.blood,
+				blood: player.brokenBarrier,
 				victory_points: player.victoryPoints,
 				barrier: player.barrier,
-				max_tokens: player.maxTokens,
+				max_tokens: player.maxBarrier,
 				status_level: player.statusLevel,
 				status_token: player.statusToken,
 				spirits: player.spirits,

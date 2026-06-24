@@ -73,7 +73,6 @@
 	const BOT_PREFIX = '🤖 ';
 	const isBot = (name?: string | null) => !!name && name.startsWith(BOT_PREFIX);
 	const botLabel = (name: string) => name.replace(BOT_PREFIX, '').trim();
-	const hasBots = $derived(SEAT_COLORS.some((s) => isBot(room.seats[s]?.displayName)));
 
 	// ── Party derivations ────────────────────────────────────────────────────
 	const mySeat = $derived(SEAT_COLORS.find((s) => room.seats[s]?.memberId === member.id) ?? null);
@@ -151,21 +150,43 @@
 		}
 
 		let botTimer: ReturnType<typeof setInterval> | null = null;
+		let backupBotTimer: ReturnType<typeof setInterval> | null = null;
 		if (browser) {
 			document.documentElement.classList.add('immersive-play');
 			document.body.classList.add('immersive-play');
-			botTimer = setInterval(() => {
-				if (!isHost || room.status !== 'active' || !hasBots) return;
+			const tickBots = () =>
 				void fetch(`/api/play/sessions/${room.roomCode}/bots/tick`, { method: 'POST' }).catch(
 					() => {}
 				);
+			botTimer = setInterval(() => {
+				// Drive any bot seats while we host an active game. We DON'T gate on a
+				// name check: ranked matchmaking backfills human-named bots (no 🤖), so a
+				// name-based `hasBots` misses them and they'd freeze. The server's tickBots
+				// is authoritative and a cheap no-op when the session has no bot members.
+				if (!isHost || room.status !== 'active') return;
+				tickBots();
 			}, 1300);
+
+			// Backup tick: if the host (a human) drops mid-game in a multi-human match, the
+			// primary tick above stops and bots would freeze. Non-host seated humans fire a
+			// slower redundant tick so the game stays alive. Redundant ticks are safe — the
+			// server's tickBots uses CAS + botSeatNeedsToAct, so a bot that already acted is
+			// a no-op. We keep this cadence slow to minimize wasted requests. A bit of
+			// per-client jitter spreads the load when several non-hosts remain.
+			// Note: a SOLO human leaving a vs-bots game is fine — the room is then abandoned
+			// by presence rules; this backup only matters when other humans remain.
+			const backupPeriod = 4000 + Math.floor(Math.random() * 1000); // 4–5s with jitter
+			backupBotTimer = setInterval(() => {
+				if (isHost || mySeat === null || room.status !== 'active') return;
+				tickBots();
+			}, backupPeriod);
 		}
 
 		return () => {
 			preloadAbort.abort();
 			playState.disconnect();
 			if (botTimer) clearInterval(botTimer);
+			if (backupBotTimer) clearInterval(backupBotTimer);
 			if (browser) {
 				document.documentElement.classList.remove('immersive-play');
 				document.body.classList.remove('immersive-play');

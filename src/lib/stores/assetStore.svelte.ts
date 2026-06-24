@@ -159,7 +159,10 @@ function collectCompressedImageUrls(): string[] {
 		add(guardian.image_mat_path);
 		add(guardian.chibi_image_path);
 	}
-	for (const cls of classTraits.values()) add(cls.icon_png);
+	for (const cls of classTraits.values()) {
+		add(cls.icon_png);
+		add(cls.augment_token_path);
+	}
 	for (const origin of originTraits.values()) {
 		add(origin.icon_png);
 		add(origin.icon_token_png);

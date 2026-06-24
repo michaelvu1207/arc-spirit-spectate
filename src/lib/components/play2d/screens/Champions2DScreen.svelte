@@ -65,7 +65,7 @@
 </script>
 
 <ScreenScaffold
-	eyebrow="Hall of Champions"
+	eyebrow="Hall of Guardians"
 	title="Ranked Ladder"
 	subtitle="Conservative OpenSkill rating from ranked 2D games."
 	syncedAt={lastRefresh}

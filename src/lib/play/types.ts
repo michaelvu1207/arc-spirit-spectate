@@ -191,11 +191,21 @@ export function setCorruptionDiscardObligation(player: PrivatePlayerState, reaso
 	const owed = player.corruptionCount ?? 0;
 	if (owed <= 0) return;
 	const existing = player.pendingCorruptionDiscard;
+	// You can only ever sacrifice spirits you actually have. Cap the obligation at the
+	// current spirit count so corrupting with too few — or zero — spirits never strands an
+	// unpayable debt that blocks Cleanup: zero spirits skips the obligation entirely, and
+	// fewer spirits than owed just sheds every remaining spirit, then clears.
+	const available = player.spirits?.length ?? 0;
+	const count = Math.min((existing?.count ?? 0) + owed, available);
+	if (count <= 0) {
+		player.pendingCorruptionDiscard = null;
+		return;
+	}
 	if (existing) {
-		existing.count += owed;
+		existing.count = count;
 		if (reason) existing.reason = reason;
 	} else {
-		player.pendingCorruptionDiscard = { count: owed, reason };
+		player.pendingCorruptionDiscard = { count, reason };
 	}
 }
 
@@ -205,7 +215,7 @@ export const DICE_TIER_ORDER: DiceTier[] = ['basic', 'enchanted', 'exalted', 'ar
 
 /**
  * Flat cap on a player's attack-dice pool. Every player may hold up to this many
- * attack dice by default — it is NO LONGER tied to potential (`maxTokens`).
+ * attack dice by default — it is NO LONGER tied to max barrier (`maxBarrier`).
  */
 export const MAX_ATTACK_DICE = 10;
 
@@ -286,7 +296,7 @@ export interface PendingCorruptionDiscard {
 /**
  * One claimable Awakening-Phase grant line, surfaced in the Cleanup phase. `amount`
  * is already scaled (e.g. ×N Cursed Spirits). Most kinds are fixed payouts;
- * `taintedChoice` (Cursed Spirit → Tainted) lets each unit be 1 Potential OR 1
+ * `taintedChoice` (Cursed Spirit → Tainted) lets each unit be 1 Max Barrier OR 1
  * Enchanted Attack die, and `relicChoice` (Cursed Spirit → Corrupt) lets each unit
  * pick one of the five relics. `source` is the class name, shown on the claim card.
  */
@@ -651,16 +661,20 @@ export interface PrivatePlayerState {
 	selectedGuardian: string;
 	navigationDestination: string | null;
 	/**
-	 * Arcane blood — potential tokens flipped to the corrupted side. Derived value,
-	 * always kept equal to (maxTokens − barrier): taking damage flips health→arcane
-	 * blood, healing flips arcane blood→health. This IS the game's "arcane blood".
+	 * Broken Barrier — max-barrier tokens flipped to the corrupted side. Derived value,
+	 * always kept equal to (maxBarrier − barrier): taking damage breaks barrier→broken
+	 * barrier, restoring flips broken barrier→barrier. This IS the game's "broken barrier".
 	 */
-	blood: number;
+	brokenBarrier: number;
 	victoryPoints: number;
-	/** Health — potential tokens still on the health side. */
+	/** Victory Points at the end of each completed round (one entry per round, in
+	 *  order) — powers the post-game "points over time" chart. Empty until the first
+	 *  round closes; the live total is always {@link victoryPoints}. */
+	vpHistory: number[];
+	/** Barrier — max-barrier tokens still on the intact side. */
 	barrier: number;
-	/** Potential — total tokens in the pool (capacity). Only grown by class effects. */
-	maxTokens: number;
+	/** Max Barrier — total tokens in the pool (capacity). Only grown by class effects. */
+	maxBarrier: number;
 	statusLevel: number;
 	statusToken: string | null;
 	/** How many times this player has corrupted — drives the escalating forced discard
@@ -974,7 +988,7 @@ export interface HistorySnapshotRow {
  */
 export type DebugGrant =
 	| { kind: 'attackDice'; tier: DiceTier; amount: number }
-	| { kind: 'potential'; amount: number }
+	| { kind: 'maxBarrier'; amount: number }
 	| { kind: 'vp'; amount: number }
 	/** Add `amount` augments to the unplaced pouch; `classId` (optional) classes them. */
 	| { kind: 'augment'; classId?: string; amount: number }
@@ -984,7 +998,7 @@ export type DebugGrant =
 	| { kind: 'rune'; runeId: string }
 	/** Set the player's status level (0 Pure … 3 Fallen). */
 	| { kind: 'status'; level: number }
-	/** Clear all Arcane Blood (heal to full). */
+	/** Clear all Broken Barrier (restore barrier to full). */
 	| { kind: 'fullHeal' };
 
 export type GameCommand =
@@ -1005,12 +1019,12 @@ export type GameCommand =
 	| { type: 'commitAwakening' }
 	| { type: 'commitCleanup' }
 	/**
-	 * Claim the Cursed-Spirit Awakening-Phase rewards (Cleanup). `taintedPotential`
-	 * = how many of the Tainted line's units to take as potential; the rest become
+	 * Claim the Cursed-Spirit Awakening-Phase rewards (Cleanup). `taintedMaxBarrier`
+	 * = how many of the Tainted line's units to take as max barrier; the rest become
 	 * Enchanted Attack dice (defaults to 0 ⇒ all Enchanted). Ignored when there is
 	 * no Tainted line.
 	 */
-	| { type: 'resolveAwakenReward'; taintedPotential?: number; relicPicks?: number[] }
+	| { type: 'resolveAwakenReward'; taintedMaxBarrier?: number; relicPicks?: number[] }
 	| { type: 'forceAdvancePhase' }
 	| { type: 'dismissManualPrompt'; id: string }
 	| { type: 'resolveDecision'; decisionId: string; optionId: string }
@@ -1037,8 +1051,8 @@ export type GameCommand =
 	| { type: 'manualAwaken'; slotIndex: number }
 	/**
 	 * DEV-ONLY god-mode grant. Mutates a player's state to hand them any resource for
-	 * testing ability UX (attack dice, potential, VP, a spirit, a rune/relic, an
-	 * augment, a status level, full heal). `seatColor` targets another player (e.g. set
+	 * testing ability UX (attack dice, max barrier, VP, a spirit, a rune/relic, an
+	 * augment, a status level, full restore). `seatColor` targets another player (e.g. set
 	 * someone's corruption level from the roster); omitted ⇒ the sender's own seat.
 	 * Server-gated to dev builds in the commands endpoint — never resolvable in production.
 	 */
@@ -1049,9 +1063,17 @@ export type GameCommand =
 	 * location. Each location's available actions ARE its reward rows (Rest, Cultivate,
 	 * Summon, heals, trades are all rows); there are no generic always-available actions.
 	 * `choices[k]` selects which option to take for the k-th "or" gain in that row
-	 * (defaults to the first option).
+	 * (defaults to the first option). `costChoices` lets the player pick WHICH held
+	 * slot to discard for each WILDCARD cost ("any relic" / "any basic rune") — array
+	 * indices into `player.mats`. Omitted/invalid entries fall back to auto-pick, so
+	 * bots and specific (non-wildcard) costs are unaffected.
 	 */
-	| { type: 'resolveLocationInteraction'; rowIndex: number; choices?: number[] }
+	| {
+			type: 'resolveLocationInteraction';
+			rowIndex: number;
+			choices?: number[];
+			costChoices?: number[];
+	  }
 	// ── Combat (P1: single-step monster fight) ────────────────────────────
 	| { type: 'startCombat' }
 	/**
@@ -1094,7 +1116,7 @@ export type GameCommand =
 	| { type: 'spawnMatItem'; runeId: string }
 	| { type: 'clearSpawnedItems' }
 	| { type: 'moveMatObject'; objectType: 'die' | 'item'; instanceId: string; localX: number; localZ: number }
-	| { type: 'adjustMaxTokens'; amount: number }
+	| { type: 'adjustMaxBarrier'; amount: number }
 	| { type: 'takeSpirit'; marketIndex: number; slotIndex?: number }
 	| { type: 'replaceSpirit'; marketIndex: number; slotIndex: number }
 	| { type: 'absorbSpirit'; slotIndex: number }
@@ -1117,8 +1139,15 @@ export type GameCommand =
 			 *  SPIRIT_AUGMENT_CLASSES). The placed augment adds this class. */
 			className?: string;
 	  }
+	/**
+	 * Forfeit every still-unplaced Spirit Augment in the player's pouch. Augments are an
+	 * optional benefit attached at will; when the player has more than they can (or care
+	 * to) place — e.g. all host spirits are already at augment capacity — this clears the
+	 * pouch so the placement prompt can never soft-lock the turn or carry into later rounds.
+	 */
+	| { type: 'discardUnplacedAugments' }
 	| { type: 'adjustBarrier'; amount: number }
-	| { type: 'adjustBlood'; amount: number }
+	| { type: 'adjustBrokenBarrier'; amount: number }
 	| { type: 'adjustStatus'; amount: number }
 	| { type: 'adjustVictoryPoints'; amount: number }
 	| { type: 'commitRound' };

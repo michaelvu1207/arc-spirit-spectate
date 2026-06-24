@@ -56,6 +56,13 @@ export interface TriggerOptions {
 	newStatus?: number;
 	combat?: EffectCombatInfo;
 	trade?: TradePayload;
+	/**
+	 * Override the class counts the trigger fires against. Default is the player's whole
+	 * awakened tableau. `onSpiritSummon` passes the JUST-SUMMONED spirit's own classes so
+	 * its grant (Sharpshooter +Enchanted, Healer restore) fires once for THAT spirit —
+	 * not on every summon while the class is merely in play.
+	 */
+	counts?: Record<string, number>;
 }
 
 /**
@@ -73,7 +80,10 @@ export function applyTrigger(
 ): void {
 	const player = state.players[seat];
 	if (!player) return;
-	const counts = awakenedClassCounts(player);
+	// Default: fire against the player's whole awakened tableau. A caller may scope the
+	// trigger to a specific class-count set (e.g. onSpiritSummon → the summoned spirit's
+	// own classes) so the effect resolves once for that spirit, not the whole board.
+	const counts = opts.counts ?? awakenedClassCounts(player);
 	const colocated = colocatedPlayers(state, seat);
 
 	// Every awakened class with at least one ability — declarative or bespoke — for
@@ -144,7 +154,7 @@ export function applyTrigger(
 /**
  * Cultivate: a bare action step with NO inherent effect of its own — the parallel
  * of Rest. Its entire payoff now flows from `onCultivate` class effects (Cultivator
- * grants the origin-trio runes + potential; Arc Mage, Captain, … hook in too).
+ * grants the origin-trio runes + max barrier; Arc Mage, Captain, … hook in too).
  *
  * Repeated Cultivate tokens collapse to a SINGLE call (like Rest fires `onRest`
  * once), so there is no per-token multiplier. We still record the cultivate moment

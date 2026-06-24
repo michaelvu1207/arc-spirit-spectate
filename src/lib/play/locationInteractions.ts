@@ -27,7 +27,7 @@ export type RewardActionKind = 'spiritWorldSummon' | 'abyssSummon' | 'cultivate'
 /** What a single reward-row icon means, once resolved against the catalog. */
 export type RewardIconMeaning =
 	| { kind: 'action'; action: RewardActionKind; label: string }
-	| { kind: 'heal'; label: string }
+	| { kind: 'restoreBarrier'; label: string }
 	| { kind: 'originRune'; runeId: string; originId: string; originName: string; runeName: string; label: string }
 	| { kind: 'specialRune'; runeId: string; classId: string | null; runeName: string; label: string }
 	/** Wildcard for "any one relic": a cost in trades (pay any held relic), a gain
@@ -69,12 +69,12 @@ export const REWARD_ICON_SEMANTICS: Record<string, RewardIconMeaning> = {
 	[CULTIVATE_ICON]: { kind: 'action', action: 'cultivate', label: 'Cultivate' },
 	[REST_ICON]: { kind: 'action', action: 'rest', label: 'Rest' },
 
-	// Health/barrier tokens — the plain, arcane-flavored, and avatar barrier icons all
-	// RESTORE HEALTH (flip arcane-blood tokens back to the health side). They do NOT
-	// grant potential; capacity grows only through class effects (e.g. Cultivator).
-	[BARRIER_ICON]: { kind: 'heal', label: 'Restore Health' },
-	[ARCANE_BARRIER_ICON]: { kind: 'heal', label: 'Restore Health' },
-	[AVATAR_BARRIER_ICON]: { kind: 'heal', label: 'Restore Health' },
+	// Barrier restore tokens — the plain, arcane-flavored, and avatar barrier icons all
+	// RESTORE BARRIER (flip broken barrier tokens back to the barrier side). They do NOT
+	// grant max barrier; capacity grows only through class effects (e.g. Cultivator).
+	[BARRIER_ICON]: { kind: 'restoreBarrier', label: 'Restore Barrier' },
+	[ARCANE_BARRIER_ICON]: { kind: 'restoreBarrier', label: 'Restore Barrier' },
+	[AVATAR_BARRIER_ICON]: { kind: 'restoreBarrier', label: 'Restore Barrier' },
 
 	// Wildcard for "any one relic". As a trade COST it is paid by any held relic
 	// (runes/augments never qualify); as a monster-reward GAIN the reward builder
@@ -268,7 +268,7 @@ export interface ResolvedRune {
 
 export type GainEffect =
 	| { type: 'action'; action: RewardActionKind }
-	| { type: 'heal'; amount: number }
+	| { type: 'restoreBarrier'; amount: number }
 	| { type: 'rune'; rune: ResolvedRune }
 	/** Victory points (monster-kill reward). */
 	| { type: 'vp'; amount: number }
@@ -336,8 +336,8 @@ function gainEffectFor(token: RewardIconToken): GainEffect | null {
 	switch (m.kind) {
 		case 'action':
 			return { type: 'action', action: m.action };
-		case 'heal':
-			return { type: 'heal', amount: 1 };
+		case 'restoreBarrier':
+			return { type: 'restoreBarrier', amount: 1 };
 		case 'victoryPoints':
 			return { type: 'vp', amount: m.amount };
 		case 'anyRune':
@@ -371,7 +371,7 @@ function costRequirementFor(token: RewardIconToken): CostRequirement | null {
 		case 'specialRune':
 			return { match: 'specialRune', runeId: m.runeId, runeName: m.runeName, label: m.label };
 		default:
-			return null; // actions/heal are never costs
+			return null; // actions/restoreBarrier are never costs
 	}
 }
 
@@ -417,7 +417,7 @@ export function isRelic(slot: MatSlotSnapshot): boolean {
 	return slot.type === 'relic';
 }
 
-function slotSatisfies(slot: MatSlotSnapshot, req: CostRequirement): boolean {
+export function slotSatisfies(slot: MatSlotSnapshot, req: CostRequirement): boolean {
 	switch (req.match) {
 		case 'origin':
 			return slot.originId === req.originId || slot.name === `${req.originName} Rune`;
@@ -433,6 +433,23 @@ function slotSatisfies(slot: MatSlotSnapshot, req: CostRequirement): boolean {
 	}
 }
 
+/** A wildcard cost ("any relic" / "any basic rune") is the only kind where the
+ *  player has a meaningful choice of WHICH held item to discard — specific costs
+ *  resolve to identical/interchangeable runes. */
+export function isWildcardCost(req: CostRequirement): boolean {
+	return req.match === 'anyRelic' || req.match === 'anyBasic';
+}
+
+/** Array indices into `mats` of every held slot that could pay `req` — the options
+ *  the UI offers when letting the player pick which item to discard. */
+export function eligibleCostSlots(req: CostRequirement, mats: MatSlotSnapshot[]): number[] {
+	const out: number[] = [];
+	mats.forEach((slot, i) => {
+		if (slot.hasRune && slotSatisfies(slot, req)) out.push(i);
+	});
+	return out;
+}
+
 export interface CostMatch {
 	ok: boolean;
 	/** Array indices into `runes` to consume (set hasRune=false). */
@@ -443,23 +460,46 @@ export interface CostMatch {
  * Greedily assign held runes to the cost requirements. Specific requirements
  * (origin / named) are assigned before the wildcards so a wildcard never "steals"
  * a rune a specific requirement needs.
+ *
+ * `preferred` is an optional list of player-chosen array indices: for a WILDCARD
+ * requirement we discard the player's pick (when it's valid, unused, and satisfies
+ * the wildcard) instead of greedily grabbing the first match. Invalid/missing picks
+ * fall back to the greedy choice, so callers (bots, specific costs) that pass nothing
+ * keep the original behavior.
  */
-export function matchRewardCost(cost: CostRequirement[], runes: MatSlotSnapshot[]): CostMatch {
+export function matchRewardCost(
+	cost: CostRequirement[],
+	runes: MatSlotSnapshot[],
+	preferred: number[] = []
+): CostMatch {
 	if (cost.length === 0) return { ok: true, consumedArrayIndexes: [] };
 
 	const available = runes
 		.map((slot, arrayIndex) => ({ slot, arrayIndex }))
 		.filter((entry) => entry.slot.hasRune);
+	const byIndex = new Map(available.map((entry) => [entry.arrayIndex, entry]));
 
 	const used = new Set<number>();
 	// Specific requirements first; wildcards ('anyRelic' / 'anyBasic') last so they
 	// never steal a rune a specific requirement needs. The two wildcards match
 	// disjoint pools (relics vs. basic/origin runes), so their order is immaterial.
-	const isWildcard = (req: CostRequirement) => (req.match === 'anyRelic' || req.match === 'anyBasic' ? 1 : 0);
-	const ordered = [...cost].sort((a, b) => isWildcard(a) - isWildcard(b));
+	const ordered = [...cost].sort((a, b) => Number(isWildcardCost(a)) - Number(isWildcardCost(b)));
 
 	for (const req of ordered) {
-		const hit = available.find((entry) => !used.has(entry.arrayIndex) && slotSatisfies(entry.slot, req));
+		let hit: { slot: MatSlotSnapshot; arrayIndex: number } | undefined;
+		// Honor the player's explicit discard pick for a wildcard cost.
+		if (isWildcardCost(req)) {
+			for (const i of preferred) {
+				const entry = byIndex.get(i);
+				if (entry && !used.has(entry.arrayIndex) && slotSatisfies(entry.slot, req)) {
+					hit = entry;
+					break;
+				}
+			}
+		}
+		if (!hit) {
+			hit = available.find((entry) => !used.has(entry.arrayIndex) && slotSatisfies(entry.slot, req));
+		}
 		if (!hit) return { ok: false, consumedArrayIndexes: [] };
 		used.add(hit.arrayIndex);
 	}

@@ -2,7 +2,7 @@ import { runAction } from '../actions';
 import { nextId } from '../../rng';
 import type { ClassAbility, ClassDecisions } from './types';
 
-// Firekeeper — "In the Awakening phase, you may discard a relic for 3 potential or
+// Firekeeper — "In the Awakening phase, you may discard a relic for 3 max barrier or
 // 1 Arcane Attack."
 //
 // Was an awakening gain (1 Arcane Attack) + onTakeDamage damage reduction; now a
@@ -11,7 +11,7 @@ import type { ClassAbility, ClassDecisions } from './types';
 // precisely on the player HOLDING a relic — relics live as `player.mats` entries
 // with `type === 'relic'` & `hasRune`, which the declarative conditions can't read.
 // The colocated `firekeeperRelicTrade` resolver discards exactly one relic and
-// grants the chosen reward (3 potential OR 1 Arcane Attack).
+// grants the chosen reward (3 max barrier OR 1 Arcane Attack).
 export const ability: ClassAbility[] = [
 	{
 		on: 'awakeningPhase',
@@ -29,14 +29,14 @@ export const ability: ClassAbility[] = [
 				id: nextId(state.rng, 'dec'),
 				source: 'class',
 				kind: 'firekeeperRelicTrade',
-				prompt: 'Awakening: you may discard a relic for 3 potential or 1 Arcane Attack.',
+				prompt: 'Awakening: you may discard a relic for 3 max barrier or 1 Arcane Attack.',
 				options: [
-					{ id: 'potential', label: 'Discard relic → 3 potential' },
+					{ id: 'potential', label: 'Discard relic → 3 max barrier' },
 					{ id: 'arcane', label: 'Discard relic → 1 Arcane Attack' },
 					{ id: 'no', label: 'No' }
 				]
 			});
-			log.push('Decision: Awakening — discard a relic for 3 potential or 1 Arcane Attack?');
+			log.push('Decision: Awakening — discard a relic for 3 max barrier or 1 Arcane Attack?');
 		}
 	}
 ];
@@ -63,7 +63,7 @@ export const decisions: ClassDecisions = {
 		// Only pay (and grant) when a relic is actually present — guards a stale card.
 		if (!discardOneRelic(ctx)) return;
 		if (optionId === 'potential') {
-			runAction(ctx, { kind: 'gainPotential', amount: 3 });
+			runAction(ctx, { kind: 'gainMaxBarrier', amount: 3 });
 		} else {
 			runAction(ctx, { kind: 'gainAttackDice', tier: 'arcane', amount: 1 });
 		}

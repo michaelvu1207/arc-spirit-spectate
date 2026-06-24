@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { SeatColor, NavigationDestination, MonsterState } from '$lib/play/types';
 	import { LOCATION_ACCENT, type LocationConfig } from '$lib/play/locations';
-	import { buildMonsterRewards } from '$lib/play/monsterRewards';
 	import type { GameLocationAsset, IconPoolEntry, RewardIconToken } from '$lib/types';
 	import { seatAccent, storageUrl } from './helpers';
 
@@ -47,9 +46,6 @@
 	const orderedRows = $derived(
 		[...rewardRows].sort((a, b) => (a.type === 'gain' ? 0 : 1) - (b.type === 'gain' ? 0 : 1))
 	);
-	// The Arcane Abyss has no location reward_rows — its rewards come from the
-	// invading monster's reward track. Build them for the card's reward preview.
-	const monsterRewards = $derived(monster ? buildMonsterRewards(monster.rewardTrack) : []);
 
 	// Touch: tap the card to toggle the hover preview (pointer: coarse devices).
 	let tapFocused = $state(false);
@@ -94,37 +90,12 @@
 	onblur={() => selectable && onHover?.(null)}
 >
 	<span class="name">{config.name}</span>
-	{#if config.origin}<span class="origin">{config.origin}</span>{/if}
 
 	{#if config.combatOnly}
 		{#if monster}
-			<span class="monster">
-				<span
-					class="lives"
-					title="{monster.livesRemaining} of {monster.livesTotal} lives left"
-					aria-label="{monster.livesRemaining} of {monster.livesTotal} lives left"
-				>
-					{#each Array.from({ length: monster.livesTotal }) as _pip, i (i)}
-						<span class="life" class:spent={i >= monster.livesRemaining}></span>
-					{/each}
-				</span>
-				<span class="m-stats">
-					<span class="m-stat">HP {monster.maxHp}</span>
-					<span class="m-stat">DMG {monster.damage}</span>
-				</span>
-			</span>
-			{#if monsterRewards.length > 0}
-				<span class="reward-preview">
-					<span class="reward-head">On kill, choose {monster.chooseAmount}</span>
-					<span class="icons">
-						{#each monsterRewards as opt (opt.index)}
-							{#each tokenIcons(opt.token) as ic, k (ic.id + k)}
-								<span class="ico">{#if ic.url}<img src={ic.url} alt={opt.label} loading="lazy" />{/if}</span>
-							{/each}
-						{/each}
-					</span>
-				</span>
-			{/if}
+			<!-- The monster's stats, lives, and rewards now live on the leaderboard boss
+			     card, so the Abyss core just issues the call to action. -->
+			<span class="fight">Fight the Monster</span>
 		{:else}
 			<span class="empty">No monster invading</span>
 		{/if}
@@ -135,7 +106,6 @@
 					{#if row.type === 'text'}
 						<span class="row-text">{row.text}</span>
 					{:else if row.type === 'gain'}
-						<span class="tag">Gain</span>
 						<span class="icons">
 							{#each row.gain_icon_ids as token, ti (ti)}
 								{#each tokenIcons(token) as ic, k (ic.id + k)}
@@ -148,6 +118,7 @@
 						<span class="icons">
 							{#each row.cost_icon_ids as token, ti (ti)}
 								{#each tokenIcons(token) as ic, k (ic.id + k)}
+									{#if k > 0}<span class="or">/</span>{/if}
 									<span class="ico">{#if ic.url}<img src={ic.url} alt="" loading="lazy" />{/if}</span>
 								{/each}
 							{/each}
@@ -156,6 +127,7 @@
 						<span class="icons">
 							{#each row.gain_icon_ids as token, ti (ti)}
 								{#each tokenIcons(token) as ic, k (ic.id + k)}
+									{#if k > 0}<span class="or">/</span>{/if}
 									<span class="ico">{#if ic.url}<img src={ic.url} alt="" loading="lazy" />{/if}</span>
 								{/each}
 							{/each}
@@ -189,7 +161,7 @@
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		gap: 0.4rem;
+		gap: 0.5rem;
 		padding: 0.5rem 0.6rem;
 		border: none;
 		background: none;
@@ -227,58 +199,42 @@
 
 	.name {
 		font-family: var(--font-display);
-		font-size: clamp(0.82rem, 1.1vw, 1.05rem);
+		/* Cardinal titles read at the same weight as the Arcane Abyss hub title. */
+		font-size: clamp(1.19rem, 1.88vw, 1.69rem);
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
 		color: #fff;
 		line-height: 1.1;
 		text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
 	}
-	.origin {
-		font-family: var(--font-display);
-		font-size: 0.8rem;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-		color: color-mix(in srgb, var(--accent) 82%, #fff);
-		margin-top: -2px;
-	}
-
 	.rows {
 		list-style: none;
-		margin: 0.15rem 0 0;
+		margin: 0.19rem 0 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 5px;
+		gap: 0;
 		width: 100%;
 	}
 	.row {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 7px;
-		padding: 4px 9px;
-		border-radius: 5px;
-		background: rgba(0, 0, 0, 0.34);
+		gap: 9px;
+		padding: 6px 11px;
 	}
-	.tag {
-		font-family: var(--font-display);
-		font-size: 0.8rem;
-		letter-spacing: 0.09em;
-		text-transform: uppercase;
-		padding: 2px 7px;
-		border-radius: 3px;
-		color: #05030c;
-		background: var(--brand-teal, #2fc7c7);
+	/* A thin divider between rows instead of a filled background per row. */
+	.row + .row {
+		border-top: 1px solid rgba(255, 255, 255, 0.14);
 	}
 	.icons {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
+		gap: 8px;
 	}
 	.ico {
-		width: 27px;
-		height: 27px;
+		width: 34px;
+		height: 34px;
 		display: grid;
 		place-items: center;
 	}
@@ -288,89 +244,52 @@
 		object-fit: contain;
 	}
 	.or {
-		color: var(--color-whisper, #6a6680);
-		font-size: 0.9rem;
+		margin: 0 -5px;
+		font-size: 0.98rem;
+		font-weight: 700;
+		color: var(--color-whisper, #8d8aa1);
 	}
 	.arrow {
 		color: var(--brand-amber, #ffba3d);
-		font-size: 1.1rem;
+		font-size: 1.38rem;
+		margin: 0 -9px;
 	}
 	.row-text {
-		font-size: 0.9rem;
+		font-size: 1.13rem;
 		color: var(--color-fog, #8d8aa1);
 		line-height: 1.2;
 	}
 
-	.monster {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 2px;
-	}
-	/* Monster lives left — filled pips for remaining, hollow for spent. */
-	.lives {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-	}
-	.life {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--brand-coral, #ff7a7a);
-		box-shadow: 0 0 6px color-mix(in srgb, var(--brand-coral, #ff7a7a) 60%, transparent);
-	}
-	.life.spent {
-		background: transparent;
-		border: 1px solid rgba(255, 255, 255, 0.28);
-		box-shadow: none;
-	}
-	.m-stats {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.6rem;
-	}
-	.m-stat {
-		font-size: 0.8rem;
-		font-variant-numeric: tabular-nums;
-		color: var(--brand-coral, #ff7a7a);
-	}
-	/* Monster reward track — a caption over a single wrapping row of reward icons. */
-	.reward-preview {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 5px;
-		margin-top: 4px;
-	}
-	.reward-head {
+	/* Abyss core call-to-action — the monster's stats/lives/rewards now live on the
+	   leaderboard boss card, so the centre just reads as the fight prompt. */
+	.fight {
 		font-family: var(--font-display);
-		font-size: 0.72rem;
-		letter-spacing: 0.12em;
+		font-size: clamp(0.78rem, 1vw, 0.98rem);
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
-		color: var(--color-fog, #8d8aa1);
+		color: #fff;
 		text-align: center;
-	}
-	.reward-preview .icons {
-		flex-wrap: wrap;
-		justify-content: center;
+		line-height: 1.15;
+		text-shadow:
+			0 1px 8px rgba(0, 0, 0, 0.85),
+			0 0 14px color-mix(in srgb, var(--accent) 60%, transparent);
 	}
 	.empty {
-		font-size: 0.8rem;
+		font-size: 1rem;
 		color: var(--color-whisper, #6a6680);
 		line-height: 1.2;
 	}
 
 	.tokens {
 		display: flex;
-		gap: 4px;
+		gap: 5px;
 		justify-content: center;
 		flex-wrap: wrap;
 		margin-top: 2px;
 	}
 	.tok {
-		width: 12px;
-		height: 12px;
+		width: 15px;
+		height: 15px;
 		border-radius: 50%;
 		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
 	}
@@ -412,10 +331,6 @@
 			0 0 46px color-mix(in srgb, var(--accent) 50%, transparent),
 			inset 0 0 40px rgba(0, 0, 0, 0.6);
 	}
-	.loc.hub .name {
-		font-size: clamp(0.95rem, 1.5vw, 1.35rem);
-	}
-
 	/* ── Touch / tap-target hardening ──────────────────────────────────────── */
 	.loc.selectable {
 		touch-action: manipulation;
@@ -423,15 +338,15 @@
 		user-select: none;
 	}
 
-	/* Icon hit areas: native size is 27px — boost to ≥44px on touch so fingers land. */
+	/* Icon hit areas: native size is 34px — boost to ≥44px on touch so fingers land. */
 	@media (pointer: coarse) {
 		.ico {
 			width: 44px;
 			height: 44px;
 		}
 		.ico img {
-			width: 27px;
-			height: 27px;
+			width: 34px;
+			height: 34px;
 		}
 		/* Give the card itself a comfortable minimum tap height. */
 		.loc.selectable {

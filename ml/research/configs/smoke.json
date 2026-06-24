@@ -1,0 +1,11 @@
+{
+  "name": "smoke",
+  "objective": { "metric": "avgVP", "opponent": "medium" },
+  "cold_start": { "games_per_shard": 3, "shards": 2, "record_profile": "pvphunter", "max_rounds": 60 },
+  "iterations": 1,
+  "datagen": { "games_per_shard": 4, "shards": 2, "selection": "value", "sample": true, "temperature": 1.0, "max_rounds": 70, "seats": 4 },
+  "shaping": "balanced",
+  "gamma": 0.99,
+  "train": { "epochs": 4, "beta": 2.0 },
+  "eval": { "games": 4, "opponents": ["medium"], "max_rounds": 70, "selection": "hybrid" }
+}

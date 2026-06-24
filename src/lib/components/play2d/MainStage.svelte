@@ -49,7 +49,7 @@
 		focusedDestination?: NavigationDestination | null;
 		onHoverDestination?: (destination: NavigationDestination | null) => void;
 		onSelectDestination: (destination: NavigationDestination) => void;
-		onResolveInteraction: (rowIndex: number, choices: number[]) => void;
+		onResolveInteraction: (rowIndex: number, choices: number[], costChoices: number[]) => void;
 		onStartCombat: () => void;
 		/** Claim monster-kill rewards (Arcane Abyss): picks = track indices. */
 		onClaimReward: (picks: number[], choices: number[]) => void;
@@ -87,6 +87,8 @@
 			spiritSlotIndex: number,
 			className: string
 		) => void;
+		/** Finish augment placement — forfeit any that remain unplaced. */
+		onDiscardAugments: () => void;
 		/** Discard a spirit by slot index (forced corruption discard). */
 		onDiscardSpirit: (slotIndex: number) => void;
 		busy?: boolean;
@@ -124,6 +126,7 @@
 		onResolveDecision,
 		onDismissManual,
 		onPlaceAugment,
+		onDiscardAugments,
 		onDiscardSpirit,
 		busy = false
 	}: Props = $props();
@@ -236,7 +239,7 @@
 				iconPool={assets.iconPool}
 			/>
 		{/if}
-	{:else if (myPlayer?.pendingCorruptionDiscard?.count ?? 0) > 0}
+	{:else if activeAction !== 'combat' && (myPlayer?.pendingCorruptionDiscard?.count ?? 0) > 0}
 		<!-- Forced corruption discard — a sacrifice owed the moment you corrupt; surfaced
 		     in-stage in whatever phase it's pending (combat sets it in location/encounter). -->
 		<CorruptionDiscard
@@ -247,10 +250,10 @@
 			count={myPlayer?.pendingCorruptionDiscard?.count ?? 0}
 			onDiscard={onDiscardSpirit}
 		/>
-	{:else if (myPlayer?.unplacedAugments?.length ?? 0) > 0}
+	{:else if activeAction !== 'combat' && (myPlayer?.unplacedAugments?.length ?? 0) > 0}
 		<!-- Spirit Augment placement — in-stage (pick an augment icon, click a spirit). -->
-		<AugmentPlacement player={myPlayer} {assets} {spiritImages} {busy} onPlace={onPlaceAugment} />
-	{:else if (room.phase === 'location' || room.phase === 'encounter') && (myPlayer?.pendingDecisions?.length ?? 0) > 0}
+		<AugmentPlacement player={myPlayer} {assets} {spiritImages} {busy} onPlace={onPlaceAugment} onDone={onDiscardAugments} />
+	{:else if activeAction !== 'combat' && (room.phase === 'location' || room.phase === 'encounter') && (myPlayer?.pendingDecisions?.length ?? 0) > 0}
 		<!-- Ability decision cards — in-stage (Awakening-step decisions render in the AwakeningSheet). -->
 		<DecisionCards player={myPlayer} onResolve={onResolveDecision} />
 	{:else if room.phase === 'encounter'}
@@ -306,9 +309,9 @@
 		{:else if activeAction === 'rest' || activeAction === 'cultivate' || activeAction === 'reward'}
 			<ActionResult result={myPlayer?.lastAction ?? null} {onContinue} />
 		{:else if myReady}
-			<div class="waiting" data-testid="stage-waiting">You're ready — waiting for other players…</div>
+			<div class="waiting" data-testid="stage-waiting">Waiting for other players…</div>
 		{:else}
-			<div class="stage-head">{myLocationConfig?.name ?? 'Location'} — choose an action</div>
+			<div class="stage-head">Choose an action</div>
 			{#if myLocationConfig?.combatOnly}
 				<div class="card-grid">
 					{#each Array(combatAllowance) as _, i (i)}
@@ -330,6 +333,17 @@
 						/>
 					{/each}
 				</div>
+				<!-- The Abyss also carries its own location actions (a free Arcane Abyss
+				     Summon), shown alongside the monster fight. -->
+				<LocationInteractionMenu
+					location={myLocationAsset}
+					iconPool={assets.iconPool}
+					{assets}
+					player={myPlayer}
+					accent={myAccent}
+					{busy}
+					onResolve={onResolveInteraction}
+				/>
 			{:else if showInfiltrator}
 				<InfiltratorSwap
 					myDice={myPlayer?.attackDice ?? []}
@@ -356,6 +370,7 @@
 				<LocationInteractionMenu
 					location={myLocationAsset}
 					iconPool={assets.iconPool}
+					{assets}
 					player={myPlayer}
 					accent={myAccent}
 					{busy}

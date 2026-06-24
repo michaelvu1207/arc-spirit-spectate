@@ -11,6 +11,7 @@
 	import { decideNavMode, compassDiameter, type NavViewMode } from '$lib/play/viewMode';
 	import type { GameLocationAsset, IconPoolEntry } from '$lib/types';
 	import LocationCard from './LocationCard.svelte';
+	import RewardArc from './RewardArc.svelte';
 
 	interface Props {
 		room: SpectatorProjection;
@@ -73,6 +74,24 @@
 		focusedDestination ? (LOCATION_ACCENT[focusedDestination] ?? '#ffffff') : '#ffffff'
 	);
 
+	// Compass mode: each cardinal realm is a transparent quadrant hit-target; its title
+	// and reward rows are drawn as concentric arcs by RewardArc (one hub-centred overlay).
+	const quadInputs = $derived(
+		ARMS.map((a) => ({
+			name: a.name,
+			pos: a.pos as 'tl' | 'tr' | 'bl' | 'br',
+			location: gameLocations.get(a.name) ?? null,
+			accent: LOCATION_ACCENT[a.name] ?? '#8d8aa1',
+			occupants: occupantsOf(a.name),
+			selected: selectedDestination === a.name,
+			focused: focusedDestination === a.name
+		}))
+	);
+
+	function pickRealm(name: NavigationDestination) {
+		if (selectable) onSelect?.(name);
+	}
+
 	// ── Mobile carousel ──────────────────────────────────────────────────────
 	// Phones get one location at a time in a horizontal swipe carousel instead of
 	// the compass (which is unreadable at 360px). Same LocationCards, handlers and
@@ -100,6 +119,8 @@
 	const useCards = $derived(viewMode === 'cards');
 	// Box sized so the full ring (drawn at 122%) fits inside the cell uncropped.
 	const compassSize = $derived(compassDiameter(boardW, boardH));
+	// Thickness of the rim band that holds the engraved realm names.
+	const ringThickness = $derived(compassSize * 0.085);
 
 	// Portrait → vertical reel (slot-machine, scroll up/down); landscape → the
 	// horizontal swipe. Keyed off the board's own shape so it matches the layout.
@@ -254,8 +275,8 @@
 			data-testid="realm-compass"
 			style="width: {compassSize}px; height: {compassSize}px;"
 		>
-			<!-- A big compass ring, well outside the reward rows. -->
-			<div class="ring" aria-hidden="true"></div>
+			<!-- A thick rim band; the engraved realm names ride inside it (RewardArc). -->
+			<div class="ring" style="border-width: {ringThickness}px;" aria-hidden="true"></div>
 			<!-- Pie-wedge highlight for the focused realm's quadrant. -->
 			{#if focusWedge}
 				<div
@@ -288,23 +309,23 @@
 				/>
 			</div>
 
+			<!-- Transparent quadrant hit-targets; the reward arcs sit on top (non-interactive). -->
 			{#each ARMS as arm (arm.name)}
-				<div class="arm {arm.pos}">
-					<LocationCard
-						config={LOCATIONS[arm.name]}
-						location={gameLocations.get(arm.name) ?? null}
-						{iconPool}
-						occupants={occupantsOf(arm.name)}
-						{seatNames}
-						{selectable}
-						focused={focusedDestination === arm.name}
-						selected={selectedDestination === arm.name}
-						{mySeat}
-						{onHover}
-						{onSelect}
-					/>
-				</div>
+				<button
+					type="button"
+					class="q-hit {arm.pos}"
+					data-testid="location-{arm.name}"
+					aria-label={arm.name}
+					disabled={!selectable}
+					onclick={() => pickRealm(arm.name)}
+					onpointerenter={() => selectable && onHover?.(arm.name)}
+					onpointerleave={() => selectable && onHover?.(null)}
+					onfocus={() => selectable && onHover?.(arm.name)}
+					onblur={() => selectable && onHover?.(null)}
+				></button>
 			{/each}
+
+			<RewardArc quads={quadInputs} {iconPool} {seatNames} {mySeat} size={compassSize} />
 		</div>
 	{/if}
 </div>
@@ -500,11 +521,19 @@
 		position: absolute;
 		left: 50%;
 		top: 50%;
-		width: 122%;
+		/* Outer diameter 120% of the cell; border-box keeps the thick band inside that
+		   edge so its INNER edge (and the reward disc it frames) scales predictably. */
+		width: 120%;
 		aspect-ratio: 1;
+		box-sizing: border-box;
 		transform: translate(-50%, -50%);
 		border-radius: 50%;
-		border: 1px solid rgba(255, 255, 255, 0.16);
+		border-style: solid;
+		border-color: rgba(255, 255, 255, 0.05);
+		/* Crisp hairlines on the inner and outer edges so the faint band reads as a rim. */
+		box-shadow:
+			0 0 0 1px rgba(255, 255, 255, 0.18),
+			inset 0 0 0 1px rgba(255, 255, 255, 0.2);
 		pointer-events: none;
 	}
 	/* Pie-wedge highlight: a 90° conic slice masked to a ring around the hub, so the
@@ -574,29 +603,45 @@
 		top: 50%;
 		transform: translate(-50%, -50%);
 		width: 26%;
+		/* Above the reward-arc overlay so the Abyss core stays clickable. */
+		z-index: 3;
 	}
-	.tl {
-		left: 24%;
-		top: 25%;
-		transform: translate(-50%, -50%);
-		width: 36%;
+
+	/* Each cardinal realm's clickable region is its quarter of the compass; the arcs
+	   and title render on top via RewardArc. A big target reads well with the wedge glow. */
+	.q-hit {
+		position: absolute;
+		width: 50%;
+		height: 50%;
+		padding: 0;
+		margin: 0;
+		border: none;
+		background: none;
+		cursor: default;
+		z-index: 1;
 	}
-	.tr {
-		left: 76%;
-		top: 25%;
-		transform: translate(-50%, -50%);
-		width: 36%;
+	.q-hit:not(:disabled) {
+		cursor: pointer;
 	}
-	.bl {
-		left: 24%;
-		top: 75%;
-		transform: translate(-50%, -50%);
-		width: 36%;
+	.q-hit:focus-visible {
+		outline: 2px solid #fff;
+		outline-offset: -6px;
+		border-radius: 16px;
 	}
-	.br {
-		left: 76%;
-		top: 75%;
-		transform: translate(-50%, -50%);
-		width: 36%;
+	.q-hit.tl {
+		left: 0;
+		top: 0;
+	}
+	.q-hit.tr {
+		left: 50%;
+		top: 0;
+	}
+	.q-hit.bl {
+		left: 0;
+		top: 50%;
+	}
+	.q-hit.br {
+		left: 50%;
+		top: 50%;
 	}
 </style>

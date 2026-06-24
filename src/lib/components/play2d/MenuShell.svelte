@@ -1,9 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
-	import SplatBackground from './SplatBackground.svelte';
 	import SplatQualityControl from './SplatQualityControl.svelte';
-	import { getGraphicsSettings } from '$lib/stores/graphicsSettings.svelte';
 	import {
 		armMenuAudio,
 		toggleMenuMute,
@@ -13,12 +11,8 @@
 	} from '$lib/stores/menuAudio.svelte';
 
 	interface Props {
-		/** The splat world behind the menu. Defaults to the Arcane Abyss. */
-		splatSrc?: string;
 		/** The menu music. Defaults to the Arcane Abyss theme. */
 		audioSrc?: string;
-		/** Camera dolly into the world (0..1). */
-		push?: number;
 		/** Show the "◈ Arc Spirits" brand in the top-left. */
 		showBrand?: boolean;
 		/** The screen's content, laid out over the abyss. */
@@ -26,15 +20,12 @@
 	}
 
 	let {
-		splatSrc = '/splats/abyssal-portal.spz',
 		audioSrc = '/music/worlds/abyssal-portal.mp3',
-		push = 0,
 		showBrand = true,
 		children
 	}: Props = $props();
 
 	const audio = getMenuAudio();
-	const graphics = getGraphicsSettings();
 
 	/** Whether the Fullscreen API exists on this device (iPhone Safari lacks it). */
 	let fullscreenSupported = $state(false);
@@ -76,10 +67,9 @@
 </script>
 
 <div class="menu-shell">
-	<!-- Living world (skipped entirely when the player sets Background to Off). -->
-	{#if graphics.splatEnabled}
-		<div class="bg"><SplatBackground src={splatSrc} blur={0} {push} /></div>
-	{/if}
+	<!-- The living world lives in /play/+layout.svelte (mounted once for the whole
+	     section) and shows through this shell's transparent background, so navigating
+	     between screens never re-initialises the splat. -->
 	<!-- Directional scrim so content stays legible over the splat -->
 	<div class="scrim"></div>
 	<!-- Slow aurora wash + fine grain for depth -->
@@ -225,14 +215,10 @@
 		inset: 0;
 		z-index: 60;
 		overflow: hidden;
-		background: var(--color-void, #050310);
+		/* Transparent so the persistent splat in /play/+layout.svelte shows through
+		   (its void color is the fallback when the player turns the Background Off). */
+		background: transparent;
 		color: var(--color-bone, #f5f0ff);
-	}
-
-	.bg {
-		position: absolute;
-		inset: 0;
-		z-index: 0;
 	}
 
 	/* Darken the left + bottom so titles/menu read; keep the right airy. */

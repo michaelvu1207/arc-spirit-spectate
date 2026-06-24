@@ -1,0 +1,233 @@
+/**
+ * legalActions — the COMPLETE legal move set for the ML policy at one decision point.
+ *
+ * Per the design directive, the bot must be able to take ANY real action a competitive
+ * player can take in the actual game — we do not prune the strategic space. We enumerate
+ * candidate commands for the current phase (with bounded parameter expansion) and DRY-RUN
+ * each through `applyGameCommand` (pure — it clones its input, see runtime.ts), keeping
+ * only those that return `ok`. The engine is its own legality oracle.
+ *
+ * EXCLUDED on purpose (not "real game moves" / would let the bot cheat or are 3D-tabletop
+ * physical affordances, confirmed with the owner):
+ *   - manual counter edits: adjustVictoryPoints/Status/Barrier/BrokenBarrier/MaxBarrier
+ *   - free-form tabletop tools: spawnDiceBatch, rollSpawnedDice, clearSpawnedDice,
+ *     spawnMatItem, clearSpawnedItems, moveMatObject, flipSpirit (manual face toggle)
+ *   - lobby/host/dev: claimSeat, releaseSeat, selectGuardian, setNavigationTimer,
+ *     startGame, forceAdvancePhase, debugGrant
+ * Everything else — every rules-driven action across all six phases — is enumerated.
+ */
+
+import { applyGameCommand } from '../runtime';
+import { botActorFor } from '../server/botPolicy';
+import { canApply } from './canApply';
+import { ALL_DESTINATIONS, type GameActor, type GameCommand, type PlayCatalog, type PublicGameState, type SeatColor } from '../types';
+
+const MAX_LOCATION_ROWS = 10;
+/** How many distinct "or"-option choices to expand per location reward row. */
+const MAX_ROW_CHOICES = 3;
+
+/** A legal candidate command paired with the state it produces (from the dry-run). */
+export interface LegalAction {
+	cmd: GameCommand;
+	next: PublicGameState;
+}
+
+/**
+ * Enumerate every CANDIDATE command for the current phase (with bounded parameter expansion),
+ * calling `emit` for each in a fixed, deterministic order. This is the single source of truth for
+ * the action surface — `legalActions` and `legalActionsWithNext` both drive it, so the candidate
+ * SET and ORDER are guaranteed identical between them (the BC `chosen` index depends on this order).
+ * Legality is NOT decided here; the callers filter via `canApply` / the clone oracle.
+ */
+export function enumerateCandidates(
+	state: PublicGameState,
+	seat: SeatColor,
+	catalog: PlayCatalog,
+	emit: (cmd: GameCommand) => void
+): void {
+	const me = state.players[seat];
+	const tryAdd = emit;
+
+	switch (state.phase) {
+		case 'navigation': {
+			for (const d of ALL_DESTINATIONS) tryAdd({ type: 'lockNavigation', destination: d });
+			tryAdd({ type: 'unlockNavigation' }); // allow backing out a lock-in
+			break;
+		}
+
+		case 'encounter': {
+			// The PvP fork — the single most important strategic decision at 4+ players.
+			tryAdd({ type: 'initiatePvp' });
+			tryAdd({ type: 'passEncounter' });
+			break;
+		}
+
+		case 'location': {
+			const dest = me?.navigationDestination ?? null;
+			const rowCount = dest
+				? catalog.locations?.find((l) => l.name === dest)?.rewardRows.length ?? MAX_LOCATION_ROWS
+				: MAX_LOCATION_ROWS;
+			// Resolve a reward row — default choices, plus expand the discrete "or"-gain options
+			// so the bot can pick WHICH benefit (a real strategic choice, not just which row).
+			for (let r = 0; r < rowCount; r++) {
+				tryAdd({ type: 'resolveLocationInteraction', rowIndex: r });
+				for (let c = 1; c < MAX_ROW_CHOICES; c++) {
+					tryAdd({ type: 'resolveLocationInteraction', rowIndex: r, choices: [c] });
+				}
+			}
+			// Summoning: which drawn spirit to keep, redraw, or discard the draw.
+			for (const h of me?.handDraws ?? []) tryAdd({ type: 'spawnHandSpirit', guid: h.guid });
+			tryAdd({ type: 'redrawHandDraws' });
+			tryAdd({ type: 'discardHandDraws' });
+			// Monster combat + reward claim.
+			tryAdd({ type: 'startCombat' });
+			if (me?.pendingReward) {
+				const track = me.pendingReward.rewardTrack ?? [];
+				const k = Math.min(me.pendingReward.chooseAmount, track.length);
+				// Default: first k. Plus a couple of alternative pick-sets so reward choice is learnable.
+				tryAdd({ type: 'resolveMonsterReward', picks: Array.from({ length: k }, (_, i) => i) });
+				if (track.length > k) tryAdd({ type: 'resolveMonsterReward', picks: Array.from({ length: k }, (_, i) => track.length - 1 - i) });
+			}
+			// Market: buy/replace spirits from filled slots.
+			for (let i = 0; i < (state.market?.length ?? 0); i++) {
+				if (!state.market[i]?.spiritId) continue;
+				tryAdd({ type: 'takeSpirit', marketIndex: i });
+				for (let s = 0; s < (me?.spirits?.length ?? 0); s++) tryAdd({ type: 'replaceSpirit', marketIndex: i, slotIndex: s });
+			}
+			tryAdd({ type: 'refillMarket' });
+			// Spirit/rune management actions that exist in real play.
+			for (let s = 0; s < (me?.spirits?.length ?? 0); s++) tryAdd({ type: 'absorbSpirit', slotIndex: s });
+			for (const mat of me?.mats ?? []) {
+				const runeId = (mat as { runeId?: string }).runeId;
+				if (!runeId) continue;
+				for (let s = 0; s < (me?.spirits?.length ?? 0); s++) tryAdd({ type: 'attachRuneToSpirit', runeId, spiritSlotIndex: s });
+			}
+			for (let s = 0; s < (me?.spirits?.length ?? 0); s++) {
+				for (const att of me?.spiritAugmentAttachments ?? []) {
+					const rId = (att as { runeId?: string }).runeId;
+					if (rId) tryAdd({ type: 'detachRuneFromSpirit', runeId: rId, spiritSlotIndex: s });
+				}
+			}
+			tryAdd({ type: 'endLocationActions' }); // yield
+			break;
+		}
+
+		case 'benefits': {
+			tryAdd({ type: 'commitBenefits' }); // yield
+			break;
+		}
+
+		case 'awakening': {
+			// Flip & pay for face-down spirits — including discard-cost variants per offer.
+			for (const off of me?.awakenOffers ?? []) {
+				tryAdd({ type: 'awakenSpirit', slotIndex: off.slotIndex });
+				for (const opt of off.options ?? []) tryAdd({ type: 'awakenSpirit', slotIndex: off.slotIndex, discardRefs: [opt.ref] });
+			}
+			for (let s = 0; s < (me?.spirits?.length ?? 0); s++) tryAdd({ type: 'manualAwaken', slotIndex: s });
+			// Resolve class decision cards (every option).
+			for (const dec of me?.pendingDecisions ?? [])
+				for (const o of dec.options) tryAdd({ type: 'resolveDecision', decisionId: dec.id, optionId: o.id });
+			// Place unplaced augments onto spirits (every augment × every spirit).
+			for (let a = 0; a < (me?.unplacedAugments?.length ?? 0); a++) {
+				const aug = me!.unplacedAugments![a];
+				for (let s = 0; s < (me?.spirits?.length ?? 0); s++)
+					tryAdd({ type: 'placeAugmentOnSpirit', augmentIndex: a, augmentRuneId: aug.runeId, spiritSlotIndex: s });
+			}
+			if (me?.pendingAwakenReward) {
+				tryAdd({ type: 'resolveAwakenReward' });
+				const grants = me.pendingAwakenReward.grants ?? [];
+				const tainted = grants.find((g) => g.kind === 'taintedChoice') as { amount: number } | undefined;
+				if (tainted) for (let t = 0; t <= tainted.amount; t++) tryAdd({ type: 'resolveAwakenReward', taintedMaxBarrier: t });
+			}
+			for (const mp of me?.manualPrompts ?? []) tryAdd({ type: 'dismissManualPrompt', id: mp.id });
+			tryAdd({ type: 'commitAwakening' }); // yield
+			break;
+		}
+
+		case 'cleanup': {
+			for (let i = 0; i < (me?.spirits?.length ?? 0); i++) tryAdd({ type: 'discardSpirit', slotIndex: i });
+			for (let i = 0; i < (me?.mats?.length ?? 0); i++) tryAdd({ type: 'discardRune', slotIndex: i });
+			tryAdd({ type: 'commitCleanup' }); // yield — the cleanup-phase yield a real bot/player issues
+			// NOTE: `commitRound` is intentionally NOT offered. It is a server/host-level
+			// round-advance + history-snapshot command (service.ts), which botSim "never calls"
+			// and the heuristic never emits — a real player only ever commits cleanup. Offering it
+			// let the bot bypass the proper cleanup→round-advance (winner/Fallen end-checks + the
+			// per-round VP snapshot), diverging from live play. Round advance happens via the
+			// phase machine, exactly as in the live game.
+			break;
+		}
+	}
+}
+
+/**
+ * Full legal candidate set WITH the resulting next-state for each. `canApply` skips the clone for
+ * candidates it can prove ILLEGAL (no clone, no push); the clone oracle confirms the rest and yields
+ * the next-state that value-lookahead consumes. A `canApply === true` candidate still clones here
+ * because this function needs its next-state — the win for `legalActionsWithNext` is skipping the
+ * illegal majority. (The zero-clone win is in `legalActions`, which needs no next-states.)
+ */
+export function legalActionsWithNext(state: PublicGameState, seat: SeatColor, catalog: PlayCatalog): LegalAction[] {
+	const actor: GameActor = botActorFor(state, seat);
+	const out: LegalAction[] = [];
+	enumerateCandidates(state, seat, catalog, (cmd) => {
+		if (canApply(state, actor, cmd, catalog) === false) return; // provably illegal — no clone
+		const r = applyGameCommand(state, actor, cmd, catalog);
+		if (r.ok) out.push({ cmd, next: r.state });
+	});
+	return out;
+}
+
+/**
+ * Cmd-only legal set — needs no next-states, so `canApply` decides most candidates with ZERO clones
+ * (the dominant behavior-cloning / data-gen path). Only `undefined` verdicts fall back to the clone
+ * oracle. Candidate order matches `legalActionsWithNext` exactly (shared enumerator) so the recorded
+ * BC `chosen` index is stable.
+ */
+export function legalActions(state: PublicGameState, seat: SeatColor, catalog: PlayCatalog): GameCommand[] {
+	const actor: GameActor = botActorFor(state, seat);
+	const out: GameCommand[] = [];
+	enumerateCandidates(state, seat, catalog, (cmd) => {
+		const verdict = canApply(state, actor, cmd, catalog);
+		if (verdict === false) return;
+		if (verdict === true) {
+			out.push(cmd);
+			return;
+		}
+		if (applyGameCommand(state, actor, cmd, catalog).ok) out.push(cmd); // undefined → clone oracle
+	});
+	return out;
+}
+
+/**
+ * Does candidate `a` correspond to planned command `b`? Matches on type + the salient
+ * identifying parameter(s) only — so a heuristic's command that carries extra sub-params
+ * still matches the candidate. Used to label which legal candidate the heuristic picked.
+ */
+export function commandMatches(a: GameCommand, b: GameCommand): boolean {
+	if (a.type !== b.type) return false;
+	switch (a.type) {
+		case 'lockNavigation':
+		case 'selectNavigationDestination':
+			return a.destination === (b as typeof a).destination;
+		case 'resolveLocationInteraction':
+			return a.rowIndex === (b as typeof a).rowIndex && (a.choices?.[0] ?? 0) === ((b as typeof a).choices?.[0] ?? 0);
+		case 'spawnHandSpirit':
+			return a.guid === (b as typeof a).guid;
+		case 'takeSpirit':
+			return a.marketIndex === (b as typeof a).marketIndex;
+		case 'replaceSpirit':
+			return a.marketIndex === (b as typeof a).marketIndex && a.slotIndex === (b as typeof a).slotIndex;
+		case 'awakenSpirit':
+		case 'discardSpirit':
+		case 'discardRune':
+		case 'manualAwaken':
+		case 'absorbSpirit':
+			return a.slotIndex === (b as typeof a).slotIndex;
+		case 'resolveDecision':
+			return a.decisionId === (b as typeof a).decisionId && a.optionId === (b as typeof a).optionId;
+		case 'placeAugmentOnSpirit':
+			return a.augmentIndex === (b as typeof a).augmentIndex && a.spiritSlotIndex === (b as typeof a).spiritSlotIndex;
+		default:
+			return true; // type-only commands: passEncounter, initiatePvp, commit*, refillMarket, etc.
+	}
+}

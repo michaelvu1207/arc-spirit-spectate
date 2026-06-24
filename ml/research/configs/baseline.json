@@ -1,0 +1,11 @@
+{
+  "name": "baseline",
+  "objective": { "metric": "avgVP", "opponent": "mean" },
+  "cold_start": { "games_per_shard": 30, "shards": 6, "record_profile": "pvphunter", "max_rounds": 90 },
+  "iterations": 3,
+  "datagen": { "games_per_shard": 40, "shards": 6, "selection": "value", "sample": true, "temperature": 1.0, "max_rounds": 100, "seats": 4 },
+  "shaping": "balanced",
+  "gamma": 0.99,
+  "train": { "epochs": 12, "beta": 2.0 },
+  "eval": { "games": 24, "opponents": ["pvphunter", "medium", "mixed"], "max_rounds": 110, "selection": "hybrid" }
+}

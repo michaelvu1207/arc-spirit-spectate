@@ -88,8 +88,8 @@
 			<section class="grp">
 				<span class="grp-h">Resources</span>
 				<div class="row">
-					<button class="b" disabled={busy} onclick={() => grant({ kind: 'potential', amount: 1 })}>+1 Potential</button>
-					<button class="b" disabled={busy} onclick={() => grant({ kind: 'potential', amount: 4 })}>+4 Potential</button>
+					<button class="b" disabled={busy} onclick={() => grant({ kind: 'maxBarrier', amount: 1 })}>+1 Max Barrier</button>
+					<button class="b" disabled={busy} onclick={() => grant({ kind: 'maxBarrier', amount: 4 })}>+4 Max Barrier</button>
 					<button class="b" disabled={busy} onclick={() => grant({ kind: 'vp', amount: 1 })}>+1 VP</button>
 					<button class="b" disabled={busy} onclick={() => grant({ kind: 'vp', amount: 5 })}>+5 VP</button>
 					<button class="b" disabled={busy} onclick={() => grant({ kind: 'fullHeal' })}>Full heal</button>

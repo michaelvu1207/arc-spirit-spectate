@@ -3,15 +3,11 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { playMenuSfx } from '$lib/stores/menuAudio.svelte';
-	import {
-		fetchOpenRooms,
-		joinPlayRoom,
-		createPlayRoom,
-		setActiveMemberId
-	} from '$lib/stores/playStore.svelte';
+	import { setActiveMemberId } from '$lib/stores/playStore.svelte';
 	import { auth } from '$lib/auth/auth.svelte';
 	import { apiUrl, isCrossOrigin } from '$lib/play/apiBase';
 	import MenuShell from '$lib/components/play2d/MenuShell.svelte';
+	import ProfileDock from '$lib/components/play2d/ProfileDock.svelte';
 	import InstallPrompt from '$lib/components/InstallPrompt.svelte';
 
 	const hover = () => playMenuSfx('ui-hover', { volume: 0.45 });
@@ -20,24 +16,27 @@
 	// keeps their name; Quick Play stays one-tap by falling back to a default.
 	const NAME_KEY = 'arc-player-name';
 
-	let busy = $state(false);
-	let quickError = $state<string | null>(null);
-
 	// ── Ranked matchmaking ───────────────────────────────────────────────────────
+	type QueuedPlayer = { userId: string; displayName: string; you: boolean };
 	type QueueResult = {
 		status: 'searching' | 'matched';
 		roomCode?: string;
 		memberId?: string;
 		queued: number;
 		needed: number;
+		players?: QueuedPlayer[];
 	};
 	const RANKED_POLL_MS = 2500;
 
+	// The main menu swaps to a dedicated full-screen ranked view (hiding the nav) while
+	// the player is in/around the matchmaking queue. 'menu' shows the normal menu.
+	let view = $state<'menu' | 'ranked'>('menu');
 	let ranked = $state<'idle' | 'searching'>('idle');
 	let rankedError = $state<string | null>(null);
 	let rankedNeedsAuth = $state(false);
 	let queued = $state(0);
 	let needed = $state(0);
+	let players = $state<QueuedPlayer[]>([]);
 	let searchStartedAt = $state(0);
 	let elapsed = $state(0);
 	let rankedPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,6 +83,7 @@
 			const result = await postMatchmaking('/api/play/matchmaking/queue');
 			queued = result.queued;
 			needed = result.needed;
+			players = result.players ?? [];
 			if (result.status === 'matched' && result.roomCode) {
 				stopRankedTimers();
 				ranked = 'idle';
@@ -103,10 +103,13 @@
 		}
 	}
 
+	/** Open the dedicated ranked view (hides the menu) and begin searching. */
 	async function startRanked() {
-		if (busy || ranked === 'searching') return;
+		if (ranked === 'searching') return;
 		rankedError = null;
 		rankedNeedsAuth = false;
+		players = [];
+		view = 'ranked';
 		playMenuSfx('ui-click');
 		try {
 			// Ensure an account/identity first (captures user_id), same as Quick Play.
@@ -131,15 +134,25 @@
 		}
 	}
 
-	async function cancelRanked() {
+	/** Leave the queue (best-effort) and stop searching, staying on the ranked view. */
+	async function leaveQueue() {
 		stopRankedTimers();
 		ranked = 'idle';
-		playMenuSfx('ui-click');
 		try {
 			await postMatchmaking('/api/play/matchmaking/leave');
 		} catch {
 			// Best-effort: the row ages out server-side even if leave fails.
 		}
+	}
+
+	/** Cancel: leave the queue and return to the main menu. */
+	async function cancelRanked() {
+		playMenuSfx('ui-click');
+		view = 'menu';
+		players = [];
+		rankedError = null;
+		rankedNeedsAuth = false;
+		await leaveQueue();
 	}
 
 	function formatElapsed(secs: number): string {
@@ -148,43 +161,9 @@
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	}
 
-	/**
-	 * One-tap matchmaking: drop the player into the fullest open lobby that still has
-	 * a free seat (the game closest to starting that they can actually play in), or
-	 * spin up a fresh room if there's none. Tie-break the "fullest" on oldest-first so
-	 * a lobby that's been waiting longest fills up first.
-	 */
-	async function quickPlay() {
-		if (busy) return;
-		busy = true;
-		quickError = null;
-		playMenuSfx('game-start', { volume: 0.8 });
-		try {
-			// Anonymous-first: a first-time guest becomes a real (owned) guest account here.
-			const typed = (browser ? localStorage.getItem(NAME_KEY) : null) ?? '';
-			const player = await auth.resolvePlayIdentity(typed);
-			const rooms = await fetchOpenRooms();
-			const target = rooms
-				.filter((r) => r.status === 'lobby' && r.occupiedSeats < r.totalSeats)
-				.sort(
-					(a, b) =>
-						b.occupiedSeats - a.occupiedSeats || Date.parse(a.createdAt) - Date.parse(b.createdAt)
-				)[0];
-
-			let roomCode: string;
-			if (target) {
-				await joinPlayRoom(target.roomCode, player);
-				roomCode = target.roomCode;
-			} else {
-				const view = await createPlayRoom(player);
-				roomCode = view.projection.roomCode;
-			}
-
-			await goto(`/play/${encodeURIComponent(roomCode)}`);
-		} catch (e) {
-			quickError = e instanceof Error ? e.message : 'Quick Play failed — try again.';
-			busy = false;
-		}
+	/** First letter of a display name for the queue avatar chips. */
+	function initial(name: string): string {
+		return (name.trim()[0] ?? '?').toUpperCase();
 	}
 
 	onMount(() => {
@@ -212,107 +191,131 @@
 <MenuShell>
 	<div class="home">
 		<div class="logo reveal" style="--d: 0.04s">
-			<span class="kicker"><span class="kn">01</span><span class="kl"></span> Live Play</span>
+			<span class="kicker"><span class="kn">01</span><span class="kl"></span> Beta preview</span>
 			<span class="l l1 brand-flame-text">Arc</span>
 			<span class="l l2 brand-flame-text">Spirits</span>
 			<span class="tag">Fight for the Arcane Abyss</span>
 		</div>
 
 		<div class="menu-col reveal" style="--d: 0.12s">
-			<nav class="menu" aria-label="Main menu">
-				<button
-					data-testid="quick-play"
-					class="row primary"
-					type="button"
-					onclick={quickPlay}
-					onpointerenter={hover}
-					disabled={busy || ranked === 'searching'}
-				>
-					<span class="gem"></span>
-					<span class="lbl">{busy ? 'Finding a game…' : 'Quick Play'}</span>
-					<span class="go" aria-hidden="true">→</span>
-				</button>
-
-				<button
-					data-testid="ranked-play"
-					class="row link"
-					type="button"
-					onclick={startRanked}
-					onpointerenter={hover}
-					disabled={busy || ranked === 'searching'}
-				>
-					<span class="gem"></span>
-					<span class="lbl">Ranked</span>
-					<span class="go" aria-hidden="true">→</span>
-				</button>
-
-				<a
-					data-testid="play-open"
-					class="row link"
-					href="/play/browse"
-					onpointerenter={hover}
-					onclick={() => playMenuSfx('ui-click')}
-				>
-					<span class="gem"></span>
-					<span class="lbl">Browse Servers</span>
-					<span class="go">→</span>
-				</a>
-
-				<a
-					class="row link"
-					href="/play/champions"
-					onpointerenter={hover}
-					onclick={() => playMenuSfx('ui-click')}
-				>
-					<span class="gem"></span><span class="lbl">Hall of Champions</span><span class="go">→</span>
-				</a>
-				<a
-					class="row link"
-					href="/play/records"
-					onpointerenter={hover}
-					onclick={() => playMenuSfx('ui-click')}
-				>
-					<span class="gem"></span><span class="lbl">Game Records</span><span class="go">→</span>
-				</a>
-				<a
-					class="row link"
-					href="/play/builder"
-					onpointerenter={hover}
-					onclick={() => playMenuSfx('ui-click')}
-				>
-					<span class="gem"></span><span class="lbl">Builder</span><span class="go">→</span>
-				</a>
-			</nav>
-
-			{#if quickError}
-				<p class="quick-error" role="alert">{quickError}</p>
-			{/if}
-
-			{#if ranked === 'searching'}
-				<div class="ranked-search" role="status" aria-live="polite">
-					<div class="rs-head">
-						<span class="rs-spinner" aria-hidden="true"></span>
-						<span class="rs-title">Searching for a ranked match…</span>
-					</div>
-					<div class="rs-meta">
-						<span><b>{queued}</b>/<b>{needed || '—'}</b> in queue</span>
-						<span class="rs-elapsed">{formatElapsed(elapsed)}</span>
-					</div>
-					<button class="rs-cancel" type="button" onclick={cancelRanked} onpointerenter={hover}>
-						Cancel
+			{#if view === 'menu'}
+				<nav class="menu" aria-label="Main menu">
+					<button
+						data-testid="quick-play"
+						class="row primary"
+						type="button"
+						onclick={startRanked}
+						onpointerenter={hover}
+					>
+						<span class="gem"></span>
+						<span class="lbl">Quick Play</span>
+						<span class="go" aria-hidden="true">→</span>
 					</button>
-				</div>
-			{/if}
 
-			{#if rankedNeedsAuth}
-				<p class="quick-error" role="alert">
-					Sign in to play ranked. <a class="rs-link" href="/account">Sign in →</a>
-				</p>
-			{:else if rankedError}
-				<p class="quick-error" role="alert">{rankedError}</p>
+					<a
+						data-testid="play-open"
+						class="row link"
+						href="/play/browse"
+						onpointerenter={hover}
+						onclick={() => playMenuSfx('ui-click')}
+					>
+						<span class="gem"></span>
+						<span class="lbl">Custom Lobby</span>
+						<span class="go">→</span>
+					</a>
+
+					<a
+						class="row link"
+						href="/play/champions"
+						onpointerenter={hover}
+						onclick={() => playMenuSfx('ui-click')}
+					>
+						<span class="gem"></span><span class="lbl">Hall of Guardians</span><span class="go">→</span>
+					</a>
+					<a
+						class="row link"
+						href="/play/builder"
+						onpointerenter={hover}
+						onclick={() => playMenuSfx('ui-click')}
+					>
+						<span class="gem"></span><span class="lbl">Builder</span><span class="go">→</span>
+					</a>
+				</nav>
+			{:else}
+				<section class="ranked-view reveal" aria-live="polite" data-testid="ranked-view">
+					<button
+						class="rv-back"
+						type="button"
+						onclick={cancelRanked}
+						onpointerenter={hover}
+						aria-label="Back to menu"
+					>
+						← Back
+					</button>
+
+					<span class="rv-kicker">Ranked Matchmaking</span>
+
+					{#if rankedNeedsAuth}
+						<p class="rv-title">Sign in to play ranked</p>
+						<p class="rv-sub">Ranked is account-only so your rating can be tracked.</p>
+						<a class="rv-primary" href="/account" onclick={() => playMenuSfx('ui-click')}>
+							Sign in →
+						</a>
+					{:else if ranked === 'searching'}
+						<div class="rv-head">
+							<span class="rs-spinner" aria-hidden="true"></span>
+							<p class="rv-title">Searching for a match…</p>
+						</div>
+
+						<div class="rv-timer" aria-label="Time waiting">{formatElapsed(elapsed)}</div>
+
+						<div class="rv-pips" aria-hidden="true">
+							{#each Array(needed || 4) as _, i (i)}
+								<span class="rv-pip" class:filled={i < queued}></span>
+							{/each}
+						</div>
+						<p class="rv-count"><b>{queued}</b> / {needed || '—'} players in queue</p>
+
+						<ul class="rv-players">
+							{#each players as p (p.userId)}
+								<li class="rv-player" class:you={p.you}>
+									<span class="rv-avatar">{initial(p.displayName)}</span>
+									<span class="rv-name">{p.displayName}{p.you ? ' (you)' : ''}</span>
+									<span class="rv-state">In queue</span>
+								</li>
+							{/each}
+							{#each Array(Math.max(0, (needed || 4) - players.length)) as _, i (i)}
+								<li class="rv-player empty">
+									<span class="rv-avatar empty" aria-hidden="true"></span>
+									<span class="rv-name">Waiting for player…</span>
+								</li>
+							{/each}
+						</ul>
+
+						<button class="rv-cancel" type="button" onclick={cancelRanked} onpointerenter={hover}>
+							Cancel search
+						</button>
+					{:else}
+						{#if rankedError}
+							<p class="rv-sub error">{rankedError}</p>
+						{/if}
+						<button class="rv-primary" type="button" onclick={startRanked} onpointerenter={hover}>
+							Search again
+						</button>
+						<button class="rv-cancel" type="button" onclick={cancelRanked} onpointerenter={hover}>
+							Back to menu
+						</button>
+					{/if}
+				</section>
 			{/if}
 		</div>
 	</div>
+
+	<!-- Identity hub: signed-in name, profile, past games, log in/out. Hidden during
+	     the dedicated ranked-search view so it doesn't crowd the queue UI. -->
+	{#if view === 'menu'}
+		<ProfileDock />
+	{/if}
 </MenuShell>
 
 <style>
@@ -521,76 +524,192 @@
 		cursor: progress;
 	}
 
-	.quick-error {
-		margin: 10px 8px 0;
-		padding: 9px 14px;
-		border-left: 3px solid var(--color-blood, #c41a3d);
-		background: rgba(196, 26, 61, 0.18);
-		color: var(--color-bone, #e9e2f5);
-		border-radius: 2px;
-		font-family: var(--font-body);
-		font-size: 0.84rem;
-		max-width: 460px;
-	}
-	.rs-link {
-		color: var(--brand-cyan, #24d4ff);
-		text-decoration: underline;
-	}
-
-	/* ── Ranked searching panel ───────────────────────────────── */
-	.ranked-search {
-		margin: 12px 8px 0;
-		padding: 14px 16px;
-		max-width: 460px;
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-		background: linear-gradient(180deg, rgba(40, 16, 52, 0.6), rgba(16, 8, 28, 0.6));
-		border: 1px solid var(--color-aether, #3a2670);
-		border-left: 3px solid var(--brand-magenta, #ff2bc7);
-		border-radius: 4px;
-	}
-	.rs-head {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-	}
+	/* ── Ranked matchmaking view (replaces the menu) ──────────── */
 	.rs-spinner {
 		flex: 0 0 auto;
-		width: 14px;
-		height: 14px;
+		width: 16px;
+		height: 16px;
 		border: 2px solid rgba(255, 43, 199, 0.3);
 		border-top-color: var(--brand-magenta, #ff2bc7);
 		border-radius: 50%;
 		animation: rs-spin 0.9s linear infinite;
 	}
-	.rs-title {
+	.ranked-view {
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		max-width: 460px;
+		padding: 20px 22px 22px;
+		background: linear-gradient(180deg, rgba(40, 16, 52, 0.55), rgba(16, 8, 28, 0.55));
+		border: 1px solid var(--color-aether, #3a2670);
+		border-left: 3px solid var(--brand-magenta, #ff2bc7);
+		border-radius: 6px;
+		backdrop-filter: blur(4px);
+	}
+	.rv-back {
+		align-self: flex-start;
+		padding: 4px 2px;
+		background: none;
+		border: none;
+		color: var(--color-fog, #9a8fb8);
 		font-family: var(--font-display);
-		font-size: 0.95rem;
+		font-size: 0.74rem;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		cursor: pointer;
+		transition: color 160ms ease;
+	}
+	.rv-back:hover {
+		color: #fff;
+	}
+	.rv-kicker {
+		font-family: var(--font-display);
+		font-size: 0.62rem;
+		letter-spacing: 0.34em;
+		text-transform: uppercase;
+		color: var(--brand-cyan, #24d4ff);
+	}
+	.rv-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.rv-title {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: 1.25rem;
 		letter-spacing: 0.04em;
 		color: var(--color-bone, #e9e2f5);
 	}
-	.rs-meta {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
+	.rv-sub {
+		margin: 0;
 		font-family: var(--font-body);
-		font-size: 0.84rem;
+		font-size: 0.86rem;
 		color: var(--color-fog, #9a8fb8);
 	}
-	.rs-meta b {
+	.rv-sub.error {
+		color: var(--color-bone, #e9e2f5);
+		border-left: 3px solid var(--color-blood, #c41a3d);
+		background: rgba(196, 26, 61, 0.18);
+		padding: 9px 14px;
+		border-radius: 2px;
+	}
+	.rv-timer {
+		font-family: var(--font-mono);
+		font-variant-numeric: tabular-nums;
+		font-size: 2.8rem;
+		line-height: 1;
+		color: var(--brand-cyan, #24d4ff);
+		text-shadow: 0 0 24px rgba(36, 212, 255, 0.4);
+	}
+	.rv-pips {
+		display: flex;
+		gap: 8px;
+	}
+	.rv-pip {
+		flex: 1 1 0;
+		height: 5px;
+		border-radius: 3px;
+		background: rgba(154, 143, 184, 0.25);
+		transition:
+			background 240ms ease,
+			box-shadow 240ms ease;
+	}
+	.rv-pip.filled {
+		background: var(--gradient-spectrum, linear-gradient(90deg, #ff2bc7, #7b1dff, #24d4ff));
+		box-shadow: 0 0 10px rgba(255, 43, 199, 0.5);
+	}
+	.rv-count {
+		margin: 0;
+		font-family: var(--font-body);
+		font-size: 0.82rem;
+		color: var(--color-fog, #9a8fb8);
+	}
+	.rv-count b {
 		color: var(--color-bone, #e9e2f5);
 		font-family: var(--font-display);
 		font-variant-numeric: tabular-nums;
 	}
-	.rs-elapsed {
+	.rv-players {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.rv-player {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 10px;
+		border: 1px solid var(--color-aether, #3a2670);
+		border-radius: 4px;
+		background: rgba(16, 8, 28, 0.4);
+	}
+	.rv-player.you {
+		border-color: var(--brand-magenta, #ff2bc7);
+		box-shadow: inset 0 0 0 1px rgba(255, 43, 199, 0.3);
+	}
+	.rv-player.empty {
+		border-style: dashed;
+		opacity: 0.55;
+	}
+	.rv-avatar {
+		flex: 0 0 auto;
+		width: 30px;
+		height: 30px;
+		display: grid;
+		place-items: center;
+		border-radius: 50%;
+		background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff));
+		color: #fff;
+		font-family: var(--font-display);
+		font-size: 0.9rem;
+	}
+	.rv-avatar.empty {
+		background: rgba(154, 143, 184, 0.15);
+		border: 1px dashed var(--color-aether, #3a2670);
+	}
+	.rv-name {
+		flex: 1;
+		min-width: 0;
+		font-family: var(--font-body);
+		font-size: 0.9rem;
+		color: var(--color-bone, #e9e2f5);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.rv-player.empty .rv-name {
+		color: var(--color-fog, #9a8fb8);
+		font-style: italic;
+	}
+	.rv-state {
+		flex: 0 0 auto;
 		font-family: var(--font-mono);
-		font-variant-numeric: tabular-nums;
+		font-size: 0.64rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
 		color: var(--brand-cyan, #24d4ff);
 	}
-	.rs-cancel {
+	.rv-primary {
 		align-self: flex-start;
-		padding: 7px 18px;
+		padding: 10px 22px;
+		background: var(--gradient-flame, linear-gradient(135deg, #ff2bc7, #7b1dff));
+		border: none;
+		border-radius: 3px;
+		color: #fff;
+		font-family: var(--font-display);
+		font-size: 0.88rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		text-decoration: none;
+		cursor: pointer;
+	}
+	.rv-cancel {
+		align-self: flex-start;
+		padding: 8px 20px;
 		background: transparent;
 		border: 1px solid var(--color-aether, #3a2670);
 		border-radius: 3px;
@@ -604,7 +723,7 @@
 			border-color 180ms ease,
 			color 180ms ease;
 	}
-	.rs-cancel:hover {
+	.rv-cancel:hover {
 		border-color: var(--brand-magenta, #ff2bc7);
 		color: #fff;
 	}
@@ -686,6 +805,16 @@
 		}
 		.row.link .lbl {
 			font-size: clamp(0.8rem, 3.4vh, 1.05rem);
+		}
+		/* Keep the ranked view inside the viewport — scroll the list if it's tall. */
+		.ranked-view {
+			max-height: 84vh;
+			overflow-y: auto;
+			gap: 9px;
+			padding: 12px 16px 14px;
+		}
+		.rv-timer {
+			font-size: clamp(1.6rem, 7vh, 2.4rem);
 		}
 	}
 

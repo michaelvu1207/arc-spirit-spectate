@@ -371,9 +371,6 @@
 							disabled={busy !== null}
 						>
 							<div class="room-top">
-								<span class="status-pill live"
-									><span class="live-dot" aria-hidden="true"></span>Live</span
-								>
 								<span class="room-code">{room.roomCode}</span>
 							</div>
 							<div class="room-host">{room.hostName}'s game</div>

@@ -297,6 +297,8 @@ export interface ClassTrait {
 	name: string;
 	position: number;
 	icon_png: string | null;
+	/** Hexagon Spirit-Augment token art for this class (when it's an augment class). */
+	augment_token_path?: string | null;
 	color: string;
 	description: string | null;
 	effect_schema?: ClassBreakpoint[] | null;

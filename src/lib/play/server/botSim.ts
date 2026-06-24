@@ -14,8 +14,10 @@
  */
 
 import {
+	getSessionIdByRoomCode,
 	getSessionModeByRoomCode,
 	joinRoom,
+	loadBotMembers,
 	loadRawRoomState,
 	loadRoomView,
 	runRoomCommand,
@@ -25,6 +27,11 @@ import { planBotPhaseActions, botSeatNeedsToAct, profileFor, BOT_PROFILES } from
 import { loadPlayCatalog } from './catalog';
 import { SEAT_COLORS, type SeatColor, type PublicGameState } from '../types';
 import { BOT_NAME_PREFIX } from '../roomLifecycle';
+import { getNeuralPolicy, planNeuralPhaseActions } from '../ml/neuralBot';
+
+/** Bot-profile key for the trained ML bot. Detected like any other profile (DB bot_profile
+ *  column); driven by the neural net instead of the heuristic planner. */
+export const NEURAL_PROFILE_KEY = 'neural';
 
 /** Display-name prefix that marks a session member as a bot. Single source of truth
  *  lives in the pure room-lifecycle policy (it excludes bots from room presence);
@@ -40,18 +47,13 @@ export function isBotDisplayName(displayName: string | null | undefined): boolea
 }
 
 /**
- * Conventional bot display name for a seat, e.g. "🤖 Blue" (random) or
- * "🤖 Medium Blue" (strategic). The difficulty word rides BETWEEN the emoji
- * prefix and the seat color so it survives a DB round-trip with no migration;
- * 'random' (retired as a selectable option) emits no word — the legacy "🤖 Blue" form; the
- * designed tiers emit their name, e.g. "🤖 Medium Blue". Default is now 'medium'.
+ * Bot display name — every bot presents as an anonymous "Nameless Spirit" so a human
+ * can't tell them apart by name. Identity + strategy come from the DB (`is_bot` /
+ * `bot_profile`), never the display name, so this is purely cosmetic. `seat`/`difficulty`
+ * are kept in the signature for callers but no longer affect the name.
  */
-export function botDisplayNameFor(seat: SeatColor, difficulty: string = 'medium'): string {
-	const key = normalizeDifficulty(difficulty);
-	if (key === 'random') return `${BOT_NAME_PREFIX}${seat}`;
-	// Title-case the key for display, e.g. "medium" → "Medium".
-	const word = key.charAt(0).toUpperCase() + key.slice(1);
-	return `${BOT_NAME_PREFIX}${word} ${seat}`;
+export function botDisplayNameFor(_seat: SeatColor, _difficulty: string = 'medium'): string {
+	return 'Nameless Spirit';
 }
 
 /** Coerce a difficulty string to a known {@link BOT_PROFILES} key, defaulting to the designed-
@@ -59,6 +61,7 @@ export function botDisplayNameFor(seat: SeatColor, difficulty: string = 'medium'
 function normalizeDifficulty(difficulty: string | null | undefined): string {
 	if (typeof difficulty !== 'string') return 'medium';
 	const key = difficulty.toLowerCase();
+	if (key === NEURAL_PROFILE_KEY) return NEURAL_PROFILE_KEY; // ML bot — not in BOT_PROFILES
 	return key in BOT_PROFILES ? key : 'medium';
 }
 
@@ -77,17 +80,39 @@ export function difficultyFromBotName(displayName: string | null | undefined): s
 	return normalizeDifficulty(parts[0]);
 }
 
-/** Seats currently occupied by a bot member, in seat order. */
-export function seatedBotSeats(state: PublicGameState): SeatColor[] {
-	return SEAT_COLORS.filter(
-		(seat) =>
-			state.seats[seat]?.memberId != null && isBotDisplayName(state.seats[seat]?.displayName)
-	);
+/**
+ * Is the member seated at `seat` a bot? Authoritative source is the `botMembers` map
+ * (member ids loaded from the `is_bot` column — the ONLY way to detect a human-named
+ * matchmaking bot), with the legacy 🤖-display-name as a fallback so a seat whose member
+ * predates the column is still recognized. `botMembers` omitted ⇒ name-only (legacy).
+ */
+function seatIsBot(
+	state: PublicGameState,
+	seat: SeatColor,
+	botMembers?: Map<string, string | null>
+): boolean {
+	const memberId = state.seats[seat]?.memberId;
+	if (memberId == null) return false;
+	if (botMembers?.has(memberId)) return true;
+	return isBotDisplayName(state.seats[seat]?.displayName);
+}
+
+/** Seats currently occupied by a bot member, in seat order. Pass the session's bot-member
+ *  map (memberId → profile) so human-named bots are detected; omit for legacy name-only. */
+export function seatedBotSeats(
+	state: PublicGameState,
+	botMembers?: Map<string, string | null>
+): SeatColor[] {
+	return SEAT_COLORS.filter((seat) => seatIsBot(state, seat, botMembers));
 }
 
 /** The bot member id seated at `seat`, or null. */
-function botMemberIdAt(state: PublicGameState, seat: SeatColor): string | null {
-	if (!isBotDisplayName(state.seats[seat]?.displayName)) return null;
+function botMemberIdAt(
+	state: PublicGameState,
+	seat: SeatColor,
+	botMembers?: Map<string, string | null>
+): string | null {
+	if (!seatIsBot(state, seat, botMembers)) return null;
 	return state.seats[seat]?.memberId ?? null;
 }
 
@@ -147,8 +172,12 @@ export async function fillBots(
 		if (occupied >= target) break;
 		if (state.seats[seat]?.memberId != null) continue;
 
-		// 1) Mint a spectator member for this bot (no cookie — server holds the id).
-		const { memberId: botMemberId } = await joinRoom(roomCode, botDisplayNameFor(seat, difficulty));
+		// 1) Mint a spectator member for this bot (no cookie — server holds the id). The
+		//    is_bot flag + bot_profile drive detection/strategy off the DB, not the 🤖 name.
+		const { memberId: botMemberId } = await joinRoom(roomCode, botDisplayNameFor(seat, difficulty), null, {
+			isBot: true,
+			botProfile: normalizeDifficulty(difficulty)
+		});
 
 		// 2) Claim the seat as the bot.
 		await runRoomCommand({
@@ -177,14 +206,32 @@ export async function fillBots(
 	return loadRoomView(roomCode, hostMemberId);
 }
 
-/** Seat a single bot at `seat`, optionally with a preferred (unused) guardian. */
+/**
+ * Seat a single bot at `seat` and pick it a distinct guardian. Always marks the new
+ * member as a bot (is_bot=true) carrying `difficulty` as its bot_profile, so detection +
+ * strategy are flag-driven regardless of the display name.
+ *
+ * `opts.userId` attaches a REAL account to the bot (the matchmaking path — the bot then
+ * appears on the leaderboard + affects ratings). `opts.displayName` overrides the default
+ * 🤖 name with a human-looking one. Casual host bots pass neither (null user, 🤖 name).
+ *
+ * Returns the new bot member id. This is the single reusable bot-seating primitive; it is
+ * intentionally NOT gated by the ranked guard (that guard lives on the host-facing
+ * fillBots/addBot entry points), so Phase 2 matchmaking can backfill ranked seats with it.
+ */
 async function seatOneBot(
 	roomCode: string,
 	seat: SeatColor,
 	guardianName?: string,
-	difficulty: string = 'medium'
-): Promise<void> {
-	const { memberId: botMemberId } = await joinRoom(roomCode, botDisplayNameFor(seat, difficulty));
+	difficulty: string = 'medium',
+	opts?: { userId?: string | null; displayName?: string }
+): Promise<string> {
+	const profile = normalizeDifficulty(difficulty);
+	const displayName = opts?.displayName ?? botDisplayNameFor(seat, difficulty);
+	const { memberId: botMemberId } = await joinRoom(roomCode, displayName, opts?.userId ?? null, {
+		isBot: true,
+		botProfile: profile
+	});
 	await runRoomCommand({
 		roomCode,
 		memberId: botMemberId,
@@ -205,6 +252,27 @@ async function seatOneBot(
 			command: { type: 'selectGuardian', guardianName: guardian }
 		});
 	}
+	return botMemberId;
+}
+
+/**
+ * Seat a bot carrying a REAL account into a session — the ranked-backfill primitive
+ * Phase 2's matchmaker calls to fill an under-full ranked lobby with persistent bot
+ * players. Unlike the host-facing fillBots/addBot, this is NOT blocked by the
+ * "no bots in ranked" guard: these bots are rated, leaderboard-visible accounts that
+ * the matchmaker (not a host) introduces. Returns the new bot member id.
+ *
+ * NOT wired into matchmaking in Phase 1 — exported for Phase 2.
+ */
+export async function seatBotPlayer(
+	roomCode: string,
+	seat: SeatColor,
+	args: { userId: string; displayName: string; botProfile?: string; guardianName?: string }
+): Promise<string> {
+	return seatOneBot(roomCode, seat, args.guardianName, args.botProfile ?? 'medium', {
+		userId: args.userId,
+		displayName: args.displayName
+	});
 }
 
 /** Host-only: add ONE bot to the first open seat (or `opts.seat` if it's open). */
@@ -243,7 +311,9 @@ export async function setBotGuardian(
 
 	const state = await loadRawRoomState(roomCode);
 	if (state.status !== 'lobby') throw new Error('Guardians can only be set in the lobby.');
-	const botMemberId = botMemberIdAt(state, seat);
+	const sessionId = await getSessionIdByRoomCode(roomCode);
+	const botMembers = sessionId ? await loadBotMembers(sessionId) : undefined;
+	const botMemberId = botMemberIdAt(state, seat, botMembers);
 	if (!botMemberId) throw new Error('That seat is not a bot.');
 
 	await runRoomCommand({
@@ -266,7 +336,9 @@ export async function removeBot(
 
 	const state = await loadRawRoomState(roomCode);
 	if (state.status !== 'lobby') throw new Error('Bots can only be removed in the lobby.');
-	const botMemberId = botMemberIdAt(state, seat);
+	const sessionId = await getSessionIdByRoomCode(roomCode);
+	const botMembers = sessionId ? await loadBotMembers(sessionId) : undefined;
+	const botMemberId = botMemberIdAt(state, seat, botMembers);
 	if (!botMemberId) throw new Error('That seat is not a bot.');
 
 	await runRoomCommand({
@@ -305,25 +377,54 @@ export async function tickBots(roomCode: string, hostMemberId?: string): Promise
 		return { view, commandsIssued: 0 };
 	}
 
+	// Authoritative bot identity + strategy comes from the DB (`is_bot` / `bot_profile`),
+	// not the display name — so a human-named matchmaking bot is still driven here. Loaded
+	// once per tick (the seats don't change mid-tick); empty map ⇒ falls back to 🤖 names.
+	const sessionId = await getSessionIdByRoomCode(roomCode);
+	const botMembers = sessionId ? await loadBotMembers(sessionId) : new Map<string, string | null>();
+
+	// Trained ML policy, loaded once per tick. Null when no weights are bundled ⇒ a
+	// 'neural' bot transparently falls back to the heuristic planner below.
+	const neuralPolicy = await getNeuralPolicy();
+
 	let commandsIssued = 0;
 
-	for (const seat of seatedBotSeats(state)) {
-		const botMemberId = botMemberIdAt(state, seat);
+	for (const seat of seatedBotSeats(state, botMembers)) {
+		const botMemberId = botMemberIdAt(state, seat, botMembers);
 		if (!botMemberId) continue;
 		if (!botSeatNeedsToAct(state, seat)) continue;
 
-		// The bot's strategy rides in its display name (e.g. "🤖 Medium Blue");
-		// parse it back to a profile. Random bots ("🤖 Blue") stay random.
-		const difficulty = difficultyFromBotName(state.seats[seat]?.displayName);
-		const commands = planBotPhaseActions(state, seat, catalog, undefined, profileFor(difficulty));
+		// Strategy comes from the member's bot_profile column; fall back to parsing the
+		// legacy 🤖-display-name when a bot row predates the column (bot_profile null).
+		const profileKey =
+			botMembers.get(botMemberId) ?? difficultyFromBotName(state.seats[seat]?.displayName);
+		// The ML bot (bot_profile='neural') is driven by the trained net when weights are
+		// present; otherwise — and for every other profile — use the heuristic planner.
+		const commands =
+			profileKey === NEURAL_PROFILE_KEY && neuralPolicy
+				? planNeuralPhaseActions(state, seat, catalog, neuralPolicy)
+				: planBotPhaseActions(state, seat, catalog, undefined, profileFor(profileKey));
 		for (const command of commands) {
-			await runRoomCommand({
-				roomCode,
-				memberId: botMemberId,
-				expectedRevision: null,
-				command
-			});
-			commandsIssued += 1;
+			// Each command is its own load+CAS write. A planned command can be REJECTED at
+			// execution time even though it passed the planner's trial-apply — e.g. the
+			// leading enforceRoomDeadlines in runRoomCommand advances the phase between
+			// planning and execution (the queued command is now wrong_phase), or a
+			// concurrent human/poller write shifts the state out from under the plan. A
+			// rejected command throws, so swallow it per-command: stop issuing THIS seat's
+			// remaining (now-stale) commands and move on, instead of aborting the whole tick
+			// and stranding every later bot seat unready until the phase deadline bails it
+			// out. The next tick re-plans against fresh state and emits the right commit.
+			try {
+				await runRoomCommand({
+					roomCode,
+					memberId: botMemberId,
+					expectedRevision: null,
+					command
+				});
+				commandsIssued += 1;
+			} catch {
+				break;
+			}
 		}
 
 		// Re-load so the next bot sees the freshest state (phase may have advanced).
